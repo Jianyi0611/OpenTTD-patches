@@ -4210,7 +4210,11 @@ static bool CheckTrainStayInDepot(Train *v)
 			const bool driving_backwards = preserve_direction && !v->vehicle_flags.Test(VehicleFlag::DrivingBackwards);
 			if (driving_backwards) direction = ReverseDir(direction);
 
-			for (Train *u = v; u != nullptr; u = u->Next()) {
+			/* The consist is the whole physical chain, and the driving primary may only be
+			 * a part of it: lay out every vehicle and recompute the caches from the chain
+			 * head. Train::ConsistChanged() requires this == First(). */
+			Train *head = v->First();
+			for (Train *u = head; u != nullptr; u = u->Next()) {
 				u->tile = behind_depot_tile;
 				u->direction = direction;
 				u->x_pos = x;
@@ -4226,7 +4230,7 @@ static bool CheckTrainStayInDepot(Train *v)
 			} else {
 				v->flags.Reset(VehicleRailFlag::Reversed);
 			}
-			v->ConsistChanged(CCF_TRACK);
+			head->ConsistChanged(CCF_TRACK);
 
 			InvalidateWindowData(WindowClass::VehicleDepot, depot_tile.base());
 			InvalidateWindowData(WindowClass::VehicleDepot, behind_depot_tile.base());
@@ -4265,7 +4269,12 @@ static bool CheckTrainStayInDepot(Train *v)
 	moving_front->UpdateViewport(true, true);
 	moving_front->UpdatePosition();
 	UpdateSignalsOnSegment(v->tile, DiagDirection::Invalid, v->owner);
-	v->UpdateAcceleration();
+	/* Recompute the consist-level caches on the chain head and re-broadcast them: the
+	 * track of the moving front was just rewritten, and the primary (which may sit
+	 * mid-chain) reads its own copy of these caches. */
+	Train *head = v->First();
+	head->UpdateAcceleration();
+	head->BroadcastConsistCaches();
 	InvalidateWindowData(WindowClass::VehicleDepot, v->tile.base());
 
 	return false;
@@ -4485,8 +4494,10 @@ void FreeTrainTrackReservation(Train *consist, TileIndex origin, Trackdir orig_t
 	/* Can't be holding a reservation if we enter a depot. */
 	if (IsRailDepotTile(tile) && TrackdirToExitdir(td) != GetRailDepotDirection(tile)) return;
 	if (moving_front->track == TRACK_BIT_DEPOT) {
-		/* Front engine is in a depot. We enter if some part is not in the depot. */
-		for (const Train *u = consist; u != nullptr; u = u->Next()) {
+		/* Front engine is in a depot. We enter if some part is not in the depot.
+		 * The consist is the whole physical chain: walk it from the chain head, as
+		 * the primary (the parameter) may sit mid-chain. */
+		for (const Train *u = consist->First(); u != nullptr; u = u->Next()) {
 			if (u->track != TRACK_BIT_DEPOT || u->tile != consist->tile) return;
 		}
 	}

@@ -150,10 +150,10 @@ void CheckCaches(bool force_check, std::function<void(std::string_view)> log, Ch
 	};
 	auto output_veh_info_single = [&](const Vehicle *v) {
 		uint length = 0;
-		for (const Vehicle *u = v->Primary(); u != v; u = u->Next()) {
+		for (const Vehicle *u = v->First(); u != v; u = u->Next()) {
 			length++;
 		}
-		WriteVehicleInfo(cc_buffer, v, v->Primary(), length);
+		WriteVehicleInfo(cc_buffer, v, v->First(), length);
 	};
 
 #define CCLOGV(...) { \
@@ -400,7 +400,10 @@ void CheckCaches(bool force_check, std::function<void(std::string_view)> log, Ch
 			}
 
 			extern void FillNewGRFVehicleCache(const Vehicle *v);
-			if (v != v->Primary() || v->vehstatus.Test(VehState::Crashed) || !v->IsPrimaryVehicle()) continue;
+			/* Visit each consist once, from its physical chain head. The caches below are
+			 * recomputed by Train::ConsistChanged(), which requires this == First(); Primary()
+			 * may sit mid-chain, so it cannot be used as the gate here. */
+			if (v != v->First() || v->vehstatus.Test(VehState::Crashed) || !v->IsPrimaryVehicle()) continue;
 
 			uint length = 0;
 			for (const Vehicle *u = v; u != nullptr; u = u->Next(), length++) {
@@ -632,7 +635,8 @@ void CheckCaches(bool force_check, std::function<void(std::string_view)> log, Ch
 
 		/* Check the last vehicle cache. */
 		for (Vehicle *v : Vehicle::Iterate()) {
-			if (v != v->Primary() || v->vehstatus.Test(VehState::Crashed) || !v->IsPrimaryVehicle()) continue;
+			/* Chain-head gate: the walk below and v->Last() cover the whole chain. */
+			if (v != v->First() || v->vehstatus.Test(VehState::Crashed) || !v->IsPrimaryVehicle()) continue;
 
 			/* Check that the last vehicle is actually last. */
 			if (v->Last()->Next() != nullptr) {
