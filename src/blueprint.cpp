@@ -32,9 +32,11 @@
 #include "station_base.h"
 #include "station_cmd.h"
 #include "station_map.h"
+#include "air_map.h"
 #include "terraform_cmd.h"
 #include "tile_map.h"
 #include "track_func.h"
+#include "vehicle_func.h"
 #include "tunnel_map.h"
 #include "tunnelbridge_cmd.h"
 #include "tunnelbridge_map.h"
@@ -258,7 +260,26 @@ static void CopyStationTile(Blueprint &blueprint, TileIndex tile, TileIndexDiffC
 		case StationType::Airport: {
 			/* Record the airport only once, at its northern tile. */
 			const Station *st = Station::GetByTile(tile);
-			if (st->airport.tile == tile) blueprint.airports.push_back({offset, st->airport.type, st->airport.layout, st->airport.w, st->airport.h, st->index});
+			if (st->airport.tile != tile) break;
+
+			BlueprintAirport airport{offset, st->airport.type, st->airport.layout,
+					static_cast<uint8_t>(to_underlying(st->airport.rotation)), static_cast<uint8_t>(st->airport.air_type),
+					st->airport.w, st->airport.h, st->index, {}};
+
+			if (st->airport.type == AT_CUSTOM) {
+				/* Custom (multitile) airports have no spec layout to rebuild from; capture every tile. */
+				for (TileIndex t : st->airport) {
+					if (!st->TileBelongsToAirport(t)) continue;
+					if (GetTileOwner(t) != _local_company) continue;
+					TileIndexDiffC rel = BlueprintOffset(t, tile);
+					TileIndexDiffC toff{static_cast<int16_t>(offset.x + rel.x), static_cast<int16_t>(offset.y + rel.y)};
+					if (toff.x < 0 || toff.y < 0) continue;
+					airport.tiles.push_back({toff, static_cast<uint8_t>(Tile(t).m5()),
+							static_cast<uint16_t>(Tile(t).m8() & ~(0x3F << 6))}); // clear reservation bits
+				}
+			}
+
+			blueprint.airports.push_back(std::move(airport));
 			break;
 		}
 
@@ -320,6 +341,7 @@ static TileIndexDiffC ShrinkBlueprintToContents(Blueprint &blueprint)
 	for (const BlueprintAirport &v : blueprint.airports) {
 		include(v.offset.x, v.offset.y);
 		include(v.offset.x + v.w - 1, v.offset.y + v.h - 1);
+		for (const BlueprintAirportTile &apt : v.tiles) include(apt.offset.x, apt.offset.y);
 	}
 
 	auto shift = [&](TileIndexDiffC &offset) {
@@ -342,7 +364,10 @@ static TileIndexDiffC ShrinkBlueprintToContents(Blueprint &blueprint)
 	for (BlueprintRoadStop &v : blueprint.road_stops) shift(v.offset);
 	for (BlueprintDock &v : blueprint.docks) shift(v.offset);
 	for (BlueprintBuoy &v : blueprint.buoys) shift(v.offset);
-	for (BlueprintAirport &v : blueprint.airports) shift(v.offset);
+	for (BlueprintAirport &v : blueprint.airports) {
+		shift(v.offset);
+		for (BlueprintAirportTile &apt : v.tiles) shift(apt.offset);
+	}
 
 	blueprint.width = static_cast<uint16_t>(max_x - min_x + 1);
 	blueprint.height = static_cast<uint16_t>(max_y - min_y + 1);
@@ -619,6 +644,7 @@ Blueprint TransformBlueprint(const Blueprint &blueprint, uint8_t rotation, bool 
 		b = tile_offset(b);
 		airport.offset = {std::min(a.x, b.x), std::min(a.y, b.y)};
 		if (swap_axes) std::swap(airport.w, airport.h);
+		for (BlueprintAirportTile &apt : airport.tiles) apt.offset = tile_offset(apt.offset);
 		result.airports.push_back(airport);
 	}
 
@@ -830,7 +856,10 @@ static bool BlueprintOffsetsValid(const Blueprint &bp)
 	for (const BlueprintRoadStop &v : bp.road_stops) if (!ok(v.offset) || !IsValidAxis(v.axis)) return false;
 	for (const BlueprintDock &v : bp.docks) if (!ok(v.offset) || !IsValidDiagDirection(v.dir)) return false;
 	for (const BlueprintBuoy &v : bp.buoys) if (!ok(v.offset)) return false;
-	for (const BlueprintAirport &v : bp.airports) if (!ok(v.offset)) return false;
+	for (const BlueprintAirport &v : bp.airports) {
+		if (!ok(v.offset)) return false;
+		for (const BlueprintAirportTile &apt : v.tiles) if (!ok(apt.offset)) return false;
+	}
 
 	return true;
 }
@@ -953,7 +982,10 @@ void EndBlueprintUndoGroup(bool success)
 	for (const BlueprintShipDepot &v : _undo_group.ship_depots) extend(v.offset);
 	for (const BlueprintBuoy &v : _undo_group.buoys) extend(v.offset);
 	for (const BlueprintDock &v : _undo_group.docks) extend(v.offset);
-	for (const BlueprintAirport &v : _undo_group.airports) extend(v.offset);
+	for (const BlueprintAirport &v : _undo_group.airports) {
+		extend(v.offset);
+		for (const BlueprintAirportTile &apt : v.tiles) extend(apt.offset);
+	}
 	for (const BlueprintStationTile &v : _undo_group.station_tiles) extend(v.offset);
 	for (const BlueprintRoadStop &v : _undo_group.road_stops) extend(v.offset);
 	/* Moved corners take part too: an action that only shifts land has no
@@ -993,7 +1025,10 @@ void EndBlueprintUndoGroup(bool success)
 	for (BlueprintShipDepot &v : _undo_group.ship_depots) rebase(v.offset);
 	for (BlueprintBuoy &v : _undo_group.buoys) rebase(v.offset);
 	for (BlueprintDock &v : _undo_group.docks) rebase(v.offset);
-	for (BlueprintAirport &v : _undo_group.airports) rebase(v.offset);
+	for (BlueprintAirport &v : _undo_group.airports) {
+		rebase(v.offset);
+		for (BlueprintAirportTile &apt : v.tiles) rebase(apt.offset);
+	}
 	for (BlueprintStationTile &v : _undo_group.station_tiles) rebase(v.offset);
 	for (BlueprintRoadStop &v : _undo_group.road_stops) rebase(v.offset);
 
@@ -1177,10 +1212,29 @@ void RecordBlueprintUndoDock(TileIndex tile, DiagDirection dir)
  * @param w Size along the X axis.
  * @param h Size along the Y axis.
  */
-void RecordBlueprintUndoAirport(TileIndex tile, uint8_t type, uint8_t layout, uint16_t w, uint16_t h)
+void RecordBlueprintUndoAirport(TileIndex tile, uint8_t type, uint8_t layout, uint8_t rotation, uint8_t air_type, uint16_t w, uint16_t h)
 {
 	if (!_undo_group_open) return;
-	_undo_group.airports.push_back({UndoGroupPos(tile), type, layout, w, h, StationID::Invalid()});
+	_undo_group.airports.push_back({UndoGroupPos(tile), type, layout, rotation, air_type, w, h, StationID::Invalid(), {}});
+}
+
+void RecordBlueprintUndoCustomAirportTile(TileIndex tile, AirType air_type)
+{
+	if (!_undo_group_open) return;
+
+	StationID station = IsAirportTile(tile) ? GetStationIndex(tile) : StationID::Invalid();
+	for (BlueprintAirport &v : _undo_group.airports) {
+		if (v.type != AT_CUSTOM || v.station != station) continue;
+		for (const BlueprintAirportTile &apt : v.tiles) {
+			if (apt.offset == UndoGroupPos(tile)) return; // already recorded
+		}
+		v.tiles.push_back({UndoGroupPos(tile), static_cast<uint8_t>(Tile(tile).m5()),
+				static_cast<uint16_t>(Tile(tile).m8() & ~(0x3F << 6))});
+		return;
+	}
+	_undo_group.airports.push_back({UndoGroupPos(tile), AT_CUSTOM, 0,
+			static_cast<uint8_t>(to_underlying(Direction::N)), static_cast<uint8_t>(air_type), 1, 1, station,
+			{{UndoGroupPos(tile), static_cast<uint8_t>(Tile(tile).m5()), static_cast<uint16_t>(Tile(tile).m8() & ~(0x3F << 6))}}});
 }
 
 /**
@@ -1341,6 +1395,10 @@ void CollectBlueprintUndoTiles(const BlueprintUndoRecord &record, const Blueprin
 	}
 	if (filters.air) {
 		for (const BlueprintAirport &v : bp.airports) {
+			if (!v.tiles.empty()) {
+				for (const BlueprintAirportTile &apt : v.tiles) add(apt.offset);
+				continue;
+			}
 			for (uint dy = 0; dy < v.h; dy++) {
 				for (uint dx = 0; dx < v.w; dx++) {
 					add({static_cast<int16_t>(v.offset.x + dx), static_cast<int16_t>(v.offset.y + dy)});
@@ -1474,7 +1532,14 @@ static void TrimBlueprintUndoRecord(BlueprintUndoRecord &record)
 	std::erase_if(bp.buoys, [&](const BlueprintBuoy &v) {
 		return !on_map(v.offset) || !IsBuoyTile(target(v.offset));
 	});
-	std::erase_if(bp.airports, [&](const BlueprintAirport &v) {
+	std::erase_if(bp.airports, [&](BlueprintAirport &v) {
+		if (!v.tiles.empty()) {
+			std::erase_if(v.tiles, [&](const BlueprintAirportTile &apt) {
+				TileIndex t = target(apt.offset);
+				return !on_map(apt.offset) || !IsAirportTile(t) || !ours(t);
+			});
+			return v.tiles.empty();
+		}
 		return !on_map(v.offset) || !IsAirportTile(target(v.offset)) || !ours(target(v.offset));
 	});
 
@@ -1771,7 +1836,7 @@ CommandCost CmdPasteBlueprint(DoCommandFlags flags, TileIndex origin, const Blue
 		}
 
 		/* Bridges/tunnels carrying both road and tram: add the second type across the span. */
-		if (tb.transport == TransportType::Road && tb.roadtype != INVALID_ROADTYPE && tb.tramtype != INVALID_ROADTYPE) {
+		if (built && tb.transport == TransportType::Road && tb.roadtype != INVALID_ROADTYPE && tb.tramtype != INVALID_ROADTYPE) {
 			Axis axis = tb.offset.x == tb.other_end.x ? Axis::Y : Axis::X;
 			paste_road(tb.offset, AxisToRoadBits(axis), tb.tramtype);
 		}
@@ -1899,13 +1964,82 @@ CommandCost CmdPasteBlueprint(DoCommandFlags flags, TileIndex origin, const Blue
 		BlueprintDoCommand<CMD_BUILD_BUOY>(state, flags, target_tile(buoy.offset));
 	}
 
+	AirType fallback_airtype = _sorted_airtypes.empty() ? AIRTYPE_BEGIN : _sorted_airtypes.front();
 	for (const BlueprintAirport &airport : bp.airports) {
 		if (!tile_valid(airport.offset)) continue;
 		StationID join = join_target(airport.station);
-		AirType airtype = _sorted_airtypes.empty() ? AIRTYPE_BEGIN : _sorted_airtypes.front();
-		bool built = BlueprintDoCommand<CMD_BUILD_AIRPORT>(state, flags, target_tile(airport.offset), airport.type, airport.layout, airtype, DiagDirection::Begin, join, true);
-		if (!built && join != NEW_STATION) {
-			built = BlueprintDoCommand<CMD_BUILD_AIRPORT>(state, flags, target_tile(airport.offset), airport.type, airport.layout, airtype, DiagDirection::Begin, NEW_STATION, true);
+
+		if (!airport.tiles.empty()) {
+			/* Custom (multitile) airport: create the tiles, then restore each tile's captured state. */
+			AirType airtype = ValParamAirType(static_cast<AirType>(airport.air_type)) ? static_cast<AirType>(airport.air_type) : fallback_airtype;
+			/* The airport commands use StationID::Invalid() for "build new", unlike the other
+			 * station commands which still use NEW_STATION. */
+			StationID airport_join = (join == NEW_STATION) ? StationID::Invalid() : join;
+			/* Build in row-major order so every tile after the first is adjacent to one
+			 * already placed; with adjacent=true that joins them all into one station,
+			 * exactly like dragging the area out in the build-airport tool. Passing the
+			 * station id instead would take the distant-join path (and needs its setting). */
+			std::vector<BlueprintAirportTile> ordered = airport.tiles;
+			std::sort(ordered.begin(), ordered.end(), [](const BlueprintAirportTile &a, const BlueprintAirportTile &b) {
+				return a.offset.y != b.offset.y ? a.offset.y < b.offset.y : a.offset.x < b.offset.x;
+			});
+			/* Pass 1: create every tile. Restoring the captured m5/m8 has to wait, because
+			 * CmdAddRemoveAirportTiles rescans and calls UpdateTracks after each tile, which
+			 * masks a track pointing at a neighbour that is not built yet.
+			 *
+			 * Joining uses the explicit station id (distant join, on by default) rather than
+			 * adjacency, so a split airport (disjoint groups of tiles) still becomes one station. */
+			bool built = true;
+			StationID station = airport_join;
+			for (const BlueprintAirportTile &apt : ordered) {
+				if (!tile_valid(apt.offset)) { built = false; continue; }
+				TileIndex tile = target_tile(apt.offset);
+				bool ok = BlueprintDoCommand<Commands::AddRemoveAirportTiles>(state, flags, tile, tile, true, airtype, station, false);
+				if (!ok && station != StationID::Invalid()) {
+					/* Distant join refused (setting off); fall back to adjacency/new station. */
+					ok = BlueprintDoCommand<Commands::AddRemoveAirportTiles>(state, flags, tile, tile, true, airtype, StationID::Invalid(), false);
+				}
+				if (!ok) { built = false; continue; }
+				/* The first tile creates the station; join the rest onto it. */
+				if (flags.Test(DoCommandFlag::Execute) && station == StationID::Invalid() && IsAirportTile(tile)) {
+					station = GetStationIndex(tile);
+				}
+			}
+
+			/* Pass 2: now that all neighbours exist, restore each tile's captured state
+			 * (gfx, tile type, rotation, tracks). Reservations start unset. */
+			if (flags.Test(DoCommandFlag::Execute) && built) {
+				for (const BlueprintAirportTile &apt : ordered) {
+					if (!tile_valid(apt.offset)) continue;
+					TileIndex tile = target_tile(apt.offset);
+					if (!IsAirportTile(tile) || !IsTileOwner(tile, _current_company)) continue;
+					Tile(tile).m5() = apt.m5;
+					Tile(tile).m8() = apt.m8 & ~(0x3F << 6);
+					RecordBlueprintUndoCustomAirportTile(tile, airtype);
+					MarkTileDirtyByTile(tile);
+				}
+				/* Rebuild the apron/runway/hangar structures and normalise tracks; the
+				 * hangar Depot is created here, so no EnsureFreeHangar is needed. */
+				Station *st = nullptr;
+				for (const BlueprintAirportTile &apt : ordered) {
+					if (!tile_valid(apt.offset)) continue;
+					TileIndex t = target_tile(apt.offset);
+					if (IsAirportTile(t)) { st = Station::GetByTile(t); break; }
+				}
+				if (st != nullptr && st->airport.tile != INVALID_TILE) st->UpdateAirportDataStructure();
+			}
+			if (built) register_new_station(airport.station, airport.offset);
+			continue;
+		}
+
+		/* Spec airport: rebuild from type/layout, honouring the captured rotation and air type. */
+		AirType airtype = ValParamAirType(static_cast<AirType>(airport.air_type)) ? static_cast<AirType>(airport.air_type) : fallback_airtype;
+		/* jgrpp does not maintain Station::airport.rotation at runtime; fall back to north. */
+		DiagDirection rotation = (airport.rotation <= 3) ? static_cast<DiagDirection>(airport.rotation) : DiagDirection::NE;
+		StationID airport_join = (join == NEW_STATION) ? StationID::Invalid() : join;
+		bool built = BlueprintDoCommand<CMD_BUILD_AIRPORT>(state, flags, target_tile(airport.offset), airport.type, airport.layout, airtype, rotation, airport_join, true);
+		if (!built && airport_join != StationID::Invalid()) {
+			built = BlueprintDoCommand<CMD_BUILD_AIRPORT>(state, flags, target_tile(airport.offset), airport.type, airport.layout, airtype, rotation, StationID::Invalid(), true);
 		}
 		if (built) register_new_station(airport.station, airport.offset);
 	}
@@ -1998,6 +2132,19 @@ CommandCost CmdUndoBlueprintPaste(DoCommandFlags flags, TileIndex origin, const 
 
 	for (const BlueprintAirport &airport : bp.airports) {
 		if (!tile_valid(airport.offset)) continue;
+		AirType airtype = ValParamAirType(static_cast<AirType>(airport.air_type)) ? static_cast<AirType>(airport.air_type) : AIRTYPE_BEGIN;
+
+		if (!airport.tiles.empty()) {
+			/* Custom airports: remove tile by tile; the station goes away with its last tile. */
+			for (const BlueprintAirportTile &apt : airport.tiles) {
+				if (!tile_valid(apt.offset)) continue;
+				TileIndex tile = target_tile(apt.offset);
+				if (!IsAirportTile(tile) || !IsTileOwner(tile, _current_company)) continue;
+				BlueprintDoCommand<Commands::AddRemoveAirportTiles>(state, flags, tile, tile, false, airtype, StationID::Invalid(), false);
+			}
+			continue;
+		}
+
 		TileIndex tile = target_tile(airport.offset);
 		if (!IsAirportTile(tile) || !IsTileOwner(tile, _current_company)) continue;
 		BlueprintDoCommand<CMD_LANDSCAPE_CLEAR>(state, flags, tile);

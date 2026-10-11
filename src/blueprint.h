@@ -24,6 +24,7 @@
 #include "tile_type.h"
 #include "tilearea_type.h"
 #include "track_type.h"
+#include "air_type.h"
 #include "transport_type.h"
 
 /** Number of blueprint slots on one page; the toolbar shows exactly one page at a time. */
@@ -202,14 +203,24 @@ struct BlueprintBuoy {
 	TileIndexDiffC offset; ///< Tile offset relative to the blueprint origin.
 };
 
+/** One tile of a custom (multitile) airport. */
+struct BlueprintAirportTile {
+	TileIndexDiffC offset; ///< Tile offset relative to the blueprint origin.
+	uint8_t m5;            ///< Raw m5 of the airport tile (gfx + airport tile type).
+	uint16_t m8;           ///< Raw m8 of the airport tile, with reservation bits cleared.
+};
+
 /** An airport (anchored at its northern tile). */
 struct BlueprintAirport {
 	TileIndexDiffC offset; ///< Tile offset of the northern airport tile.
-	uint8_t type;          ///< Airport type.
+	uint8_t type;          ///< Airport type; AT_CUSTOM for custom (multitile) airports.
 	uint8_t layout;        ///< Airport layout (rotation).
+	uint8_t rotation;      ///< DiagDirection rotation of spec airports.
+	uint8_t air_type;      ///< AirType of the airport.
 	uint16_t w;            ///< Size of the airport along the X axis.
 	uint16_t h;            ///< Size of the airport along the Y axis.
 	StationID station;     ///< Original station; parts of one station are joined again when pasting.
+	std::vector<BlueprintAirportTile> tiles; ///< Per-tile state; only filled for custom airports.
 };
 
 /** Contents of one blueprint: infrastructure copied from a rectangular map area. */
@@ -370,7 +381,8 @@ void RecordBlueprintUndoLock(TileIndex tile, DiagDirection dir);
 void RecordBlueprintUndoShipDepot(TileIndex tile, Axis axis);
 void RecordBlueprintUndoBuoy(TileIndex tile);
 void RecordBlueprintUndoDock(TileIndex tile, DiagDirection dir);
-void RecordBlueprintUndoAirport(TileIndex tile, uint8_t type, uint8_t layout, uint16_t w, uint16_t h);
+void RecordBlueprintUndoAirport(TileIndex tile, uint8_t type, uint8_t layout, uint8_t rotation, uint8_t air_type, uint16_t w, uint16_t h);
+void RecordBlueprintUndoCustomAirportTile(TileIndex tile, AirType air_type);
 void RecordBlueprintUndoStationTile(TileIndex tile, bool is_waypoint, Axis axis, RailType railtype);
 void RecordBlueprintUndoRoadStop(TileIndex tile, StationType type, bool drive_through, DiagDirection dir, Axis axis);
 void RecordBlueprintUndoTerraform(TileIndex corner, uint8_t height_before);

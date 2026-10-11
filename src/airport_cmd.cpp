@@ -1772,7 +1772,7 @@ CommandCost CmdBuildAirport(DoCommandFlags flags, TileIndex tile, uint8_t airpor
 
 		st->rect.BeforeAddRect(tile, w, h, StationRect::ADD_TRY);
 
-		RecordBlueprintUndoAirport(tile, static_cast<uint8_t>(airport_type), static_cast<uint8_t>(layout), static_cast<uint16_t>(w), static_cast<uint16_t>(h));
+		RecordBlueprintUndoAirport(tile, static_cast<uint8_t>(airport_type), static_cast<uint8_t>(layout), static_cast<uint8_t>(rotation), static_cast<uint8_t>(air_type), static_cast<uint16_t>(w), static_cast<uint16_t>(h));
 
 		for (TileIndex t : new_airport_tiles) {
 			uint pos = RotatedAirportSpecPosition(t, new_airport_tiles, rotation);

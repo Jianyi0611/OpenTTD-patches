@@ -30,6 +30,7 @@
 #include "newgrf_station.h"
 #include "querystring_gui.h"
 #include "textbuf_gui.h"
+#include "air.h"
 #include "airport_cmd.h"
 #include "rail_cmd.h"
 #include "rail_gui.h"
@@ -63,7 +64,7 @@
 bool SetClipboardContents(const std::string &contents); ///< Implemented per OS.
 
 /** Identifying prefix of a blueprint in clipboard text form; the trailing digit is the format version. */
-static constexpr std::string_view BLUEPRINT_CLIPBOARD_PREFIX = "OTTD-BP-1;";
+static constexpr std::string_view BLUEPRINT_CLIPBOARD_PREFIX = "OTTD-BP-2;";
 
 /** Base64 alphabet used for blueprint clipboard strings. */
 static constexpr std::string_view BASE64_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -152,10 +153,10 @@ static std::string EncodeBlueprintText(const Blueprint &blueprint)
 }
 
 /** Identifying prefix of one page of slots saved to a file; the trailing digit is the format version. */
-static constexpr std::string_view BLUEPRINT_SET_FILE_PREFIX = "OTTD-BPSET-1;";
+static constexpr std::string_view BLUEPRINT_SET_FILE_PREFIX = "OTTD-BPSET-2;";
 
 /** Identifying prefix of the autosave, which holds every page; the trailing digit is the format version. */
-static constexpr std::string_view BLUEPRINT_ALL_FILE_PREFIX = "OTTD-BPALL-1;";
+static constexpr std::string_view BLUEPRINT_ALL_FILE_PREFIX = "OTTD-BPALL-2;";
 
 /** File extension used for exported blueprint sets, appended to the player-typed file name. */
 static constexpr std::string_view BLUEPRINT_SET_FILE_EXTENSION = ".txt";
@@ -747,6 +748,10 @@ static void RebuildPastePreview()
 	}
 	for (const BlueprintBuoy &buoy : bp.buoys) highlight(buoy.offset.x, buoy.offset.y);
 	for (const BlueprintAirport &airport : bp.airports) {
+		if (!airport.tiles.empty()) {
+			for (const BlueprintAirportTile &apt : airport.tiles) highlight(apt.offset.x, apt.offset.y);
+			continue;
+		}
 		for (uint dy = 0; dy < airport.h; dy++) {
 			for (uint dx = 0; dx < airport.w; dx++) highlight(airport.offset.x + dx, airport.offset.y + dy);
 		}
@@ -946,7 +951,16 @@ static void RecomputePasteBlocked(TileIndex origin)
 		block(buoy.offset.x, buoy.offset.y);
 	}
 	for (const BlueprintAirport &airport : bp.airports) {
-		if (tile_valid(airport.offset) && PreviewTest<CMD_BUILD_AIRPORT>(target(airport.offset), airport.type, airport.layout, AIRTYPE_BEGIN, DiagDirection::Begin, NEW_STATION, true)) continue;
+		if (!airport.tiles.empty()) {
+			AirType airtype = ValParamAirType(static_cast<AirType>(airport.air_type)) ? static_cast<AirType>(airport.air_type) : (_sorted_airtypes.empty() ? AIRTYPE_BEGIN : _sorted_airtypes.front());
+			for (const BlueprintAirportTile &apt : airport.tiles) {
+				if (tile_valid(apt.offset) && PreviewTest<Commands::AddRemoveAirportTiles>(target(apt.offset), target(apt.offset), true, airtype, StationID::Invalid(), false)) continue;
+				block(apt.offset.x, apt.offset.y);
+			}
+			continue;
+		}
+		AirType airtype = ValParamAirType(static_cast<AirType>(airport.air_type)) ? static_cast<AirType>(airport.air_type) : (_sorted_airtypes.empty() ? AIRTYPE_BEGIN : _sorted_airtypes.front());
+		if (tile_valid(airport.offset) && PreviewTest<CMD_BUILD_AIRPORT>(target(airport.offset), airport.type, airport.layout, airtype, static_cast<DiagDirection>(airport.rotation % 4), StationID::Invalid(), true)) continue;
 		for (uint dy = 0; dy < airport.h; dy++) {
 			for (uint dx = 0; dx < airport.w; dx++) block(airport.offset.x + dx, airport.offset.y + dy);
 		}
@@ -1024,6 +1038,10 @@ struct BlueprintSchematic {
 		}
 		for (const BlueprintBuoy &buoy : bp.buoys) mark(buoy.offset.x, buoy.offset.y, BlueprintPreviewCell::Water);
 		for (const BlueprintAirport &airport : bp.airports) {
+			if (!airport.tiles.empty()) {
+				for (const BlueprintAirportTile &apt : airport.tiles) mark(apt.offset.x, apt.offset.y, BlueprintPreviewCell::Airport);
+				continue;
+			}
 			for (uint dy2 = 0; dy2 < airport.h; dy2++) {
 				for (uint dx2 = 0; dx2 < airport.w; dx2++) mark(airport.offset.x + dx2, airport.offset.y + dy2, BlueprintPreviewCell::Airport);
 			}

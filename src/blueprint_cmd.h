@@ -222,17 +222,6 @@ inline void DeserialiseBlueprintItem(DeserialisationBuffer buffer, BlueprintBuoy
 	DeserialiseBlueprintOffset(buffer, data.offset, settings);
 }
 
-inline void SerialiseBlueprintItem(BufferSerialisationRef buffer, const BlueprintAirport &data)
-{
-	SerialiseBlueprintOffset(buffer, data.offset);
-	buffer.Send_generic_seq(data.type, data.layout, data.w, data.h, data.station);
-}
-
-inline void DeserialiseBlueprintItem(DeserialisationBuffer buffer, BlueprintAirport &data, StringValidationSettings settings)
-{
-	DeserialiseBlueprintOffset(buffer, data.offset, settings);
-	buffer.Recv_generic_seq(settings, data.type, data.layout, data.w, data.h, data.station);
-}
 
 void SerialiseBlueprintItem(BufferSerialisationRef buffer, const Blueprint &data);
 bool DeserialiseBlueprintItem(DeserialisationBuffer buffer, Blueprint &data, StringValidationSettings settings);
@@ -272,6 +261,32 @@ inline bool ReadBlueprintVector(DeserialisationBuffer buffer, std::vector<T> &da
 		data.push_back(item);
 	}
 	return true;
+}
+
+inline void SerialiseBlueprintItem(BufferSerialisationRef buffer, const BlueprintAirportTile &data)
+{
+	SerialiseBlueprintOffset(buffer, data.offset);
+	buffer.Send_generic_seq(data.m5, data.m8);
+}
+
+inline void DeserialiseBlueprintItem(DeserialisationBuffer buffer, BlueprintAirportTile &data, StringValidationSettings settings)
+{
+	DeserialiseBlueprintOffset(buffer, data.offset, settings);
+	buffer.Recv_generic_seq(settings, data.m5, data.m8);
+}
+
+inline void SerialiseBlueprintItem(BufferSerialisationRef buffer, const BlueprintAirport &data)
+{
+	SerialiseBlueprintOffset(buffer, data.offset);
+	buffer.Send_generic_seq(data.type, data.layout, data.rotation, data.air_type, data.w, data.h, data.station);
+	WriteBlueprintVector(buffer, data.tiles);
+}
+
+inline void DeserialiseBlueprintItem(DeserialisationBuffer buffer, BlueprintAirport &data, StringValidationSettings settings)
+{
+	DeserialiseBlueprintOffset(buffer, data.offset, settings);
+	buffer.Recv_generic_seq(settings, data.type, data.layout, data.rotation, data.air_type, data.w, data.h, data.station);
+	if (!ReadBlueprintVector(buffer, data.tiles, settings)) buffer.RaiseDeserialisationError();
 }
 
 inline void SerialiseBlueprint(BufferSerialisationRef buffer, const Blueprint &data)
