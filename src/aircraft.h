@@ -214,6 +214,7 @@ struct Aircraft final : public SpecializedVehicle<Aircraft, VehicleType::Aircraf
 	uint16_t crashed_counter;      ///< Timer for handling crash animations.
 	Trackdir trackdir;             ///< Current trackdir while aircraft is on land.
 	AircraftState state = AS_HANGAR; ///< Current aircraft state. @see AircraftState
+	AircraftState last_cached_state = AS_HANGAR; ///< State at which vcache was last refreshed; cb 36 properties must be re-evaluated on every state change.
 	StationID targetairport;       ///< Airport to go to next.
 
 	Trackdir next_trackdir;        ///< Desired trackdir when rotating at airport, or entry trackdir to an airport while flying.

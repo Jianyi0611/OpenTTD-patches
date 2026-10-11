@@ -1991,6 +1991,15 @@ AircraftState GetNextAircraftState(const Aircraft &a)
  */
 bool HandleAircraftState(Aircraft *v)
 {
+	/* jgrpp refreshes the NewGRF vehicle cache on every aircraft state change.
+	 * Callback 36 properties (e.g. aircraft cruise speed) must be re-evaluated
+	 * when taking off / landing, otherwise the cached speed stays at the value
+	 * captured when leaving the hangar. */
+	if (v->IsNormalAircraft() && v->state != v->last_cached_state) {
+		UpdateAircraftCache(v);
+		v->last_cached_state = v->state;
+	}
+
 	if (!IsAircraftOnNextPosition(v)) return false;
 
 	if (!v->IsAircraftFlying()) {
