@@ -266,13 +266,13 @@ inline bool ReadBlueprintVector(DeserialisationBuffer buffer, std::vector<T> &da
 inline void SerialiseBlueprintItem(BufferSerialisationRef buffer, const BlueprintAirportTile &data)
 {
 	SerialiseBlueprintOffset(buffer, data.offset);
-	buffer.Send_generic_seq(data.m5, data.m8);
+	buffer.Send_generic_seq(data.m4, data.m5, data.m6, data.m8);
 }
 
 inline void DeserialiseBlueprintItem(DeserialisationBuffer buffer, BlueprintAirportTile &data, StringValidationSettings settings)
 {
 	DeserialiseBlueprintOffset(buffer, data.offset, settings);
-	buffer.Recv_generic_seq(settings, data.m5, data.m8);
+	buffer.Recv_generic_seq(settings, data.m4, data.m5, data.m6, data.m8);
 }
 
 inline void SerialiseBlueprintItem(BufferSerialisationRef buffer, const BlueprintAirport &data)

@@ -274,7 +274,8 @@ static void CopyStationTile(Blueprint &blueprint, TileIndex tile, TileIndexDiffC
 					TileIndexDiffC rel = BlueprintOffset(t, tile);
 					TileIndexDiffC toff{static_cast<int16_t>(offset.x + rel.x), static_cast<int16_t>(offset.y + rel.y)};
 					if (toff.x < 0 || toff.y < 0) continue;
-					airport.tiles.push_back({toff, static_cast<uint8_t>(Tile(t).m5()),
+					airport.tiles.push_back({toff, static_cast<uint8_t>(Tile(t).m4()),
+							static_cast<uint8_t>(Tile(t).m5()), static_cast<uint8_t>(Tile(t).m6()),
 							static_cast<uint16_t>(Tile(t).m8() & ~(0x3F << 6))}); // clear reservation bits
 				}
 			}
@@ -1228,13 +1229,15 @@ void RecordBlueprintUndoCustomAirportTile(TileIndex tile, AirType air_type)
 		for (const BlueprintAirportTile &apt : v.tiles) {
 			if (apt.offset == UndoGroupPos(tile)) return; // already recorded
 		}
-		v.tiles.push_back({UndoGroupPos(tile), static_cast<uint8_t>(Tile(tile).m5()),
+		v.tiles.push_back({UndoGroupPos(tile), static_cast<uint8_t>(Tile(tile).m4()),
+				static_cast<uint8_t>(Tile(tile).m5()), static_cast<uint8_t>(Tile(tile).m6()),
 				static_cast<uint16_t>(Tile(tile).m8() & ~(0x3F << 6))});
 		return;
 	}
 	_undo_group.airports.push_back({UndoGroupPos(tile), AT_CUSTOM, 0,
 			static_cast<uint8_t>(to_underlying(Direction::N)), static_cast<uint8_t>(air_type), 1, 1, station,
-			{{UndoGroupPos(tile), static_cast<uint8_t>(Tile(tile).m5()), static_cast<uint16_t>(Tile(tile).m8() & ~(0x3F << 6))}}});
+			{{UndoGroupPos(tile), static_cast<uint8_t>(Tile(tile).m4()), static_cast<uint8_t>(Tile(tile).m5()),
+					static_cast<uint8_t>(Tile(tile).m6()), static_cast<uint16_t>(Tile(tile).m8() & ~(0x3F << 6))}}});
 }
 
 /**
@@ -2013,7 +2016,11 @@ CommandCost CmdPasteBlueprint(DoCommandFlags flags, TileIndex origin, const Blue
 					if (!tile_valid(apt.offset)) continue;
 					TileIndex tile = target_tile(apt.offset);
 					if (!IsAirportTile(tile) || !IsTileOwner(tile, _current_company)) continue;
+					Tile(tile).m4() = apt.m4;
 					Tile(tile).m5() = apt.m5;
+					/* Preserve the station type nibble (m6 bits 3-6); the rest is the
+					 * airtype gfx flag and the ground counter. */
+					Tile(tile).m6() = (Tile(tile).m6() & 0x78) | (apt.m6 & 0x87);
 					Tile(tile).m8() = apt.m8 & ~(0x3F << 6);
 					RecordBlueprintUndoCustomAirportTile(tile, airtype);
 					MarkTileDirtyByTile(tile);

@@ -206,7 +206,9 @@ struct BlueprintBuoy {
 /** One tile of a custom (multitile) airport. */
 struct BlueprintAirportTile {
 	TileIndexDiffC offset; ///< Tile offset relative to the blueprint origin.
+	uint8_t m4;            ///< Raw m4 of the airport tile (airtype gfx id).
 	uint8_t m5;            ///< Raw m5 of the airport tile (gfx + airport tile type).
+	uint8_t m6;            ///< Raw m6 of the airport tile (airtype gfx flag + ground counter).
 	uint16_t m8;           ///< Raw m8 of the airport tile, with reservation bits cleared.
 };
 
