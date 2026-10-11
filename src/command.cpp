@@ -317,8 +317,14 @@ CommandCost DoCommandImplementation(Commands cmd, TileIndex tile, const CommandP
 
 	/* Execute the command here. All cost-relevant functions set the expenses type
 	 * themselves to the cost object at some point */
-	if (_docommand_recursive == 1) _cleared_object_areas.clear();
+	if (_docommand_recursive == 1) {
+		_cleared_object_areas.clear();
+		/* Blueprint patch: bracket the real run of a top-level command, so that
+		 * what its leaf commands build becomes one undo step. */
+		BeginBlueprintUndoGroup();
+	}
 	res = command.exec({ tile, flags, payload });
+	if (_docommand_recursive == 1) EndBlueprintUndoGroup(res.Succeeded());
 	if (res.Failed()) {
 		_docommand_recursive--;
 		return res;
@@ -680,6 +686,10 @@ CommandCost DoCommandPInternal(Commands cmd, TileIndex tile, const CommandPayloa
 	 * use the construction one */
 	_cleared_object_areas.clear();
 	BasePersistentStorageArray::SwitchMode(PSM_ENTER_COMMAND);
+	/* Blueprint patch: bracket the real run, so that what the command's leaf
+	 * commands build becomes one undo step. This is the path a posted command
+	 * takes; Command::Do has its own, bracketed in DoCommandImplementation. */
+	BeginBlueprintUndoGroup();
 	CommandCost res2 = command.exec({ tile, flags | DoCommandFlag::Execute, payload });
 	BasePersistentStorageArray::SwitchMode(PSM_LEAVE_COMMAND);
 
