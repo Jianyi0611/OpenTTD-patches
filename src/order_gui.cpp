@@ -87,7 +87,7 @@ static const uint32_t _cargo_type_unload_order_dropdown_hidden_mask = 0x8; // 01
 
 DropDownList GetSlotDropDownList(Owner owner, TraceRestrictSlotID slot_id, int &selected, VehicleType vehtype, bool show_other_types);
 DropDownList GetSlotGroupDropDownList(Owner owner, TraceRestrictSlotGroupID slot_group_id, int &selected, VehicleType vehtype);
-DropDownList GetGroupDropDownList(Owner owner, GroupID group_id, int &selected, bool include_default = true);
+DropDownList GetGroupDropDownList(Owner owner, GroupID group_id, int &selected, bool include_default = true, VehicleType vehtype = VehicleType::Train);
 DropDownList GetCounterDropDownList(Owner owner, TraceRestrictCounterID ctr_id, int &selected);
 
 StringID GetSlotGroupWarning(TraceRestrictSlotGroupID slot_group, Owner owner);
@@ -462,6 +462,16 @@ enum RVTransportWidgets : WidgetID {
 	WID_RVT_SLOT_VTYPE_PREV,  ///< Switch the slot dropdown to the previous vehicle type.
 	WID_RVT_SLOT_VTYPE,       ///< Vehicle type whose slots the slot dropdown shows.
 	WID_RVT_SLOT_VTYPE_NEXT,  ///< Switch the slot dropdown to the next vehicle type.
+	WID_RVT_SLOT_GROUP_LABEL, ///< Label of the trace restrict slot group criterion.
+	WID_RVT_SLOT_GROUP,       ///< Trace restrict slot group criterion.
+	WID_RVT_SLOT_GROUP_VTYPE_PREV, ///< Switch the slot group dropdown to the previous vehicle type.
+	WID_RVT_SLOT_GROUP_VTYPE, ///< Vehicle type whose slot groups the slot group dropdown shows.
+	WID_RVT_SLOT_GROUP_VTYPE_NEXT, ///< Switch the slot group dropdown to the next vehicle type.
+	WID_RVT_GROUP_LABEL,      ///< Label of the vehicle group criterion.
+	WID_RVT_GROUP,            ///< Vehicle group criterion.
+	WID_RVT_GROUP_VTYPE_PREV, ///< Switch the vehicle group dropdown to the previous vehicle type.
+	WID_RVT_GROUP_VTYPE,      ///< Vehicle type whose vehicle groups the group dropdown shows.
+	WID_RVT_GROUP_VTYPE_NEXT, ///< Switch the vehicle group dropdown to the next vehicle type.
 	WID_RVT_MAX_LABEL,        ///< Label of the per-visit load limit.
 	WID_RVT_MAX,              ///< Per-visit load limit (how many road vehicles are taken at once).
 	WID_RVT_CLOSE,            ///< Close button.
@@ -476,6 +486,14 @@ static const int RVTC_CARGO_MODE_CARRYING = 1;  ///< Cargo criterion: the candid
 /** Value of the "any" entry of the trace restrict slot criterion. The slot list itself is built with
  * trace restrict slot ids, which start at 0, so this needs a value no slot id can have. */
 static const int RVTC_SLOT_ANY = 0xFFFE;
+
+/** Value of the "any" entry of the trace restrict slot group criterion (valid slot group ids are
+ * below 0xFFF0, so no slot group id can have this value). */
+static const int RVTC_SLOT_GROUP_ANY = 0xFFFF;
+
+/** Value of the "any" entry of the vehicle group criterion (the group pool is limited to 64000
+ * entries, so no group id can have this value). */
+static const int RVTC_GROUP_ANY = 0xFFFF;
 
 /** Waiting times which the "minimum waiting time" criterion offers (in days). */
 static const uint16_t _rv_transport_min_wait_presets[] = { 0, 1, 2, 5, 10, 30, 60 };
@@ -554,35 +572,58 @@ private:
 		uint8_t cargo = 0;
 		uint16_t min_wait = 0;
 		uint16_t slot = 0;
+		uint16_t slot_group = 0;
+		uint16_t group = 0;
 		uint8_t max_load = 0;
 
 		bool operator==(const SettingsSnapshot &other) const
 		{
 			return this->flags == other.flags && this->load_state == other.load_state && this->cargo_mode == other.cargo_mode &&
 					this->cargo == other.cargo && this->min_wait == other.min_wait && this->slot == other.slot &&
+					this->slot_group == other.slot_group && this->group == other.group &&
 					this->max_load == other.max_load;
 		}
 	};
 
 	SettingsSnapshot last_settings{}; ///< Settings the widgets currently show.
 
-	VehicleType slot_veh_type = VehicleType::Road; ///< Vehicle type whose slots the slot dropdown shows (train / road vehicle).
+	VehicleType slot_veh_type = VehicleType::Road;       ///< Vehicle type whose slots the slot dropdown shows (train / road vehicle).
+	VehicleType slot_group_veh_type = VehicleType::Road; ///< Vehicle type whose slot groups the slot group dropdown shows (train / road vehicle).
+	VehicleType group_veh_type = VehicleType::Road;      ///< Vehicle type whose vehicle groups the group dropdown shows (train / road vehicle).
+
+	/** Cycle a criterion dropdown's vehicle type by the given step (either direction wraps). */
+	void CycleCriterionVehType(VehicleType &cur, ModifyOrderFlags clear_mof, int step)
+	{
+		const size_t count = lengthof(_rv_transport_slot_types);
+		size_t i = 0;
+		for (; i < count; ++i) {
+			if (_rv_transport_slot_types[i] == cur) break;
+		}
+		const VehicleType new_type = _rv_transport_slot_types[(i + count + step % (int)count) % count];
+		if (new_type == cur) return;
+		cur = new_type;
+		/* The selected value belongs to the previous type, so clear the criterion. */
+		this->ModifyOrder(clear_mof, uint16_t{0});
+		this->UpdateWidgetTexts();
+		this->SetDirty();
+	}
 
 	/** Cycle the slot dropdown's vehicle type by the given step (either direction wraps). */
 	void CycleSlotVehType(int step)
 	{
-		const size_t count = lengthof(_rv_transport_slot_types);
-		size_t cur = 0;
-		for (size_t i = 0; i < count; ++i) {
-			if (_rv_transport_slot_types[i] == this->slot_veh_type) cur = i;
-		}
-		const VehicleType new_type = _rv_transport_slot_types[(cur + count + step % (int)count) % count];
-		if (new_type == this->slot_veh_type) return;
-		this->slot_veh_type = new_type;
-		/* The selected slot belongs to the previous type, so clear the criterion. */
-		this->ModifyOrder(MOF_RV_SLOT, uint16_t{0});
-		this->UpdateWidgetTexts();
-		this->SetDirty();
+		this->CycleCriterionVehType(this->slot_veh_type, MOF_RV_SLOT, step);
+	}
+
+	/** Cycle the slot group dropdown's vehicle type by the given step (either direction wraps). */
+	void CycleSlotGroupVehType(int step)
+	{
+		this->CycleCriterionVehType(this->slot_group_veh_type, MOF_RV_SLOT_GROUP, step);
+	}
+
+	/** Cycle the vehicle group dropdown's vehicle type by the given step (either direction wraps). */
+	void CycleGroupVehType(int step)
+	{
+		this->CycleCriterionVehType(this->group_veh_type, MOF_RV_GROUP, step);
 	}
 
 	/** Derive the slot dropdown's vehicle type from the order's currently selected slot. */
@@ -592,6 +633,16 @@ private:
 		if (slot_raw != 0) {
 			const TraceRestrictSlot *slot = TraceRestrictSlot::GetIfValid(TraceRestrictSlotID{static_cast<uint16_t>(slot_raw - 1)});
 			if (slot != nullptr) this->slot_veh_type = slot->vehicle_type;
+		}
+		const uint16_t sg_raw = this->order->GetRVTransportSlotGroup();
+		if (sg_raw != 0) {
+			const TraceRestrictSlotGroup *sg = TraceRestrictSlotGroup::GetIfValid(TraceRestrictSlotGroupID{static_cast<uint16_t>(sg_raw - 1)});
+			if (sg != nullptr) this->slot_group_veh_type = sg->vehicle_type;
+		}
+		const uint16_t grp_raw = this->order->GetRVTransportGroup();
+		if (grp_raw != 0) {
+			const Group *g = Group::GetIfValid(GroupID{static_cast<uint16_t>(grp_raw - 1)});
+			if (g != nullptr) this->group_veh_type = g->vehicle_type;
 		}
 	}
 
@@ -605,6 +656,8 @@ private:
 		s.cargo = this->order->GetRVTransportCargo();
 		s.min_wait = this->order->GetRVTransportMinWait();
 		s.slot = this->order->GetRVTransportSlot();
+		s.slot_group = this->order->GetRVTransportSlotGroup();
+		s.group = this->order->GetRVTransportGroup();
 		s.max_load = this->order->GetRVTransportMax();
 		return s;
 	}
@@ -642,6 +695,30 @@ private:
 		this->GetWidget<NWidgetCore>(WID_RVT_SLOT_VTYPE)->SetString(this->slot_veh_type == VehicleType::Train ?
 				STR_RV_TRANSPORT_CRITERIA_SLOT_TRAIN : STR_RV_TRANSPORT_CRITERIA_SLOT_ROAD);
 
+		/* Trace restrict slot group ("路签组"): the candidate must hold a slot of that group. */
+		const uint16_t sg_raw = this->order->GetRVTransportSlotGroup();
+		if (sg_raw == 0) {
+			this->GetWidget<NWidgetCore>(WID_RVT_SLOT_GROUP)->SetString(STR_ORDER_COUPLE_ANY_GROUP);
+		} else {
+			const TraceRestrictSlotGroup *sg = TraceRestrictSlotGroup::GetIfValid(TraceRestrictSlotGroupID{static_cast<uint16_t>(sg_raw - 1)});
+			this->GetWidget<NWidgetCore>(WID_RVT_SLOT_GROUP)->SetString((sg != nullptr) ? STR_RV_TRANSPORT_CRITERIA_SLOT_GROUP_SET : STR_ORDER_COUPLE_ANY_GROUP);
+		}
+		/* Which vehicle type's slot groups the slot group dropdown shows. */
+		this->GetWidget<NWidgetCore>(WID_RVT_SLOT_GROUP_VTYPE)->SetString(this->slot_group_veh_type == VehicleType::Train ?
+				STR_RV_TRANSPORT_CRITERIA_SLOT_TRAIN : STR_RV_TRANSPORT_CRITERIA_SLOT_ROAD);
+
+		/* Vehicle group ("载具组"): the candidate must belong to that group. */
+		const uint16_t grp_raw = this->order->GetRVTransportGroup();
+		if (grp_raw == 0) {
+			this->GetWidget<NWidgetCore>(WID_RVT_GROUP)->SetString(STR_ORDER_COUPLE_ANY_VEHICLE_GROUP);
+		} else {
+			const Group *g = Group::GetIfValid(GroupID{static_cast<uint16_t>(grp_raw - 1)});
+			this->GetWidget<NWidgetCore>(WID_RVT_GROUP)->SetString((g != nullptr) ? STR_RV_TRANSPORT_CRITERIA_GROUP_SET : STR_ORDER_COUPLE_ANY_VEHICLE_GROUP);
+		}
+		/* Which vehicle type's groups the group dropdown shows. */
+		this->GetWidget<NWidgetCore>(WID_RVT_GROUP_VTYPE)->SetString(this->group_veh_type == VehicleType::Train ?
+				STR_RV_TRANSPORT_CRITERIA_SLOT_TRAIN : STR_RV_TRANSPORT_CRITERIA_SLOT_ROAD);
+
 		this->GetWidget<NWidgetCore>(WID_RVT_MAX)->SetString(RVTransportMaxLoadText(this->order->GetRVTransportMax()));
 	}
 
@@ -658,6 +735,22 @@ private:
 				if (slot != nullptr) return slot->name;
 			}
 			return GetString(STR_ORDER_RV_LOAD_STATE_ANY);
+		}
+		if (widget == WID_RVT_SLOT_GROUP) {
+			const uint16_t sg_raw = this->order->GetRVTransportSlotGroup();
+			if (sg_raw != 0) {
+				const TraceRestrictSlotGroup *sg = TraceRestrictSlotGroup::GetIfValid(TraceRestrictSlotGroupID{static_cast<uint16_t>(sg_raw - 1)});
+				if (sg != nullptr) return GetString(STR_TRACE_RESTRICT_SLOT_GROUP_NAME, sg->index.base());
+			}
+			return GetString(STR_ORDER_COUPLE_ANY_GROUP);
+		}
+		if (widget == WID_RVT_GROUP) {
+			const uint16_t grp_raw = this->order->GetRVTransportGroup();
+			if (grp_raw != 0) {
+				const Group *g = Group::GetIfValid(GroupID{static_cast<uint16_t>(grp_raw - 1)});
+				if (g != nullptr) return GetString(STR_GROUP_NAME, g->index);
+			}
+			return GetString(STR_ORDER_COUPLE_ANY_VEHICLE_GROUP);
 		}
 		return Window::GetWidgetString(widget, stringid);
 	}
@@ -774,6 +867,46 @@ private:
 		return list;
 	}
 
+	/** Build the dropdown which selects the trace restrict slot group criterion ("路签组").
+	 *
+	 * Same list as the "try acquire slot in group" order offers; the criterion needs an "any"
+	 * entry of its own. The vehicle type selector decides whether train or road vehicle slot
+	 * groups are shown.
+	 */
+	DropDownList BuildSlotGroupList() const
+	{
+		const uint16_t current = this->order->GetRVTransportSlotGroup();
+		const TraceRestrictSlotGroupID sg_id = (current == 0) ? TraceRestrictSlotGroupID{} : TraceRestrictSlotGroupID{static_cast<uint16_t>(current - 1)};
+
+		int selected;
+		DropDownList groups = GetSlotGroupDropDownList(this->vehicle->owner, sg_id, selected, this->slot_group_veh_type);
+
+		DropDownList list;
+		list.push_back(MakeDropDownListCheckedItem(current == 0, STR_ORDER_COUPLE_ANY_GROUP, RVTC_SLOT_GROUP_ANY));
+		for (auto &item : groups) {
+			list.push_back(std::move(item));
+		}
+		return list;
+	}
+
+	/** Build the dropdown which selects the vehicle group criterion ("载具组"). The vehicle type
+	 * selector decides whether train or road vehicle groups are shown. */
+	DropDownList BuildGroupList() const
+	{
+		const uint16_t current = this->order->GetRVTransportGroup();
+		const GroupID group_id = (current == 0) ? GroupID::Invalid() : GroupID{static_cast<uint16_t>(current - 1)};
+
+		int selected;
+		DropDownList groups = GetGroupDropDownList(this->vehicle->owner, group_id, selected, false, this->group_veh_type);
+
+		DropDownList list;
+		list.push_back(MakeDropDownListCheckedItem(current == 0, STR_ORDER_COUPLE_ANY_VEHICLE_GROUP, RVTC_GROUP_ANY));
+		for (auto &item : groups) {
+			list.push_back(std::move(item));
+		}
+		return list;
+	}
+
 public:
 	RVTransportWindow(WindowDesc &desc, const Vehicle *v, VehicleOrderID order_id) : Window(desc)
 	{
@@ -858,6 +991,36 @@ public:
 			case WID_RVT_SLOT_VTYPE:
 				this->CycleSlotVehType(1);
 				return;
+			case WID_RVT_SLOT_GROUP:
+				/* The list works with trace restrict slot group ids, the criterion stores them offset by one. */
+				ShowDropDownList(this, this->BuildSlotGroupList(),
+						(this->order->GetRVTransportSlotGroup() == 0) ? RVTC_SLOT_GROUP_ANY : static_cast<int>(this->order->GetRVTransportSlotGroup() - 1),
+						WID_RVT_SLOT_GROUP, 0);
+				return;
+			case WID_RVT_SLOT_GROUP_VTYPE_PREV:
+				this->CycleSlotGroupVehType(-1);
+				return;
+			case WID_RVT_SLOT_GROUP_VTYPE_NEXT:
+				this->CycleSlotGroupVehType(1);
+				return;
+			case WID_RVT_SLOT_GROUP_VTYPE:
+				this->CycleSlotGroupVehType(1);
+				return;
+			case WID_RVT_GROUP:
+				/* The list works with group ids, the criterion stores them offset by one. */
+				ShowDropDownList(this, this->BuildGroupList(),
+						(this->order->GetRVTransportGroup() == 0) ? RVTC_GROUP_ANY : static_cast<int>(this->order->GetRVTransportGroup() - 1),
+						WID_RVT_GROUP, 0);
+				return;
+			case WID_RVT_GROUP_VTYPE_PREV:
+				this->CycleGroupVehType(-1);
+				return;
+			case WID_RVT_GROUP_VTYPE_NEXT:
+				this->CycleGroupVehType(1);
+				return;
+			case WID_RVT_GROUP_VTYPE:
+				this->CycleGroupVehType(1);
+				return;
 			case WID_RVT_MAX:
 				ShowDropDownList(this, this->BuildMaxList(), -1, WID_RVT_MAX, 0);
 				return;
@@ -924,6 +1087,27 @@ public:
 				}
 				break;
 
+			case WID_RVT_SLOT_GROUP:
+				/* The list works with trace restrict slot group ids, the criterion stores them offset
+				 * by one, with 0 meaning "any". */
+				if (index == RVTC_SLOT_GROUP_ANY) {
+					this->ModifyOrder(MOF_RV_SLOT_GROUP, uint16_t{0});
+				} else if (index >= 0) {
+					TraceRestrictRecordRecentSlotGroup(TraceRestrictSlotGroupID{static_cast<uint16_t>(index)});
+					this->ModifyOrder(MOF_RV_SLOT_GROUP, static_cast<uint16_t>(index + 1));
+				}
+				break;
+
+			case WID_RVT_GROUP:
+				/* The list works with group ids, the criterion stores them offset by one, with 0
+				 * meaning "any". */
+				if (index == RVTC_GROUP_ANY) {
+					this->ModifyOrder(MOF_RV_GROUP, uint16_t{0});
+				} else if (index >= 0) {
+					this->ModifyOrder(MOF_RV_GROUP, static_cast<uint16_t>(index + 1));
+				}
+				break;
+
 			case WID_RVT_MAX:
 				this->ModifyOrder(MOF_RV_MAX, static_cast<uint16_t>(index));
 				break;
@@ -981,6 +1165,20 @@ static constexpr NWidgetPart _nested_rv_transport_widgets[] = {
 			NWidget(WWT_PUSHARROWBTN, Colours::Grey, WID_RVT_SLOT_VTYPE_PREV), SetMinimalSize(12, 0), SetArrowWidgetTypeTip(ArrowWidgetType::Left, STR_RV_TRANSPORT_CRITERIA_SLOT_TYPE_TIP),
 			NWidget(WWT_PUSHTXTBTN, Colours::Grey, WID_RVT_SLOT_VTYPE), SetMinimalSize(40, 0), SetStringTip(STR_RV_TRANSPORT_CRITERIA_SLOT_ROAD, STR_RV_TRANSPORT_CRITERIA_SLOT_TYPE_TIP),
 			NWidget(WWT_PUSHARROWBTN, Colours::Grey, WID_RVT_SLOT_VTYPE_NEXT), SetMinimalSize(12, 0), SetArrowWidgetTypeTip(ArrowWidgetType::Right, STR_RV_TRANSPORT_CRITERIA_SLOT_TYPE_TIP),
+		EndContainer(),
+		NWidget(NWID_HORIZONTAL),
+			NWidget(WWT_TEXT, Colours::Invalid, WID_RVT_SLOT_GROUP_LABEL), SetFill(1, 0), SetResize(1, 0), SetStringTip(STR_RV_TRANSPORT_CRITERIA_SLOT_GROUP, STR_NULL),
+			NWidget(WWT_DROPDOWN, Colours::Grey, WID_RVT_SLOT_GROUP), SetFill(0, 0), SetResize(0, 0),
+			NWidget(WWT_PUSHARROWBTN, Colours::Grey, WID_RVT_SLOT_GROUP_VTYPE_PREV), SetMinimalSize(12, 0), SetArrowWidgetTypeTip(ArrowWidgetType::Left, STR_RV_TRANSPORT_CRITERIA_SLOT_TYPE_TIP),
+			NWidget(WWT_PUSHTXTBTN, Colours::Grey, WID_RVT_SLOT_GROUP_VTYPE), SetMinimalSize(40, 0), SetStringTip(STR_RV_TRANSPORT_CRITERIA_SLOT_ROAD, STR_RV_TRANSPORT_CRITERIA_SLOT_TYPE_TIP),
+			NWidget(WWT_PUSHARROWBTN, Colours::Grey, WID_RVT_SLOT_GROUP_VTYPE_NEXT), SetMinimalSize(12, 0), SetArrowWidgetTypeTip(ArrowWidgetType::Right, STR_RV_TRANSPORT_CRITERIA_SLOT_TYPE_TIP),
+		EndContainer(),
+		NWidget(NWID_HORIZONTAL),
+			NWidget(WWT_TEXT, Colours::Invalid, WID_RVT_GROUP_LABEL), SetFill(1, 0), SetResize(1, 0), SetStringTip(STR_RV_TRANSPORT_CRITERIA_GROUP, STR_NULL),
+			NWidget(WWT_DROPDOWN, Colours::Grey, WID_RVT_GROUP), SetFill(0, 0), SetResize(0, 0),
+			NWidget(WWT_PUSHARROWBTN, Colours::Grey, WID_RVT_GROUP_VTYPE_PREV), SetMinimalSize(12, 0), SetArrowWidgetTypeTip(ArrowWidgetType::Left, STR_RV_TRANSPORT_CRITERIA_SLOT_TYPE_TIP),
+			NWidget(WWT_PUSHTXTBTN, Colours::Grey, WID_RVT_GROUP_VTYPE), SetMinimalSize(40, 0), SetStringTip(STR_RV_TRANSPORT_CRITERIA_SLOT_ROAD, STR_RV_TRANSPORT_CRITERIA_SLOT_TYPE_TIP),
+			NWidget(WWT_PUSHARROWBTN, Colours::Grey, WID_RVT_GROUP_VTYPE_NEXT), SetMinimalSize(12, 0), SetArrowWidgetTypeTip(ArrowWidgetType::Right, STR_RV_TRANSPORT_CRITERIA_SLOT_TYPE_TIP),
 		EndContainer(),
 		NWidget(NWID_HORIZONTAL),
 			NWidget(WWT_TEXT, Colours::Invalid, WID_RVT_MAX_LABEL), SetFill(1, 0), SetResize(1, 0), SetStringTip(STR_RV_TRANSPORT_CRITERIA_MAX, STR_NULL),
@@ -1948,7 +2146,8 @@ static void AppendRVTransportOrderSummary(format_buffer &line, const Order &orde
 		part(RVTransportCargoUnloadText(order.GetUnloadType()));
 	}
 	if (order.GetRVTransportLoadState() != RVTLS_ANY || order.GetRVTransportCargoMode() != RVTC_ANY ||
-			order.GetRVTransportMinWait() != 0 || order.GetRVTransportSlot() != 0 || order.GetRVTransportMax() != 0) {
+			order.GetRVTransportMinWait() != 0 || order.GetRVTransportSlot() != 0 || order.GetRVTransportSlotGroup() != 0 ||
+			order.GetRVTransportGroup() != 0 || order.GetRVTransportMax() != 0) {
 		line.push_back(' ');
 		line.append(GetString(STR_ORDER_RV_TRANSPORT_MORE_OPTIONS));
 	}

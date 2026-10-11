@@ -108,6 +108,8 @@ struct OrderExtraInfo {
 	uint8_t rv_transport_cargo = 0;           ///< Road vehicle transport (RoRo): cargo of the cargo criterion.
 	uint16_t rv_transport_min_wait = 0;       ///< Road vehicle transport (RoRo): minimum days the candidate must have been waiting (0 = no minimum).
 	uint16_t rv_transport_slot = 0;           ///< Road vehicle transport (RoRo): trace restrict slot the candidate must hold, slot id + 1 (0 = any).
+	uint16_t rv_transport_slot_group = 0;    ///< Road vehicle transport (RoRo): trace restrict slot group the candidate must hold a slot of, group id + 1 (0 = any).
+	uint16_t rv_transport_group = 0;         ///< Road vehicle transport (RoRo): vehicle group the candidate must belong to, group id + 1 (0 = any).
 	uint16_t rv_transport_dest_station = 0;   ///< Reserved: a dropped criterion ("the first station the candidate declares for unloading"), kept so that savegames written with feature version 2 still load.
 };
 
@@ -292,6 +294,32 @@ public:
 	{
 		this->CheckExtraInfoAlloced();
 		return this->extra->rv_transport_slot;
+	}
+
+	/** Road vehicle transport (RoRo): trace restrict slot group the candidate must hold a slot of ("路签组"), group id + 1 (0 = any). */
+	inline uint16_t GetRVTransportSlotGroup() const
+	{
+		return this->extra != nullptr ? this->extra->rv_transport_slot_group : 0;
+	}
+
+	/** Road vehicle transport (RoRo): writable reference to the trace restrict slot group criterion. */
+	inline uint16_t &GetRVTransportSlotGroupRef()
+	{
+		this->CheckExtraInfoAlloced();
+		return this->extra->rv_transport_slot_group;
+	}
+
+	/** Road vehicle transport (RoRo): vehicle group the candidate must belong to ("载具组"), group id + 1 (0 = any). */
+	inline uint16_t GetRVTransportGroup() const
+	{
+		return this->extra != nullptr ? this->extra->rv_transport_group : 0;
+	}
+
+	/** Road vehicle transport (RoRo): writable reference to the vehicle group criterion. */
+	inline uint16_t &GetRVTransportGroupRef()
+	{
+		this->CheckExtraInfoAlloced();
+		return this->extra->rv_transport_group;
 	}
 
 	/** Road vehicle transport (RoRo): most road vehicles this order may load in one visit (0 = no limit). */

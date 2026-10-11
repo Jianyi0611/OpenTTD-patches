@@ -4802,6 +4802,10 @@ STR_RV_TRANSPORT_CRITERIA_IS_CARRYING                           :必须正装载
 STR_RV_TRANSPORT_CRITERIA_MIN_WAIT                              :最短等待
 STR_RV_TRANSPORT_CRITERIA_SLOT                                  :路签
 STR_RV_TRANSPORT_CRITERIA_SLOT_SET                              :已指定路签
+STR_RV_TRANSPORT_CRITERIA_SLOT_GROUP                            :路签组
+STR_RV_TRANSPORT_CRITERIA_SLOT_GROUP_SET                        :已指定路签组
+STR_RV_TRANSPORT_CRITERIA_GROUP                                 :载具组
+STR_RV_TRANSPORT_CRITERIA_GROUP_SET                             :已指定载具组
 STR_RV_TRANSPORT_CRITERIA_SLOT_TYPE_TIP                         :{BLACK}在汽车路签与火车路签之间切换
 STR_RV_TRANSPORT_CRITERIA_SLOT_ROAD                             :汽车
 STR_RV_TRANSPORT_CRITERIA_SLOT_TRAIN                            :火车

@@ -2934,7 +2934,7 @@ CommandCost CmdModifyOrder(DoCommandFlags flags, OrderTargetType target_type, ui
 		switch (order->GetType()) {
 			case OT_GOTO_STATION:
 				if (mof != MOF_NON_STOP && mof != MOF_STOP_LOCATION && mof != MOF_UNLOAD && mof != MOF_LOAD && mof != MOF_CARGO_TYPE_UNLOAD && mof != MOF_CARGO_TYPE_LOAD && mof != MOF_RV_TRAVEL_DIR && mof != MOF_DECOUPLE
-						&& mof != MOF_RV_TRANSPORT && mof != MOF_RV_LOAD_STATE && mof != MOF_RV_CARGO_MODE && mof != MOF_RV_MIN_WAIT && mof != MOF_RV_SLOT && mof != MOF_RV_MAX) return CMD_ERROR;
+						&& mof != MOF_RV_TRANSPORT && mof != MOF_RV_LOAD_STATE && mof != MOF_RV_CARGO_MODE && mof != MOF_RV_MIN_WAIT && mof != MOF_RV_SLOT && mof != MOF_RV_SLOT_GROUP && mof != MOF_RV_GROUP && mof != MOF_RV_MAX) return CMD_ERROR;
 				break;
 
 			case OT_GOTO_DEPOT:
@@ -3077,6 +3077,30 @@ CommandCost CmdModifyOrder(DoCommandFlags flags, OrderTargetType target_type, ui
 			 * Any slot type is accepted: the occupant check is vehicle type agnostic. */
 			if (!order->IsType(OT_GOTO_STATION)) return CommandCost(STR_ERROR_RV_TRANSPORT_STATION_ORDER_ONLY);
 			if (data != 0 && TraceRestrictSlot::GetIfValid(TraceRestrictSlotID{static_cast<uint16_t>(data - 1)}) == nullptr) return CMD_ERROR;
+			break;
+		}
+
+		case MOF_RV_SLOT_GROUP: {
+			/* RoRo selection criterion: trace restrict slot group the candidate must hold a slot of (group id + 1, 0 = any).
+			 * The candidate can be a road vehicle or a train, so only those group types are accepted. */
+			if (!order->IsType(OT_GOTO_STATION)) return CommandCost(STR_ERROR_RV_TRANSPORT_STATION_ORDER_ONLY);
+			if (data != 0) {
+				const TraceRestrictSlotGroup *sg = TraceRestrictSlotGroup::GetIfValid(data - 1);
+				if (sg == nullptr || (sg->vehicle_type != VehicleType::Road && sg->vehicle_type != VehicleType::Train)) return CMD_ERROR;
+				if (!sg->CompanyCanReferenceSlotGroup(target_owner)) return CMD_ERROR;
+			}
+			break;
+		}
+
+		case MOF_RV_GROUP: {
+			/* RoRo selection criterion: vehicle group the candidate must belong to (group id + 1, 0 = any).
+			 * The candidate can be a road vehicle or a train, so only those group types are accepted. */
+			if (!order->IsType(OT_GOTO_STATION)) return CommandCost(STR_ERROR_RV_TRANSPORT_STATION_ORDER_ONLY);
+			if (data != 0) {
+				const Group *g = Group::GetIfValid(data - 1);
+				if (g == nullptr || (g->vehicle_type != VehicleType::Road && g->vehicle_type != VehicleType::Train)) return CMD_ERROR;
+				if (g->owner != target_owner) return CMD_ERROR;
+			}
 			break;
 		}
 
@@ -3511,6 +3535,14 @@ CommandCost CmdModifyOrder(DoCommandFlags flags, OrderTargetType target_type, ui
 
 			case MOF_RV_SLOT:
 				order->GetRVTransportSlotRef() = static_cast<uint16_t>(data);
+				break;
+
+			case MOF_RV_SLOT_GROUP:
+				order->GetRVTransportSlotGroupRef() = static_cast<uint16_t>(data);
+				break;
+
+			case MOF_RV_GROUP:
+				order->GetRVTransportGroupRef() = static_cast<uint16_t>(data);
 				break;
 
 			case MOF_RV_MAX:
@@ -3972,6 +4004,8 @@ CommandCost CmdModifyOrder(DoCommandFlags flags, OrderTargetType target_type, ui
 				u->current_order.GetRVTransportCargoRef() = order->GetRVTransportCargo();
 				u->current_order.GetRVTransportMinWaitRef() = order->GetRVTransportMinWait();
 				u->current_order.GetRVTransportSlotRef() = order->GetRVTransportSlot();
+				u->current_order.GetRVTransportSlotGroupRef() = order->GetRVTransportSlotGroup();
+				u->current_order.GetRVTransportGroupRef() = order->GetRVTransportGroup();
 				u->current_order.GetRVTransportMaxRef() = order->GetRVTransportMax();
 			}
 			if (sel_ord == u->cur_real_order_index && u->current_order.IsType(OT_GOTO_COUPLE)) {

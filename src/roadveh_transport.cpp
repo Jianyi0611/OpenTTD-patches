@@ -31,6 +31,7 @@
 #include "roadstop_base.h"
 #include "pathfinder/yapf/yapf.h"
 #include "tracerestrict.h"
+#include "group.h"
 #include "ground_vehicle.hpp"
 #include "pbs.h"
 #include "rail.h"
@@ -1965,6 +1966,8 @@ bool RVTransportOrderHasCriteria(const Order &order)
 	if (order.GetRVTransportCargoMode() != RVTC_ANY) return true;
 	if (order.GetRVTransportMinWait() != 0) return true;
 	if (order.GetRVTransportSlot() != 0) return true;
+	if (order.GetRVTransportSlotGroup() != 0) return true;
+	if (order.GetRVTransportGroup() != 0) return true;
 	if (order.GetRVTransportMax() != 0) return true;
 	return false;
 }
@@ -1984,11 +1987,24 @@ bool RVTransportOrderAllowsCandidate(const Vehicle *carrier, const Vehicle *rv)
 		if (RVTransportGetDeclaredDestination(rv) != RVTransportGetNextCarrierStop(carrier)) return false;
 	}
 
-	/* Trace restrict slot ("鐠侯垳顒?): the candidate must be an occupant of that slot, which is how a
+	/* Trace restrict slot ("路签"): the candidate must be an occupant of that slot, which is how a
 	 * specific road vehicle can be picked (the same mechanism the px-patch coupling feature uses). */
 	if (const uint16_t slot_raw = order.GetRVTransportSlot(); slot_raw != 0) {
 		const TraceRestrictSlot *slot = TraceRestrictSlot::GetIfValid(TraceRestrictSlotID{static_cast<uint16_t>(slot_raw - 1)});
 		if (slot == nullptr || !slot->IsOccupant(rv->index)) return false;
+	}
+
+	/* Trace restrict slot group ("路签组"): the candidate must hold a slot of that group. */
+	if (const uint16_t sg_raw = order.GetRVTransportSlotGroup(); sg_raw != 0) {
+		const TraceRestrictSlotGroup *sg = TraceRestrictSlotGroup::GetIfValid(TraceRestrictSlotGroupID{static_cast<uint16_t>(sg_raw - 1)});
+		if (sg == nullptr || !TraceRestrictIsVehicleInSlotGroup(sg, rv->owner, rv)) return false;
+	}
+
+	/* Vehicle group ("载具组"): the candidate's group must be the selected group or one of its
+	 * sub-groups (hierarchical, the same semantics the couple order uses). */
+	if (const uint16_t grp_raw = order.GetRVTransportGroup(); grp_raw != 0) {
+		const Group *g = Group::GetIfValid(GroupID{static_cast<uint16_t>(grp_raw - 1)});
+		if (g == nullptr || !GroupIsInGroup(rv->group_id, g->index)) return false;
 	}
 
 	/* Load state of the candidate. */

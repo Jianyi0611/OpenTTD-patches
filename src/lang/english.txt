@@ -4958,6 +4958,10 @@ STR_RV_TRANSPORT_CRITERIA_IS_CARRYING                           :must be carryin
 STR_RV_TRANSPORT_CRITERIA_MIN_WAIT                              :Minimum waiting time
 STR_RV_TRANSPORT_CRITERIA_SLOT                                  :Trace restrict slot
 STR_RV_TRANSPORT_CRITERIA_SLOT_SET                              :a slot is set
+STR_RV_TRANSPORT_CRITERIA_SLOT_GROUP                            :Trace restrict slot group
+STR_RV_TRANSPORT_CRITERIA_SLOT_GROUP_SET                        :a slot group is set
+STR_RV_TRANSPORT_CRITERIA_GROUP                                 :Vehicle group
+STR_RV_TRANSPORT_CRITERIA_GROUP_SET                             :a vehicle group is set
 STR_RV_TRANSPORT_CRITERIA_SLOT_TYPE_TIP                         :{BLACK}Switch the slot list between road vehicle and train slots
 STR_RV_TRANSPORT_CRITERIA_SLOT_ROAD                             :Road
 STR_RV_TRANSPORT_CRITERIA_SLOT_TRAIN                            :Trains

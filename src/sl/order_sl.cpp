@@ -157,6 +157,9 @@ NamedSaveLoadTable GetOrderExtraInfoDescription()
 		NSL("rv_transport_dest_station", SLE_CONDVAR_X(OrderExtraInfo, rv_transport_dest_station, SLE_UINT16, SL_MIN_VERSION, SL_MAX_VERSION, SlXvFeatureTest(XSLFTO_AND, XSLFI_ROAD_VEH_TRANSPORT, 2))),
 		/* Selection criteria added with feature version 3. */
 		NSL("rv_transport_slot", SLE_CONDVAR_X(OrderExtraInfo, rv_transport_slot, SLE_UINT16, SL_MIN_VERSION, SL_MAX_VERSION, SlXvFeatureTest(XSLFTO_AND, XSLFI_ROAD_VEH_TRANSPORT, 3))),
+		/* Selection criteria added with feature version 4. */
+		NSL("rv_transport_slot_group", SLE_CONDVAR_X(OrderExtraInfo, rv_transport_slot_group, SLE_UINT16, SL_MIN_VERSION, SL_MAX_VERSION, SlXvFeatureTest(XSLFTO_AND, XSLFI_ROAD_VEH_TRANSPORT, 4))),
+		NSL("rv_transport_group", SLE_CONDVAR_X(OrderExtraInfo, rv_transport_group, SLE_UINT16, SL_MIN_VERSION, SL_MAX_VERSION, SlXvFeatureTest(XSLFTO_AND, XSLFI_ROAD_VEH_TRANSPORT, 4))),
 	};
 
 	return _order_extra_info_desc;
