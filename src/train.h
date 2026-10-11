@@ -128,6 +128,8 @@ enum class CoupleCandidateResult : uint8_t {
 	Cargo,
 	UnitCount,
 	Slot,
+	SlotGroup,
+	Group,
 	Station,
 	Platform,
 	Arrangement,

@@ -266,6 +266,12 @@ enum class WindowClass : uint16_t {
 	VehicleRVTransportCriteria,
 
 	/**
+	 * Coupling selection criteria of an order; %Window numbers:
+	 *   - #VehicleID = #CoupleCriteriaWidgets
+	 */
+	VehicleCoupleCriteria,
+
+	/**
 	 * Vehicle order import errors; %Window numbers:
 	 *   - #VehicleID = #OrderWidgets
 	 */

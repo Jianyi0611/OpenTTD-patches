@@ -20,6 +20,7 @@
 #include "station_container.h"
 #include "tile_type.h"
 #include "vehicle_type.h"
+#include "group_type.h"
 #include "cargotype.h"
 #include "company_type.h"
 #include "date_type.h"
@@ -78,7 +79,7 @@ void ClearOrderDestinationRefcountMap();
  * OrderConditionVariable::CargoLoadPercentage: Cargo percentage comparison value
  * OrderConditionVariable::DispatchSlot: Bits 0-15: Dispatch schedule ID
  * OrderConditionVariable::Percent: Bits 0-7: Jump counter
- * OT_GOTO_COUPLE: Bits 0-15: Trace restrict slot ID to couple with (0xFFFF = any)
+ * OT_GOTO_COUPLE: Bits 0-15: Trace restrict slot ID to couple with (0xFFFF = any), Bits 16-31: Trace restrict slot group ID to couple with (0xFFFF = any)
  * OT_DECOUPLE: Bit 16: First part may leave the decouple station in the same direction as the other part,
  *              Bit 17: Second part may leave the decouple station in the same direction as the other part
  */
@@ -90,7 +91,7 @@ void ClearOrderDestinationRefcountMap();
  * OrderConditionVariable::CargoWaitingAmount: Bits 0-15: Station ID to test + 1
  * OrderConditionVariable::CargoWaitingAmountPercentage: Bits 0-15: Station ID to test + 1, Bit 16: Refit mode
  * OrderConditionVariable::DispatchSlot: OCDM_ROUTE_ID: Bits 0-15: Route ID
- * OT_GOTO_COUPLE: Bits 0-15: Couple station ID + 1 (0 = any)
+ * OT_GOTO_COUPLE: Bits 0-15: Couple station ID + 1 (0 = any), Bits 16-31: Vehicle group ID + 1 (0 = any)
  */
 
 struct OrderExtraInfo {
@@ -509,6 +510,60 @@ public:
 	 * @param slot the slot, or #TraceRestrictSlotID::Invalid() for any slot.
 	 */
 	inline void SetCoupleSlot(TraceRestrictSlotID slot) { SB(this->GetXDataRef(), 0, 16, slot.base()); }
+
+	/**
+	 * Does the couple order restrict coupling to a specific trace restrict slot group?
+	 * @pre IsType(OT_GOTO_COUPLE)
+	 * @return true if a specific slot group is set.
+	 */
+	inline bool HasCoupleSlotGroup() const { return this->GetCoupleSlotGroup() != TraceRestrictSlotGroupID::Invalid(); }
+
+	/**
+	 * Get the trace restrict slot group the train must couple with.
+	 * Stored as group ID + 1 with 0 meaning "any": the field is 0 when never set, and 0 is also a
+	 * valid (the first) slot group ID, so a raw-ID convention would make every unset order demand
+	 * slot group 0.
+	 * @pre IsType(OT_GOTO_COUPLE)
+	 * @return the slot group, or #TraceRestrictSlotGroupID::Invalid() if unrestricted.
+	 */
+	inline TraceRestrictSlotGroupID GetCoupleSlotGroup() const
+	{
+		uint16_t raw = (this->extra != nullptr) ? (uint16_t)GB(this->extra->xdata, 16, 16) : 0;
+		if (raw == 0) return TraceRestrictSlotGroupID::Invalid();
+		return TraceRestrictSlotGroupID((uint16_t)(raw - 1));
+	}
+
+	/**
+	 * Set the trace restrict slot group the train must couple with.
+	 * @pre IsType(OT_GOTO_COUPLE)
+	 * @param group the slot group, or #TraceRestrictSlotGroupID::Invalid() for any slot group.
+	 */
+	inline void SetCoupleSlotGroup(TraceRestrictSlotGroupID group) { SB(this->GetXDataRef(), 16, 16, group == TraceRestrictSlotGroupID::Invalid() ? 0 : group.base() + 1); }
+
+	/**
+	 * Does the couple order restrict coupling to a specific vehicle group?
+	 * @pre IsType(OT_GOTO_COUPLE)
+	 * @return true if a specific vehicle group is set.
+	 */
+	inline bool HasCoupleGroup() const { return this->GetXData2High() != 0; }
+
+	/**
+	 * Get the vehicle group the train to couple with must belong to.
+	 * @pre IsType(OT_GOTO_COUPLE)
+	 * @return the group, or #GroupID::Invalid() if unrestricted.
+	 */
+	inline GroupID GetCoupleGroup() const
+	{
+		if (!this->HasCoupleGroup()) return GroupID::Invalid();
+		return GroupID{(uint16_t)(this->GetXData2High() - 1)};
+	}
+
+	/**
+	 * Set the vehicle group the train to couple with must belong to.
+	 * @pre IsType(OT_GOTO_COUPLE)
+	 * @param group the group, or #GroupID::Invalid() for any group.
+	 */
+	inline void SetCoupleGroup(GroupID group) { this->SetXData2High(group == GroupID::Invalid() ? 0 : group.base() + 1); }
 
 	/**
 	 * Does the couple order restrict coupling to a specific station?

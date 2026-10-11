@@ -45,6 +45,7 @@
 #include "order_cmd.h"
 #include "orderlist_edit.h"
 #include "group_cmd.h"
+#include "group.h"
 #include "core/backup_type.hpp"
 #include "core/string_consumer.hpp"
 #include "fios.h"
@@ -86,6 +87,7 @@ static const uint32_t _cargo_type_unload_order_dropdown_hidden_mask = 0x8; // 01
 
 DropDownList GetSlotDropDownList(Owner owner, TraceRestrictSlotID slot_id, int &selected, VehicleType vehtype, bool show_other_types);
 DropDownList GetSlotGroupDropDownList(Owner owner, TraceRestrictSlotGroupID slot_group_id, int &selected, VehicleType vehtype);
+DropDownList GetGroupDropDownList(Owner owner, GroupID group_id, int &selected, bool include_default = true);
 DropDownList GetCounterDropDownList(Owner owner, TraceRestrictCounterID ctr_id, int &selected);
 
 StringID GetSlotGroupWarning(TraceRestrictSlotGroupID slot_group, Owner owner);
@@ -1012,6 +1014,413 @@ void ShowRVTransportWindow(const Vehicle *v, Window *parent, VehicleOrderID orde
 	w->parent = parent;
 }
 
+/** Widgets of the #CoupleOptionsWindow (coupling selection criteria of a train couple order). */
+enum CoupleCriteriaWidgets : WidgetID {
+	WID_CPO_CAPTION,          ///< Caption of the window.
+	WID_CPO_SLOT_GROUP_LABEL, ///< Label of the trace restrict slot group criterion.
+	WID_CPO_SLOT_GROUP,       ///< Trace restrict slot group criterion.
+	WID_CPO_GROUP_LABEL,      ///< Label of the vehicle group criterion.
+	WID_CPO_GROUP,            ///< Vehicle group criterion.
+	WID_CPO_LOAD_LABEL,       ///< Label of the load state criterion.
+	WID_CPO_LOAD,             ///< Load state criterion (any / empty / full).
+	WID_CPO_CARGO_LABEL,      ///< Label of the cargo criterion.
+	WID_CPO_CARGO,            ///< Cargo criterion.
+	WID_CPO_VALUE_LABEL,      ///< Label of the unit count criterion.
+	WID_CPO_VALUE,            ///< Unit count criterion (opens a query).
+	WID_CPO_CLOSE,            ///< Close button.
+};
+
+/** Value of the "any cargo" entry of the cargo dropdown (no cargo type can have this index). */
+static const int CPO_CARGO_ANY = 0xFF;
+
+/** Value of the "any vehicle group" entry of the vehicle group dropdown (the group pool is limited
+ * to 64000 entries, so no group id can have this value). */
+static const int CPO_GROUP_ANY = 0xFFFF;
+
+/** Value of the "any slot group" entry of the slot group dropdown (valid slot group ids are
+ * below 0xFFF0, so no slot group id can have this value). */
+static const int CPO_SLOT_GROUP_ANY = 0xFFFF;
+
+/** Values of the load state dropdown entries. */
+static const int CPO_LOAD_ANY = 0;
+static const int CPO_LOAD_EMPTY = 1;
+static const int CPO_LOAD_FULL = 2;
+
+/**
+ * Window with every selection criterion of a train couple order which does not have its own
+ * button in the order window: the trace restrict slot group, the vehicle group, the load state,
+ * the cargo type and the unit count of the consist to couple with.
+ */
+class CoupleOptionsWindow : public Window {
+private:
+	const Vehicle *vehicle;  ///< Vehicle the edited order belongs to.
+	VehicleOrderID order_id; ///< Order which is being edited.
+	const Order *order;      ///< The order itself (used to check the window is still valid).
+	uint order_count;        ///< Number of orders the vehicle had when the window was opened.
+
+	/** Snapshot of the criteria which are shown, to refresh the dropdowns when the order changes. */
+	struct SettingsSnapshot {
+		uint8_t load = 0;
+		uint8_t cargo = 0;
+		uint8_t units = 0;
+		uint16_t slot_group = 0;
+		uint16_t group = 0;
+
+		bool operator==(const SettingsSnapshot &other) const
+		{
+			return this->load == other.load && this->cargo == other.cargo && this->units == other.units &&
+					this->slot_group == other.slot_group && this->group == other.group;
+		}
+	};
+
+	SettingsSnapshot last_settings{}; ///< Settings the widgets currently show.
+
+	WidgetID query_text_widget = INVALID_WIDGET; ///< Widget which opened the text query.
+
+	/** Read the criteria which the widgets should show. */
+	SettingsSnapshot GetSettings() const
+	{
+		SettingsSnapshot s;
+		s.load = to_underlying(this->order->GetCoupleLoad());
+		s.cargo = this->order->HasCoupleCargoType() ? (uint8_t)this->order->GetCoupleCargoType() : (uint8_t)CARGO_NO_REFIT;
+		s.units = this->order->GetNumCouple();
+		s.slot_group = this->order->GetCoupleSlotGroup().base();
+		s.group = this->order->GetCoupleGroup().base();
+		return s;
+	}
+
+	/** Show the current criteria on the dropdowns. The parameterized names (slot group name,
+	 * vehicle group name, cargo name, unit count) are resolved by #GetWidgetString; these are the
+	 * fallbacks used while no parameter is available. */
+	void UpdateWidgetTexts()
+	{
+		this->GetWidget<NWidgetCore>(WID_CPO_SLOT_GROUP)->SetString(STR_ORDER_COUPLE_ANY_GROUP);
+		this->GetWidget<NWidgetCore>(WID_CPO_GROUP)->SetString(STR_ORDER_COUPLE_ANY_VEHICLE_GROUP);
+		this->GetWidget<NWidgetCore>(WID_CPO_LOAD)->SetString(STR_ORDER_COUPLE_ANY + to_underlying(this->order->GetCoupleLoad()));
+		this->GetWidget<NWidgetCore>(WID_CPO_CARGO)->SetString(STR_ORDER_COUPLE_ANY_CARGO);
+	}
+
+	/** Is the edited order still there? */
+	bool CheckOrderStillValid() const
+	{
+		if (this->vehicle->GetNumOrders() != this->order_count) return false;
+		return this->vehicle->GetOrder(this->order_id) == this->order;
+	}
+
+	/** Apply an order change through the real order modification command. */
+	void ModifyOrder(ModifyOrderFlags mof, uint16_t data, CargoType cargo = INVALID_CARGO)
+	{
+		if (!this->CheckOrderStillValid()) return;
+		Command<Commands::ModifyOrder>::Post(STR_ERROR_CAN_T_MODIFY_THIS_ORDER, this->vehicle->tile, OrderTargetType::Vehicle, this->vehicle->index.base(),
+				this->order_id, mof, data, cargo, {});
+	}
+
+	/** Currently selected cargo of the cargo criterion, or INVALID_CARGO when the criterion is off. */
+	CargoType GetSelectedCargo() const
+	{
+		if (!this->order->HasCoupleCargoType()) return INVALID_CARGO;
+		const CargoType cargo = this->order->GetCoupleCargoType();
+		return IsValidCargoType(cargo) ? cargo : INVALID_CARGO;
+	}
+
+	/** Build the dropdown which selects the trace restrict slot group criterion. The list works
+	 * with raw slot group ids, with the "any" entry using a value no group id can have. */
+	DropDownList BuildSlotGroupList() const
+	{
+		const TraceRestrictSlotGroupID current = this->order->GetCoupleSlotGroup();
+
+		int selected;
+		DropDownList groups = GetSlotGroupDropDownList(this->vehicle->owner, current, selected, this->vehicle->type);
+
+		DropDownList list;
+		list.push_back(MakeDropDownListCheckedItem(current == TraceRestrictSlotGroupID::Invalid(), STR_ORDER_COUPLE_ANY_GROUP, CPO_SLOT_GROUP_ANY));
+		for (auto &item : groups) {
+			list.push_back(std::move(item));
+		}
+		return list;
+	}
+
+	/** Build the dropdown which selects the vehicle group criterion. */
+	DropDownList BuildGroupList() const
+	{
+		const GroupID current = this->order->GetCoupleGroup();
+
+		int selected;
+		/* The default group is left out: a train in the default group has no user-assigned group,
+		 * so "any vehicle group" is the appropriate criterion for it. */
+		DropDownList groups = GetGroupDropDownList(this->vehicle->owner, current, selected, false);
+
+		DropDownList list;
+		/* "Any" needs a result value no group id can have: the first user-created group has id 0. */
+		list.push_back(MakeDropDownListCheckedItem(current == GroupID::Invalid(), STR_ORDER_COUPLE_ANY_VEHICLE_GROUP, CPO_GROUP_ANY));
+		for (auto &item : groups) {
+			list.push_back(std::move(item));
+		}
+		return list;
+	}
+
+	/** Build the dropdown which selects the load state criterion. */
+	DropDownList BuildLoadList() const
+	{
+		const uint8_t current = to_underlying(this->order->GetCoupleLoad());
+		DropDownList list;
+		list.push_back(MakeDropDownListCheckedItem(current == ODC_ANY, STR_ORDERS_COUPLE_LOAD_ANY, CPO_LOAD_ANY));
+		list.push_back(MakeDropDownListCheckedItem(current == ODC_IS_EMPTY, STR_ORDERS_COUPLE_LOAD_EMPTY, CPO_LOAD_EMPTY));
+		list.push_back(MakeDropDownListCheckedItem(current == ODC_IS_FULL, STR_ORDERS_COUPLE_LOAD_FULL, CPO_LOAD_FULL));
+		return list;
+	}
+
+	/** Build the dropdown which selects the cargo criterion. */
+	DropDownList BuildCargoList() const
+	{
+		const CargoType current = this->GetSelectedCargo();
+		DropDownList list;
+		list.push_back(MakeDropDownListCheckedItem(current == INVALID_CARGO, STR_ORDER_COUPLE_ANY_CARGO, CPO_CARGO_ANY));
+		list.push_back(MakeDropDownListDividerItem());
+		for (const CargoSpec *cs : _sorted_cargo_specs) {
+			list.push_back(MakeDropDownListCheckedItem(current == cs->Index(), cs->name, cs->Index()));
+		}
+		return list;
+	}
+
+public:
+	CoupleOptionsWindow(WindowDesc &desc, const Vehicle *v, VehicleOrderID order_id) : Window(desc)
+	{
+		this->vehicle = v;
+		this->order_id = order_id;
+		this->order_count = v->GetNumOrders();
+		this->order = v->GetOrder(order_id);
+
+		this->CreateNestedTree();
+		/* Set the widget texts before the layout is computed, so that the dropdowns are sized to fit
+		 * their current value. */
+		this->UpdateWidgetTexts();
+		this->FinishInitNested(v->index);
+		this->last_settings = this->GetSettings();
+		this->owner = v->owner;
+	}
+
+	void Close(int data = 0) override
+	{
+		FocusWindowById(WindowClass::VehicleOrders, this->window_number);
+		this->Window::Close();
+	}
+
+	/**
+	 * Refresh the widgets when the order changed. The order commands run asynchronously and do not
+	 * invalidate this window, and the game may well be paused while the player edits, so this polls
+	 * from the realtime tick (which runs regardless of the pause state).
+	 */
+	void OnRealtimeTick([[maybe_unused]] uint delta_ms) override
+	{
+		if (!this->CheckOrderStillValid()) {
+			this->Close();
+			return;
+		}
+		this->order = this->vehicle->GetOrder(this->order_id);
+		const SettingsSnapshot current = this->GetSettings();
+		if (!(current == this->last_settings)) {
+			this->last_settings = current;
+			this->UpdateWidgetTexts();
+			this->ReInit();
+			this->SetDirty();
+		}
+	}
+
+	/**
+	 * Show the name of the selected slot group / vehicle group / unit count on its widget. The widget
+	 * string mechanism is bypassed because the text carries a parameter.
+	 */
+	std::string GetWidgetString(WidgetID widget, StringID stringid) const override
+	{
+		switch (widget) {
+			case WID_CPO_SLOT_GROUP: {
+				const uint16_t slot_group = this->order->GetCoupleSlotGroup().base();
+				if (slot_group != INVALID_TRACE_RESTRICT_SLOT_GROUP.base()) {
+					const TraceRestrictSlotGroup *sg = TraceRestrictSlotGroup::GetIfValid(slot_group);
+					if (sg != nullptr) return GetString(STR_TRACE_RESTRICT_SLOT_GROUP_NAME, slot_group);
+				}
+				return GetString(STR_ORDER_COUPLE_ANY_GROUP);
+			}
+
+			case WID_CPO_GROUP: {
+				const Group *g = Group::GetIfValid(this->order->GetCoupleGroup());
+				if (g != nullptr) return GetString(STR_GROUP_NAME, g->index);
+				return GetString(STR_ORDER_COUPLE_ANY_VEHICLE_GROUP);
+			}
+
+			case WID_CPO_CARGO: {
+				if (!this->order->HasCoupleCargoType()) return GetString(STR_ORDER_COUPLE_ANY_CARGO);
+				const CargoType cargo = this->order->GetCoupleCargoType();
+				if (IsValidCargoType(cargo)) return GetString(CargoSpec::Get(cargo)->name);
+				return GetString(STR_ORDER_COUPLE_ANY_CARGO);
+			}
+
+			case WID_CPO_VALUE:
+				return GetString(STR_JUST_INT, this->order->GetNumCouple());
+
+			default:
+				return Window::GetWidgetString(widget, stringid);
+		}
+	}
+
+	void OnClick([[maybe_unused]] Point pt, WidgetID widget, [[maybe_unused]] int click_count) override
+	{
+		if (!this->CheckOrderStillValid()) {
+			this->Close();
+			return;
+		}
+
+		switch (widget) {
+			case WID_CPO_SLOT_GROUP:
+				ShowDropDownList(this, this->BuildSlotGroupList(), -1, WID_CPO_SLOT_GROUP, 0);
+				return;
+			case WID_CPO_GROUP:
+				ShowDropDownList(this, this->BuildGroupList(), -1, WID_CPO_GROUP, 0);
+				return;
+			case WID_CPO_LOAD:
+				ShowDropDownList(this, this->BuildLoadList(), -1, WID_CPO_LOAD, 0);
+				return;
+			case WID_CPO_CARGO:
+				ShowDropDownList(this, this->BuildCargoList(), -1, WID_CPO_CARGO, 0);
+				return;
+			case WID_CPO_VALUE:
+				this->query_text_widget = WID_CPO_VALUE;
+				ShowQueryString(GetString(STR_JUST_INT, this->order->GetNumCouple()), STR_ORDER_COUPLE_VALUE_CAPT, 4, this, CS_NUMERAL, {});
+				return;
+			case WID_CPO_CLOSE:
+				this->Close();
+				return;
+
+			default:
+				return;
+		}
+	}
+
+	void OnDropdownSelect(WidgetID widget, int index, int) override
+	{
+		if (!this->CheckOrderStillValid()) return;
+
+		switch (widget) {
+			case WID_CPO_SLOT_GROUP:
+				/* The dropdown result is the raw slot group id; the order stores group id + 1
+				 * with 0 meaning "any". */
+				if (index == CPO_SLOT_GROUP_ANY) {
+					this->ModifyOrder(MOF_COUPLE_SLOT_GROUP, 0);
+				} else if (index >= 0) {
+					this->ModifyOrder(MOF_COUPLE_SLOT_GROUP, static_cast<uint16_t>(index + 1));
+				}
+				break;
+
+			case WID_CPO_GROUP:
+				/* The dropdown result is the group id itself (0 = the first user-created group),
+				 * except for the "any" entry; the order stores group id + 1 with 0 meaning "any". */
+				if (index == CPO_GROUP_ANY) {
+					this->ModifyOrder(MOF_COUPLE_GROUP, 0);
+				} else if (index >= 0) {
+					this->ModifyOrder(MOF_COUPLE_GROUP, static_cast<uint16_t>(index + 1));
+				}
+				break;
+
+			case WID_CPO_LOAD:
+				this->ModifyOrder(MOF_COUPLE_LOAD, index == CPO_LOAD_EMPTY ? ODC_IS_EMPTY : (index == CPO_LOAD_FULL ? ODC_IS_FULL : ODC_ANY));
+				break;
+
+			case WID_CPO_CARGO:
+				if (index == CPO_CARGO_ANY) {
+					this->ModifyOrder(MOF_COUPLE_CARGO, 0, CARGO_NO_REFIT);
+				} else if (index >= 0) {
+					this->ModifyOrder(MOF_COUPLE_CARGO, 0, static_cast<CargoType>(index));
+				}
+				break;
+
+			default:
+				return;
+		}
+
+		this->SetDirty();
+	}
+
+	void OnQueryTextFinished(std::optional<std::string> str) override
+	{
+		if (!str.has_value() || str->empty()) return;
+		if (this->query_text_widget != WID_CPO_VALUE) return;
+		auto try_value = ParseInteger<uint>(*str);
+		if (!try_value.has_value()) return;
+		this->ModifyOrder(MOF_COUPLE_VALUE, Clamp(*try_value, 0U, 127U));
+	}
+
+	void OnInvalidateData([[maybe_unused]] int data = 0, [[maybe_unused]] bool gui_scope = true) override
+	{
+		if (!this->CheckOrderStillValid()) {
+			this->Close();
+			return;
+		}
+		this->order = this->vehicle->GetOrder(this->order_id);
+		this->UpdateWidgetTexts();
+		this->ReInit();
+		this->SetDirty();
+	}
+};
+
+/** Widgets of the coupling criteria window. */
+static constexpr NWidgetPart _nested_couple_options_widgets[] = {
+	NWidget(NWID_HORIZONTAL),
+		NWidget(WWT_CLOSEBOX, Colours::Grey),
+		NWidget(WWT_CAPTION, Colours::Grey, WID_CPO_CAPTION), SetStringTip(STR_ORDER_COUPLE_OPTIONS_CAPTION, STR_TOOLTIP_WINDOW_TITLE_DRAG_THIS),
+		NWidget(WWT_SHADEBOX, Colours::Grey),
+		NWidget(WWT_DEFSIZEBOX, Colours::Grey),
+		NWidget(WWT_STICKYBOX, Colours::Grey),
+	EndContainer(),
+	NWidget(WWT_PANEL, Colours::Grey),
+		NWidget(NWID_HORIZONTAL),
+			NWidget(WWT_TEXT, Colours::Invalid, WID_CPO_SLOT_GROUP_LABEL), SetFill(1, 0), SetResize(1, 0), SetStringTip(STR_ORDER_COUPLE_SLOT_GROUP_LABEL, STR_NULL),
+			NWidget(WWT_DROPDOWN, Colours::Grey, WID_CPO_SLOT_GROUP), SetFill(0, 0), SetResize(0, 0),
+		EndContainer(),
+		NWidget(NWID_HORIZONTAL),
+			NWidget(WWT_TEXT, Colours::Invalid, WID_CPO_GROUP_LABEL), SetFill(1, 0), SetResize(1, 0), SetStringTip(STR_ORDER_COUPLE_GROUP_LABEL, STR_NULL),
+			NWidget(WWT_DROPDOWN, Colours::Grey, WID_CPO_GROUP), SetFill(0, 0), SetResize(0, 0),
+		EndContainer(),
+		NWidget(NWID_HORIZONTAL),
+			NWidget(WWT_TEXT, Colours::Invalid, WID_CPO_LOAD_LABEL), SetFill(1, 0), SetResize(1, 0), SetStringTip(STR_ORDER_COUPLE_LOAD_LABEL, STR_NULL),
+			NWidget(WWT_DROPDOWN, Colours::Grey, WID_CPO_LOAD), SetFill(0, 0), SetResize(0, 0),
+		EndContainer(),
+		NWidget(NWID_HORIZONTAL),
+			NWidget(WWT_TEXT, Colours::Invalid, WID_CPO_CARGO_LABEL), SetFill(1, 0), SetResize(1, 0), SetStringTip(STR_ORDER_COUPLE_CARGO_LABEL, STR_NULL),
+			NWidget(WWT_DROPDOWN, Colours::Grey, WID_CPO_CARGO), SetFill(0, 0), SetResize(0, 0),
+		EndContainer(),
+		NWidget(NWID_HORIZONTAL),
+			NWidget(WWT_TEXT, Colours::Invalid, WID_CPO_VALUE_LABEL), SetFill(1, 0), SetResize(1, 0), SetStringTip(STR_ORDER_COUPLE_VALUE_LABEL, STR_NULL),
+			NWidget(WWT_PUSHTXTBTN, Colours::Grey, WID_CPO_VALUE), SetFill(0, 0), SetResize(0, 0),
+		EndContainer(),
+	EndContainer(),
+	NWidget(NWID_HORIZONTAL),
+		NWidget(WWT_TEXTBTN, Colours::Grey, WID_CPO_CLOSE), SetFill(1, 0), SetResize(1, 0), SetStringTip(STR_CARGO_TYPE_ORDERS_CLOSE_BUTTON, STR_TOOLTIP_CLOSE_WINDOW),
+		NWidget(WWT_RESIZEBOX, Colours::Grey),
+	EndContainer(),
+};
+
+/** Window description of the coupling criteria window. */
+static WindowDesc _couple_options_desc(__FILE__, __LINE__,
+	WindowPosition::Automatic, nullptr, 240, 130,
+	WindowClass::VehicleCoupleCriteria, WindowClass::VehicleOrders,
+	WindowDefaultFlag::Construction,
+	_nested_couple_options_widgets
+);
+
+/**
+ * Show the window with all coupling selection criteria of a couple order.
+ * @param v The vehicle the order belongs to.
+ * @param parent The parent window.
+ * @param order_id Which order to edit.
+ */
+void ShowCoupleOptionsWindow(const Vehicle *v, Window *parent, VehicleOrderID order_id)
+{
+	CloseWindowById(WindowClass::VehicleCoupleCriteria, v->index);
+	CoupleOptionsWindow *w = new CoupleOptionsWindow(_couple_options_desc, v, order_id);
+	w->parent = parent;
+}
+
 /** Order load types that could be given to station orders. */
 static const StringID _station_load_types[][8][8] = {
 	{
@@ -1192,12 +1601,6 @@ enum OrderDropDownID {
 	ODDI_WAIT_FOR_COUPLE,
 	ODDI_GO_TO_COUPLE,
 	ODDI_DECOUPLE_SAME_DIR,
-};
-
-static const StringID _order_couple_load_drowdown[] = {
-	STR_ORDERS_COUPLE_LOAD_ANY,
-	STR_ORDERS_COUPLE_LOAD_EMPTY,
-	STR_ORDERS_COUPLE_LOAD_FULL,
 };
 
 static const StringID _order_decouple_orders_drowdown[] = {
@@ -2184,6 +2587,18 @@ void DrawOrderString(const Vehicle *v, const Order *order, int order_index, int 
 			if (order->HasCoupleSlot()) {
 				AppendStringInPlace(line, STR_ORDER_COUPLE_SLOT, STR_TRACE_RESTRICT_SLOT_NAME, order->GetCoupleSlot().base());
 			}
+			if (order->HasCoupleSlotGroup()) {
+				const TraceRestrictSlotGroup *sg = TraceRestrictSlotGroup::GetIfValid(order->GetCoupleSlotGroup());
+				if (sg != nullptr) {
+					AppendStringInPlace(line, STR_ORDER_COUPLE_SLOT_GROUP, STR_TRACE_RESTRICT_SLOT_GROUP_NAME, sg->index.base());
+				}
+			}
+			if (order->HasCoupleGroup()) {
+				const Group *g = Group::GetIfValid(order->GetCoupleGroup());
+				if (g != nullptr) {
+					AppendStringInPlace(line, STR_ORDER_COUPLE_GROUP, STR_GROUP_NAME, g->index);
+				}
+			}
 			if (order->GetCoupleUseWaitingSchedule()) {
 				AppendStringInPlace(line, STR_ORDER_COUPLE_USE_WAITING_SCHEDULE_SUFFIX);
 			}
@@ -2929,27 +3344,6 @@ private:
 		this->PostInsert(order, this->OrderGetSel());
 	}
 
-	void OrderClick_CoupleLoad(int load_type)
-	{
-		VehicleOrderID sel_ord = this->OrderGetSel();
-		const Order *order = OrderAt(sel_ord);
-		if (load_type < 0) {
-			load_type = order->GetCoupleLoad() == ODC_IS_EMPTY ? ODC_ANY : ODC_IS_EMPTY;
-		}
-		this->ModifyOrder(sel_ord, MOF_COUPLE_LOAD, load_type);
-	}
-
-	void OrderClick_CoupleCargo()
-	{
-		VehicleOrderID sel_ord = this->OrderGetSel();
-		const Order *order = OrderAt(sel_ord);
-		if (order->HasCoupleCargoType()) {
-			this->PostModify(sel_ord, MOF_COUPLE_CARGO, {}, CARGO_NO_REFIT);
-		} else {
-			if (this->HasVehicle()) ShowVehicleCargoTypesWindow(this->vehicle, sel_ord, this);
-		}
-	}
-
 	static StringID GetCoupleCandidateResultString(CoupleCandidateResult result)
 	{
 		switch (result) {
@@ -2962,6 +3356,8 @@ private:
 			case CoupleCandidateResult::Cargo:       return STR_COUPLE_DIAGNOSTIC_CARGO;
 			case CoupleCandidateResult::UnitCount:   return STR_COUPLE_DIAGNOSTIC_UNIT_COUNT;
 			case CoupleCandidateResult::Slot:        return STR_COUPLE_DIAGNOSTIC_SLOT;
+			case CoupleCandidateResult::SlotGroup:   return STR_COUPLE_DIAGNOSTIC_SLOT_GROUP;
+			case CoupleCandidateResult::Group:       return STR_COUPLE_DIAGNOSTIC_GROUP;
 			case CoupleCandidateResult::Station:     return STR_COUPLE_DIAGNOSTIC_STATION;
 			case CoupleCandidateResult::Platform:    return STR_COUPLE_DIAGNOSTIC_PLATFORM;
 			case CoupleCandidateResult::Arrangement: return STR_COUPLE_DIAGNOSTIC_ARRANGEMENT;
@@ -4088,8 +4484,6 @@ public:
 				case OT_GOTO_COUPLE: {
 					if (this->HasVehicle()) assert(this->vehicle->type == VehicleType::Train);
 					train_row_sel->SetDisplayedPlane(DP_GROUNDVEHICLE_ROW_COUPLE);
-					this->SetWidgetLoweredState(WID_O_COUPLE_LOAD, order->GetCoupleLoad() == ODC_IS_EMPTY);
-					this->SetWidgetLoweredState(WID_O_COUPLE_CARGO, order->HasCoupleCargoType());
 					this->SetWidgetLoweredState(WID_O_COUPLE_STATION, order->HasCoupleStation());
 					break;
 				}
@@ -5362,18 +5756,6 @@ public:
 				break;
 			}
 
-			case WID_O_COUPLE_LOAD:
-				if (this->GetWidget<NWidgetLeaf>(widget)->ButtonHit(pt)) {
-					this->OrderClick_CoupleLoad(-1);
-				} else {
-					ShowDropDownMenu(this, _order_couple_load_drowdown, 0, WID_O_COUPLE_LOAD, 0, 0);
-				}
-				break;
-
-			case WID_O_COUPLE_CARGO:
-				this->OrderClick_CoupleCargo();
-				break;
-
 			case WID_O_COUPLE_SLOT: {
 				const Order *order = OrderAt(this->OrderGetSel());
 				int selected = (order != nullptr && order->IsType(OT_GOTO_COUPLE) && order->HasCoupleSlot()) ? (int)order->GetCoupleSlot().base() : (int)INVALID_TRACE_RESTRICT_SLOT_ID.base();
@@ -5383,13 +5765,6 @@ public:
 				DropDownList slot_list = GetSlotDropDownList(this->TargetOwner(), TraceRestrictSlotID{(uint16_t)slot_selected}, slot_selected, this->RefType(), false);
 				list.insert(list.end(), std::make_move_iterator(slot_list.begin()), std::make_move_iterator(slot_list.end()));
 				ShowDropDownList(this, std::move(list), selected, WID_O_COUPLE_SLOT, 0, DropDownOptions{}, DDSF_SHARED);
-				break;
-			}
-
-			case WID_O_COUPLE_VALUE: {
-				const Order *order = OrderAt(this->OrderGetSel());
-				this->query_text_widget = widget;
-				ShowQueryString(GetString(STR_JUST_INT, order->GetNumCouple()), STR_ORDER_COUPLE_VALUE_CAPT, 4, this, CS_NUMERAL, {});
 				break;
 			}
 
@@ -5407,6 +5782,10 @@ public:
 				}
 				break;
 			}
+
+			case WID_O_COUPLE_MORE:
+				ShowCoupleOptionsWindow(this->vehicle, this, this->OrderGetSel());
+				break;
 
 			case WID_O_COUPLE_DIAGNOSTICS:
 				this->ShowCoupleDiagnostics();
@@ -5507,12 +5886,6 @@ public:
 			VehicleOrderID sel = this->OrderGetSel();
 			uint value = Clamp<uint>(*try_value, 0, 0xFFFF);
 			this->ModifyOrder(sel, MOF_COUNTER_VALUE, value);
-		}
-
-		if (this->query_text_widget == WID_O_COUPLE_VALUE && str.has_value() && !str->empty()) {
-			auto try_value = ParseInteger<uint>(*str);
-			if (!try_value.has_value()) return;
-			this->ModifyOrder(this->OrderGetSel(), MOF_COUPLE_VALUE, Clamp<uint>(*try_value, 0, 127));
 		}
 
 		if (this->query_text_widget == WID_O_DECOUPLE_VALUE && str.has_value() && !str->empty()) {
@@ -5650,10 +6023,6 @@ public:
 					case ODDI_GO_TO_COUPLE:          this->OrderClick_Couple(); break;
 					default: NOT_REACHED();
 				}
-				break;
-
-			case WID_O_COUPLE_LOAD:
-				this->OrderClick_CoupleLoad(index);
 				break;
 
 			case WID_O_ORDERS_FIRST:
@@ -6561,16 +6930,12 @@ static constexpr std::initializer_list<NWidgetPart> _nested_orders_train_widgets
 			EndContainer(),
 			NWidget(WWT_PANEL, Colours::Grey), SetFill(1, 0), SetResize(1, 0), EndContainer(),
 			NWidget(NWID_HORIZONTAL, NWidContainerFlag::EqualSize),
-				NWidget(NWID_BUTTON_DROPDOWN, Colours::Grey, WID_O_COUPLE_LOAD), SetMinimalSize(112, 12), SetFill(1, 0),
-														SetStringTip(STR_ORDER_TOGGLE_COUPLE_LOAD, STR_ORDER_COUPLE_LOAD_TOOLTIP), SetResize(1, 0),
-				NWidget(WWT_TEXTBTN, Colours::Grey, WID_O_COUPLE_CARGO), SetMinimalSize(112, 12), SetFill(1, 0),
-												SetStringTip(STR_ORDER_CARGO_TYPE_BUTTON, STR_ORDER_COUPLE_CARGO_TOOLTIP), SetResize(1, 0),
 				NWidget(WWT_DROPDOWN, Colours::Grey, WID_O_COUPLE_SLOT), SetMinimalSize(112, 12), SetFill(1, 0),
 												SetStringTip(STR_ORDER_COUPLE_SLOT_BUTTON, STR_ORDER_COUPLE_SLOT_TOOLTIP), SetResize(1, 0),
-				NWidget(WWT_PUSHTXTBTN, Colours::Grey, WID_O_COUPLE_VALUE), SetMinimalSize(112, 12), SetFill(1, 0),
-														SetStringTip(STR_ORDERS_COUPLE_VALUE_BUTTON, STR_ORDER_COUPLE_VALUE_TOOLTIP), SetResize(1, 0),
 				NWidget(WWT_PUSHTXTBTN, Colours::Grey, WID_O_COUPLE_STATION), SetMinimalSize(112, 12), SetFill(1, 0),
 												SetStringTip(STR_ORDER_COUPLE_STATION_BUTTON, STR_ORDER_COUPLE_STATION_TOOLTIP), SetResize(1, 0),
+				NWidget(WWT_PUSHTXTBTN, Colours::Grey, WID_O_COUPLE_MORE), SetMinimalSize(112, 12), SetFill(1, 0),
+												SetStringTip(STR_ORDER_COUPLE_MORE_BUTTON, STR_ORDER_COUPLE_MORE_TOOLTIP), SetResize(1, 0),
 				NWidget(WWT_PUSHTXTBTN, Colours::Grey, WID_O_COUPLE_DIAGNOSTICS), SetMinimalSize(112, 12), SetFill(1, 0),
 												SetStringTip(STR_COUPLE_DIAGNOSTIC_BUTTON, STR_COUPLE_DIAGNOSTIC_TOOLTIP), SetResize(1, 0),
 			EndContainer(),

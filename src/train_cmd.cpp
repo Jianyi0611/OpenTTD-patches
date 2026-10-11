@@ -6840,6 +6840,23 @@ static bool CoupleSlotOk(const Order &order, const Train *t)
 	return rs->IsOccupant(t->index);
 }
 
+static bool CoupleSlotGroupOk(const Order &order, const Train *t)
+{
+	TraceRestrictSlotGroupID group = order.GetCoupleSlotGroup();
+	if (group == TraceRestrictSlotGroupID::Invalid()) return true;
+	const TraceRestrictSlotGroup *sg = TraceRestrictSlotGroup::GetIfValid(group);
+	if (sg == nullptr) return false;
+	return TraceRestrictIsVehicleInSlotGroup(sg, t->owner, t);
+}
+
+static bool CoupleGroupOk(const Order &order, const Train *t)
+{
+	GroupID group = order.GetCoupleGroup();
+	if (group == GroupID::Invalid()) return true;
+	/* Hierarchical: a consist placed in a sub-group of the selected group matches too. */
+	return GroupIsInGroup(t->group_id, group);
+}
+
 static bool CoupleStationOk(const Order &order, TileIndex contact_tile)
 {
 	if (!order.HasCoupleStation()) return true;
@@ -6984,6 +7001,8 @@ static CoupleCandidateResult GetCoupleVolatileConditionResult(const Train *movin
 	if (!CoupleCargoOk(order, rep)) return CoupleCandidateResult::Cargo;
 	if (!CoupleNumOk(order, rep)) return CoupleCandidateResult::UnitCount;
 	if (!CoupleSlotOk(order, carrier)) return CoupleCandidateResult::Slot;
+	if (!CoupleSlotGroupOk(order, carrier)) return CoupleCandidateResult::SlotGroup;
+	if (!CoupleGroupOk(order, carrier)) return CoupleCandidateResult::Group;
 	if (!CoupleStationOk(order, contact_tile)) return CoupleCandidateResult::Station;
 	if (!TrainFitStation(rep)) return CoupleCandidateResult::Platform;
 	return CoupleCandidateResult::Valid;

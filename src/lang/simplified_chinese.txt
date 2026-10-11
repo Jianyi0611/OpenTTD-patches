@@ -5017,6 +5017,19 @@ STR_ORDER_DECOUPLE_VALUE_TOOLTIP                                :{BLACK}解挂�
 STR_ORDER_COUPLE_USE_WAITING_SCHEDULE                          :使用等待对接列车的调度计划
 STR_ORDER_COUPLE_USE_WAITING_SCHEDULE_SUFFIX                   :（并使用等待对接列车的调度计划）
 STR_ORDER_COUPLE_ANY_SLOT                                     :任意路签
+STR_ORDER_COUPLE_MORE_BUTTON                                   :{BLACK}更多选项
+STR_ORDER_COUPLE_MORE_TOOLTIP                                  :{BLACK}更多连接限制条件：路签组、载具组、空满状态、货物类型与车厢数量
+STR_ORDER_COUPLE_OPTIONS_CAPTION                               :{WHITE}连接条件
+STR_ORDER_COUPLE_SLOT_GROUP_LABEL                              :{BLACK}路签组
+STR_ORDER_COUPLE_GROUP_LABEL                                   :{BLACK}载具组
+STR_ORDER_COUPLE_LOAD_LABEL                                    :{BLACK}空满状态
+STR_ORDER_COUPLE_CARGO_LABEL                                   :{BLACK}货物类型
+STR_ORDER_COUPLE_VALUE_LABEL                                   :{BLACK}车厢数量
+STR_ORDER_COUPLE_ANY_GROUP                                     :任意路签组
+STR_ORDER_COUPLE_ANY_VEHICLE_GROUP                             :任意载具组
+STR_ORDER_COUPLE_ANY_CARGO                                     :任意货物
+STR_ORDER_COUPLE_SLOT_GROUP                                    :且属于路签组 {STRING}
+STR_ORDER_COUPLE_GROUP                                         :且属于载具组 {STRING}
 STR_ORDER_DECOUPLE                                              :（解挂）
 STR_ORDER_DECOUPLE_DETAILS                                      :[解挂并保留 {COMMA} 节车厢] 第一部分 {STRING} 第二部分 {STRING}
 STR_ORDER_DECOUPLE_DETAILS_AUTO                                 :[解挂并保留 {COMMA}(自动) 节车厢] 第一部分 {STRING} 第二部分 {STRING}
@@ -5049,6 +5062,8 @@ STR_COUPLE_DIAGNOSTIC_LOAD                                     :空车或满载�
 STR_COUPLE_DIAGNOSTIC_CARGO                                    :货种不匹配
 STR_COUPLE_DIAGNOSTIC_UNIT_COUNT                               :节数不匹配
 STR_COUPLE_DIAGNOSTIC_SLOT                                     :槽位不匹配
+STR_COUPLE_DIAGNOSTIC_SLOT_GROUP                               :路签组不匹配
+STR_COUPLE_DIAGNOSTIC_GROUP                                    :载具组不匹配
 STR_COUPLE_DIAGNOSTIC_STATION                                  :车站不匹配
 STR_COUPLE_DIAGNOSTIC_PLATFORM                                 :列车未完整容纳在同一站台
 STR_COUPLE_DIAGNOSTIC_ARRANGEMENT                              :编组或 NewGRF 兼容性检查失败

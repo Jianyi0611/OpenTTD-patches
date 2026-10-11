@@ -735,7 +735,7 @@ static const TraceRestrictDropDownListSet *GetSortedCargoTypeDropDownListSet()
 /**
  * Get a DropDownList of the group list
  */
-static DropDownList GetGroupDropDownList(Owner owner, GroupID group_id, int &selected, bool include_default = true)
+DropDownList GetGroupDropDownList(Owner owner, GroupID group_id, int &selected, bool include_default = true)
 {
 	std::vector<const Group *> list;
 	robin_hood::unordered_set<GroupID> seen_parents;

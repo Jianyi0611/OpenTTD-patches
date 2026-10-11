@@ -43,6 +43,7 @@
 #include "roadveh_transport.h"
 #include "vehiclelist.h"
 #include "tracerestrict.h"
+#include "group.h"
 #include "train.h"
 #include "date_func.h"
 #include "schdispatch.h"
@@ -2949,7 +2950,7 @@ CommandCost CmdModifyOrder(DoCommandFlags flags, OrderTargetType target_type, ui
 				break;
 
 			case OT_GOTO_COUPLE:
-				if (mof != MOF_COUPLE_LOAD && mof != MOF_COUPLE_CARGO && mof != MOF_COUPLE_VALUE && mof != MOF_COUPLE_SLOT && mof != MOF_COUPLE_STATION && mof != MOF_COUPLE_USE_WAITING_SCHEDULE) return CMD_ERROR;
+				if (mof != MOF_COUPLE_LOAD && mof != MOF_COUPLE_CARGO && mof != MOF_COUPLE_VALUE && mof != MOF_COUPLE_SLOT && mof != MOF_COUPLE_SLOT_GROUP && mof != MOF_COUPLE_GROUP && mof != MOF_COUPLE_STATION && mof != MOF_COUPLE_USE_WAITING_SCHEDULE) return CMD_ERROR;
 				break;
 
 			case OT_DECOUPLE:
@@ -3350,6 +3351,25 @@ CommandCost CmdModifyOrder(DoCommandFlags flags, OrderTargetType target_type, ui
 				const TraceRestrictSlot *slot = TraceRestrictSlot::GetIfValid(data);
 				if (slot == nullptr || (!is_list && slot->vehicle_type != v->type)) return CMD_ERROR;
 				if (!slot->IsUsableByOwner(target_owner)) return CMD_ERROR;
+			}
+			break;
+
+		case MOF_COUPLE_SLOT_GROUP:
+			/* Encoded as slot group ID + 1; 0 clears the restriction. */
+			if (data != 0) {
+				const TraceRestrictSlotGroup *sg = TraceRestrictSlotGroup::GetIfValid(data - 1);
+				if (sg == nullptr || (!is_list && sg->vehicle_type != v->type)) return CMD_ERROR;
+				if (!sg->CompanyCanReferenceSlotGroup(target_owner)) return CMD_ERROR;
+			}
+			break;
+
+		case MOF_COUPLE_GROUP:
+			/* Encoded as group ID + 1; 0 clears the restriction. Only train groups of the
+			 * consist's own company make sense as a coupling criterion. */
+			if (data != 0) {
+				const Group *g = Group::GetIfValid(data - 1);
+				if (g == nullptr || g->vehicle_type != VehicleType::Train) return CMD_ERROR;
+				if (g->owner != target_owner) return CMD_ERROR;
 			}
 			break;
 
@@ -3791,6 +3811,14 @@ CommandCost CmdModifyOrder(DoCommandFlags flags, OrderTargetType target_type, ui
 				order->SetCoupleSlot(TraceRestrictSlotID{(uint16_t)data});
 				break;
 
+			case MOF_COUPLE_SLOT_GROUP:
+				order->SetCoupleSlotGroup(data == 0 ? TraceRestrictSlotGroupID::Invalid() : TraceRestrictSlotGroupID{(uint16_t)(data - 1)});
+				break;
+
+			case MOF_COUPLE_GROUP:
+				order->SetCoupleGroup(data == 0 ? GroupID::Invalid() : GroupID{(uint16_t)(data - 1)});
+				break;
+
 			case MOF_COUPLE_STATION:
 				order->SetCoupleStation(data == 0 ? StationID::Invalid() : StationID{(uint16_t)(data - 1)});
 				break;
@@ -3951,6 +3979,8 @@ CommandCost CmdModifyOrder(DoCommandFlags flags, OrderTargetType target_type, ui
 				u->current_order.SetCoupleCargoType(order->GetCoupleCargoType());
 				u->current_order.SetNumCouple(order->GetNumCouple());
 				u->current_order.SetCoupleSlot(order->GetCoupleSlot());
+				u->current_order.SetCoupleSlotGroup(order->GetCoupleSlotGroup());
+				u->current_order.SetCoupleGroup(order->GetCoupleGroup());
 				u->current_order.SetXData2Low(order->GetXData2Low());
 			}
 
