@@ -785,6 +785,9 @@ enum class Commands : uint8_t {
 
 	DesyncCheck,                            ///< Force desync checks to be run
 
+	PasteBlueprint,                         ///< paste a blueprint onto the map
+	UndoBlueprintPaste,                     ///< remove again what a blueprint paste built
+
 	End,                                    ///< Must ALWAYS be on the end of this list!! (period)
 };
 
@@ -877,6 +880,9 @@ enum class CommandCallback : uint8_t {
 	/* tracerestrict_gui.cpp */
 	CreateTraceRestrictSlot,
 	CreateTraceRestrictCounter,
+
+	PasteBlueprint, ///< paste a blueprint onto the map
+	UndoBlueprintPaste, ///< remove again what a blueprint paste built
 
 	End, ///< Must ALWAYS be on the end of this list
 };

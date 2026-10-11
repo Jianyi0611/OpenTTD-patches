@@ -58,6 +58,7 @@ if(GRFCODEC_FOUND)
                          ${CMAKE_CURRENT_SOURCE_DIR}/mono.png
                          ${CMAKE_CURRENT_SOURCE_DIR}/oneway.png
                          ${CMAKE_CURRENT_SOURCE_DIR}/openttdgui.png
+                         ${CMAKE_CURRENT_SOURCE_DIR}/openttdgui_blueprint.png
                          ${CMAKE_CURRENT_SOURCE_DIR}/openttdgui_build_tram.png
                          ${CMAKE_CURRENT_SOURCE_DIR}/openttdgui_convert_road.png
                          ${CMAKE_CURRENT_SOURCE_DIR}/openttdgui_convert_tram.png

@@ -12,6 +12,7 @@
 
 #include "stdafx.h"
 #include "newgrf_object.h"
+#include "blueprint.h"
 #include "viewport_func.h"
 #include "command_func.h"
 #include "town.h"
@@ -901,6 +902,8 @@ CommandCost CmdBuildBridge(DoCommandFlags flags, TileIndex tile_end, TileIndex t
 		/* Mark all tiles dirty */
 		MarkBridgeDirty(tile_start, tile_end, AxisToDiagDir(direction), z_start);
 		DirtyCompanyInfrastructureWindows(company);
+
+		RecordBlueprintUndoTunnelBridge(tile_start, tile_end, true, transport_type);
 	}
 
 	if (flags.Test(DoCommandFlag::Execute) && transport_type == TransportType::Rail) {
@@ -1257,6 +1260,8 @@ CommandCost CmdBuildTunnel(DoCommandFlags flags, TileIndex start_tile, Transport
 			UpdateRoadCachedOneWayStatesAroundTile(end_tile);
 		}
 		DirtyCompanyInfrastructureWindows(company);
+
+		RecordBlueprintUndoTunnelBridge(start_tile, end_tile, false, transport_type);
 	}
 
 	return cost;

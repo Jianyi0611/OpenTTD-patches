@@ -425,6 +425,20 @@ struct GUISettings : public TimeSettings {
 	bool        station_dragdrop;                                ///< whether drag and drop is enabled for stations
 	bool        station_show_coverage;                           ///< whether to highlight coverage area
 	bool        persistent_buildingtools;                        ///< keep the building tools active after usage
+	bool   blueprint_paste_rail;             ///< Blueprint patch: paste rail transport infrastructure
+	bool   blueprint_paste_road;             ///< Blueprint patch: paste road transport infrastructure
+	bool   blueprint_paste_water;            ///< Blueprint patch: paste water transport infrastructure
+	bool   blueprint_paste_air;              ///< Blueprint patch: paste airports
+	bool   blueprint_convert_railtype;       ///< Blueprint patch: convert pasted rail to the current rail type
+	bool   blueprint_mirror_signals;         ///< Blueprint patch: mirror pasted signals
+	bool   blueprint_upgrade_bridges;        ///< Blueprint patch: upgrade pasted bridges
+	bool   blueprint_with_stations;          ///< Blueprint patch: paste stations and waypoints too
+	uint8_t blueprint_terraform_mode;         ///< Blueprint patch: terraforming while pasting (0 none, 1 minimal, 2 full)
+	bool   blueprint_undo_terrain;           ///< Blueprint patch: restore the landscape too when undoing a paste
+	bool   blueprint_undo_rail;              ///< Blueprint patch: undo rail infrastructure
+	bool   blueprint_undo_road;              ///< Blueprint patch: undo road infrastructure
+	bool   blueprint_undo_water;             ///< Blueprint patch: undo water infrastructure
+	bool   blueprint_undo_air;               ///< Blueprint patch: undo airports
 	uint32_t    last_newgrf_count;                               ///< the numbers of NewGRFs we found during the last scan
 	uint8_t     missing_strings_threshold;                       ///< the number of missing strings before showing the warning
 	uint8_t     graph_line_thickness;                            ///< the thickness of the lines in the various graph guis

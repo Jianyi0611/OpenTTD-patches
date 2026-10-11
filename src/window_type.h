@@ -120,6 +120,42 @@ enum class WindowClass : uint16_t {
 	BuildSignal,
 
 	/**
+	 * Blueprint (copy and paste) toolbar; %Window numbers:
+	 *   - 0 = #BlueprintToolbarWidgets
+	 */
+	BlueprintToolbar,
+
+	/**
+	 * Blueprint undo toolbar; %Window numbers:
+	 *   - 0 = #BlueprintUndoToolbarWidgets
+	 */
+	BlueprintUndoToolbar,
+
+	/**
+	 * Blueprint undo history; %Window numbers:
+	 *   - 0 = #BlueprintUndoListWidgets
+	 */
+	BlueprintUndoList,
+
+	/**
+	 * Blueprint toolbar description; %Window numbers:
+	 *   - 0 = #BlueprintInfoWidgets
+	 */
+	BlueprintInfo,
+
+	/**
+	 * Blueprint text export/import dialog; %Window numbers:
+	 *   - 0 = #BlueprintTextWidgets
+	 */
+	BlueprintText,
+
+	/**
+	 * Blueprint export/import-all-slots file dialog; %Window numbers:
+	 *   - 0 = #BlueprintFileWidgets
+	 */
+	BlueprintFile,
+
+	/**
 	 * Small map; %Window numbers:
 	 *   - 0 = #SmallMapWidgets
 	 */

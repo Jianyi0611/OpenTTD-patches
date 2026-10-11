@@ -14,6 +14,7 @@
 #include "command_func.h"
 #include "command_settings_type.h"
 #include "command_table.h"
+#include "blueprint.h"
 #include "network/network_type.h"
 #include "network/network.h"
 #include "genworld.h"
@@ -681,6 +682,9 @@ CommandCost DoCommandPInternal(Commands cmd, TileIndex tile, const CommandPayloa
 	BasePersistentStorageArray::SwitchMode(PSM_ENTER_COMMAND);
 	CommandCost res2 = command.exec({ tile, flags | DoCommandFlag::Execute, payload });
 	BasePersistentStorageArray::SwitchMode(PSM_LEAVE_COMMAND);
+
+	/* Blueprint patch: close the undo step this command opened. */
+	EndBlueprintUndoGroup(res2.Succeeded());
 
 	if (cmd == Commands::CompanyControl) {
 		cur_company.Trash();

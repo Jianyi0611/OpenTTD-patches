@@ -54,7 +54,7 @@ static const SpriteID SPR_LARGE_SMALL_WINDOW = 682;
 
 /** Extra graphic spritenumbers */
 static const SpriteID SPR_OPENTTD_BASE   = 4896;
-static const uint16_t OPENTTD_SPRITE_COUNT = 192;
+static const uint16_t OPENTTD_SPRITE_COUNT = 212;
 
 /* Halftile-selection sprites */
 static const SpriteID SPR_HALFTILE_SELECTION_FLAT = SPR_OPENTTD_BASE;
@@ -175,6 +175,22 @@ static const SpriteID SPR_PLAYER_HOST                = SPR_OPENTTD_BASE + 190;
 static const SpriteID SPR_EXTRA_MENU                 = SPR_OPENTTD_BASE + 191;
 
 static const SpriteID SPR_IMG_CARGOFLOW              = SPR_OPENTTD_BASE + 174;
+
+/* Blueprint toolbar icons. */
+static const SpriteID SPR_BLUEPRINT_COPY             = SPR_OPENTTD_BASE + 192;
+static const SpriteID SPR_BLUEPRINT_PASTE            = SPR_OPENTTD_BASE + 193;
+static const SpriteID SPR_BLUEPRINT_ROTATE_CCW       = SPR_OPENTTD_BASE + 194;
+static const SpriteID SPR_BLUEPRINT_ROTATE_CW        = SPR_OPENTTD_BASE + 195;
+static const SpriteID SPR_BLUEPRINT_REFLECT_NW_SE    = SPR_OPENTTD_BASE + 196;
+static const SpriteID SPR_BLUEPRINT_REFLECT_NE_SW    = SPR_OPENTTD_BASE + 197;
+/* 8 sprites: rotation (0..3 quarter turns anticlockwise) + 4 if reflected. */
+static const SpriteID SPR_BLUEPRINT_TRANSFORM_FIRST  = SPR_OPENTTD_BASE + 198;
+static const SpriteID SPR_BLUEPRINT_MIRROR_SIGNALS   = SPR_OPENTTD_BASE + 206;
+static const SpriteID SPR_BLUEPRINT_TOOLBAR          = SPR_OPENTTD_BASE + 207;
+static const SpriteID SPR_BLUEPRINT_UNDO             = SPR_OPENTTD_BASE + 208;
+static const SpriteID SPR_BLUEPRINT_UNDO_LIST        = SPR_OPENTTD_BASE + 209;
+static const SpriteID SPR_BLUEPRINT_EXPORT_IMPORT    = SPR_OPENTTD_BASE + 210;
+static const SpriteID SPR_BLUEPRINT_OPTIONS          = SPR_OPENTTD_BASE + 211;
 
 static const SpriteID SPR_SIGNALS_BASE  = SPR_OPENTTD_BASE + OPENTTD_SPRITE_COUNT;
 static const uint16_t PRESIGNAL_SPRITE_COUNT                   =  48;

@@ -31,6 +31,7 @@ AirType _last_built_airtype = AIRTYPE_BEGIN;
 #include "vehicle_func.h"
 #include "sound_func.h"
 #include "terraform_gui.h"
+#include "blueprint_gui.h"
 #include "object.h"
 #include "newgrf_object.h"
 #include "strings_func.h"
@@ -1081,6 +1082,24 @@ static CallBackFunction MenuClickForest(int index)
 	return CallBackFunction::None;
 }
 
+/* --- Blueprint button --- */
+
+static CallBackFunction ToolbarBlueprintClick(Window *w)
+{
+	ShowBlueprintToolbar();
+	w->HandleButtonClick(WID_TN_BLUEPRINT);
+	return CallBackFunction::None;
+}
+
+/* --- Undo button --- */
+
+static CallBackFunction ToolbarBlueprintUndoClick(Window *w)
+{
+	ShowBlueprintUndoToolbar();
+	w->HandleButtonClick(WID_TN_BLUEPRINT_UNDO);
+	return CallBackFunction::None;
+}
+
 /* --- Music button menu --- */
 
 static CallBackFunction ToolbarMusicClick(Window *w)
@@ -1589,9 +1608,11 @@ static MenuClickedProc * const _menu_clicked_procs[] = {
 	MenuClickBuildWater,  // 24
 	MenuClickBuildAir,    // 25
 	MenuClickForest,      // 26
-	MenuClickMusicWindow, // 27
-	MenuClickNewspaper,   // 28
-	MenuClickHelp,        // 29
+	nullptr,                 // 27
+	nullptr,                 // 28
+	MenuClickMusicWindow, // 29
+	MenuClickNewspaper,   // 30
+	MenuClickHelp,        // 31
 };
 
 /** Full blown container to make it behave exactly as we want :) */
@@ -2040,6 +2061,8 @@ class NWidgetMainToolbarContainer : public NWidgetToolbarContainer {
 			WID_TN_WATER,
 			WID_TN_AIR,
 			WID_TN_LANDSCAPE,
+			WID_TN_BLUEPRINT,
+			WID_TN_BLUEPRINT_UNDO,
 			WID_TN_MUSIC_SOUND,
 			WID_TN_MESSAGES,
 			WID_TN_HELP
@@ -2218,6 +2241,8 @@ static ToolbarButtonProc * const _toolbar_button_procs[] = {
 	ToolbarBuildWaterClick,
 	ToolbarBuildAirClick,
 	ToolbarForestClick,
+	ToolbarBlueprintClick,
+	ToolbarBlueprintUndoClick,
 	ToolbarMusicClick,
 	ToolbarNewspaperClick,
 	ToolbarHelpClick,
@@ -2258,7 +2283,7 @@ struct MainToolbarWindow : Window {
 		/* If spectator, disable all construction buttons
 		 * ie : Build road, rail, ships, airports and landscaping
 		 * Since enabled state is the default, just disable when needed */
-		this->SetWidgetsDisabledState(_local_company == COMPANY_SPECTATOR, WID_TN_RAILS, WID_TN_ROADS, WID_TN_TRAMS, WID_TN_WATER, WID_TN_AIR, WID_TN_LANDSCAPE);
+		this->SetWidgetsDisabledState(_local_company == COMPANY_SPECTATOR, WID_TN_RAILS, WID_TN_ROADS, WID_TN_TRAMS, WID_TN_WATER, WID_TN_AIR, WID_TN_LANDSCAPE, WID_TN_BLUEPRINT, WID_TN_BLUEPRINT_UNDO);
 		/* disable company list drop downs, if there are no companies */
 		this->SetWidgetsDisabledState(Company::GetNumItems() == 0, WID_TN_STATIONS, WID_TN_FINANCES, WID_TN_TRAINS, WID_TN_ROADVEHS, WID_TN_SHIPS, WID_TN_AIRCRAFT);
 
@@ -2476,6 +2501,8 @@ static constexpr std::tuple<WidgetID, WidgetType, SpriteID> _toolbar_button_spri
 	{WID_TN_WATER,        WWT_IMGBTN,     SPR_IMG_BUILDWATER},
 	{WID_TN_AIR,          WWT_IMGBTN,     SPR_IMG_BUILDAIR},
 	{WID_TN_LANDSCAPE,    WWT_IMGBTN,     SPR_IMG_LANDSCAPING},
+	{WID_TN_BLUEPRINT,    WWT_PUSHIMGBTN, SPR_BLUEPRINT_TOOLBAR},
+	{WID_TN_BLUEPRINT_UNDO, WWT_PUSHIMGBTN, SPR_BLUEPRINT_UNDO},
 	{WID_TN_MUSIC_SOUND,  WWT_IMGBTN,     SPR_IMG_MUSIC},
 	{WID_TN_MESSAGES,     WWT_IMGBTN,     SPR_IMG_MESSAGES},
 	{WID_TN_HELP,         WWT_IMGBTN,     SPR_IMG_QUERY},

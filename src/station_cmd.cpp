@@ -8,6 +8,8 @@
 /** @file station_cmd.cpp Handling of station tiles. */
 
 #include "stdafx.h"
+#include "blueprint.h"
+#include "core/flatset_type.hpp"
 #include "aircraft.h"
 #include "core/checksum_func.hpp"
 #include "bridge_map.h"
@@ -1734,7 +1736,15 @@ CommandCost CmdBuildRailStation(DoCommandFlags flags, TileIndex tile_org, RailTy
 				/* Remove animation if overbuilding */
 				DeleteAnimatedTile(tile);
 				uint8_t old_specindex = HasStationTileRail(tile) ? GetCustomStationSpecIndex(tile) : 0;
+
+				/* An undo puts the platform's track back rather than clearing the
+				 * tile outright, so note whether this tile had none of its own:
+				 * only then may that track be removed along with the station. */
+				bool undo_had_track = IsPlainRailTile(tile) && HasTrack(tile, track);
+
 				MakeRailStation(tile, st->owner, st->index, axis, layout & ~1, rt);
+				RecordBlueprintUndoStationTile(tile, false, axis, rt);
+				if (!undo_had_track) RecordBlueprintUndoRailTrack(tile, track, rt);
 				/* Free the spec if we overbuild something */
 				if (old_specindex != specindex) DeallocateSpecFromStation(st, old_specindex);
 				if (statspec == nullptr) DeleteNewGRFInspectWindow(GrfSpecFeature::Stations, tile.base());
@@ -2322,6 +2332,11 @@ CommandCost CmdBuildRoadStop(DoCommandFlags flags, TileIndex tile, uint8_t width
 
 			st->rect.BeforeAddTile(cur_tile, StationRect::ADD_TRY);
 
+			/* What road was here before the stop went in; a stop lays its own on a
+			 * tile that had none, and an undo removes the stop without touching the
+			 * road, so only that has to come out with it. */
+			RoadBits undo_road_before = GetAnyRoadBits(cur_tile, RoadTramType::Road);
+			RoadBits undo_tram_before = GetAnyRoadBits(cur_tile, RoadTramType::Tram);
 			if (is_drive_through) {
 				/* Update company infrastructure counts. If the current tile is a normal road tile, remove the old
 				 * bits first. */
@@ -2341,6 +2356,10 @@ CommandCost CmdBuildRoadStop(DoCommandFlags flags, TileIndex tile, uint8_t width
 				if (tram_rt == INVALID_ROADTYPE && RoadTypeIsTram(rt)) tram_rt = rt;
 				MakeRoadStop(cur_tile, st->owner, st->index, stop_type, road_rt, tram_rt, ddir);
 			}
+
+			RecordBlueprintUndoRoadStop(cur_tile, is_truck_stop ? StationType::Truck : StationType::Bus, is_drive_through, ddir, axis);
+			if (road_rt != INVALID_ROADTYPE) RecordBlueprintUndoRoad(cur_tile, GetAnyRoadBits(cur_tile, RoadTramType::Road) & ~undo_road_before, road_rt);
+			if (tram_rt != INVALID_ROADTYPE) RecordBlueprintUndoRoad(cur_tile, GetAnyRoadBits(cur_tile, RoadTramType::Tram) & ~undo_tram_before, tram_rt);
 			UpdateCompanyRoadInfrastructure(road_rt, road_owner, ROAD_STOP_TRACKBIT_FACTOR);
 			UpdateCompanyRoadInfrastructure(tram_rt, tram_owner, ROAD_STOP_TRACKBIT_FACTOR);
 			Company::Get(st->owner)->infrastructure.station++;
@@ -2900,6 +2919,7 @@ CommandCost CmdBuildDock(DoCommandFlags flags, TileIndex tile, StationID station
 		Company::Get(st->owner)->infrastructure.station += 2;
 
 		MakeDock(tile, st->owner, st->index, direction, wc);
+		RecordBlueprintUndoDock(tile, direction);
 		UpdateStationDockingTiles(st);
 
 		st->AfterStationTileSetChange(true, StationType::Dock);

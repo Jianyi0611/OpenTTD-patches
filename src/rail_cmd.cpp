@@ -8,6 +8,7 @@
 /** @file rail_cmd.cpp Handling of rail tiles. */
 
 #include "stdafx.h"
+#include "blueprint.h"
 #include "viewport_func.h"
 #include "command_func.h"
 #include "depot_base.h"
@@ -968,6 +969,7 @@ CommandCost CmdBuildSingleRail(DoCommandFlags flags, TileIndex tile, RailType ra
 		MarkTileDirtyByTile(tile);
 		AddTrackToSignalBuffer(tile, track, _current_company);
 		YapfNotifyTrackLayoutChange(tile, track);
+		RecordBlueprintUndoRailTrack(tile, track, railtype);
 	}
 
 	cost.AddCost(RailBuildCost(railtype));
@@ -1500,6 +1502,10 @@ CommandCost CmdBuildTrainDepot(DoCommandFlags flags, TileIndex tile, RailType ra
 
 			Company::Get(_current_company)->infrastructure.rail[railtype]++;
 			DirtyCompanyInfrastructureWindows(_current_company);
+
+			/* Only a depot that was actually built is undoable; rotating one that
+			 * was already there must not make it removable. */
+			RecordBlueprintUndoRailDepot(tile, dir, railtype);
 		}
 
 		MarkTileDirtyByTile(tile);
@@ -1948,6 +1954,8 @@ CommandCost CmdBuildSingleSignal(DoCommandFlags flags, TileIndex tile, Track tra
 		}
 	}
 
+	bool undoable_signal = !HasSignalOnTrack(tile, track);
+
 	Train *v = nullptr;
 	/* The new/changed signal could block our path. As this can lead to
 	 * stale reservations, we clear the path reservation here and try
@@ -2071,6 +2079,7 @@ CommandCost CmdBuildSingleSignal(DoCommandFlags flags, TileIndex tile, Track tra
 		MarkTileDirtyByTile(tile, VMDF_NOT_MAP_MODE);
 		AddTrackToSignalBuffer(tile, track, _current_company);
 		YapfNotifyTrackLayoutChange(tile, track);
+		if (undoable_signal && HasSignalOnTrack(tile, track)) RecordBlueprintUndoSignal(tile, track);
 		if (v != nullptr && v->track != TRACK_BIT_DEPOT) {
 			ReReserveTrainPath(v);
 		}

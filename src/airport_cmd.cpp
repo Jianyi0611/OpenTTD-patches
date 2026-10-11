@@ -8,6 +8,7 @@
 /** @file airport_cmd.cpp Handling of airport commands. */
 
 #include "stdafx.h"
+#include "blueprint.h"
 #include "station_map.h"
 #include "command_func.h"
 #include "core/backup_type.hpp"
@@ -1770,6 +1771,8 @@ CommandCost CmdBuildAirport(DoCommandFlags flags, TileIndex tile, uint8_t airpor
 		st->airport.layout = layout;
 
 		st->rect.BeforeAddRect(tile, w, h, StationRect::ADD_TRY);
+
+		RecordBlueprintUndoAirport(tile, static_cast<uint8_t>(airport_type), static_cast<uint8_t>(layout), static_cast<uint16_t>(w), static_cast<uint16_t>(h));
 
 		for (TileIndex t : new_airport_tiles) {
 			uint pos = RotatedAirportSpecPosition(t, new_airport_tiles, rotation);

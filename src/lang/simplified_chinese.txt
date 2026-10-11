@@ -6336,3 +6336,63 @@ STR_BADGE_CONFIG_NAME                                           :名称
 STR_BADGE_FILTER_ANY_LABEL                                      :{STRING}：所有
 
 STR_DECOUPLE_PREVIEW_COUNT                                    :保留 {COMMA} 节（点击手动输入；0 为自动）
+
+# Blueprint feature
+STR_INTRO_CAPTION_BLUEPRINT                                     :{WHITE}OpenTTD Blueprint
+STR_BLUEPRINT_TOOLBAR                                           :{WHITE}蓝图
+STR_BLUEPRINT_TOOLTIP_COPY                                      :{BLACK}选择一块您自己的基础设施区域，复制到当前蓝图槽位
+STR_BLUEPRINT_TOOLTIP_PASTE                                     :{BLACK}将当前蓝图槽位的内容粘贴到地图上
+STR_BLUEPRINT_TOOLTIP_PASTE_RAIL                                :{BLACK}粘贴铁路基础设施
+STR_BLUEPRINT_TOOLTIP_PASTE_ROAD                                :{BLACK}粘贴道路基础设施
+STR_BLUEPRINT_TOOLTIP_PASTE_WATER                               :{BLACK}粘贴水运基础设施
+STR_BLUEPRINT_TOOLTIP_PASTE_AIR                                 :{BLACK}粘贴航空基础设施
+STR_BLUEPRINT_TOOLTIP_CONVERT_RAILTYPE                          :{BLACK}粘贴时将铁路基础设施转换为当前铁路类型
+STR_BLUEPRINT_TOOLTIP_MIRROR_SIGNALS                            :{BLACK}粘贴时镜像信号灯
+STR_BLUEPRINT_TOOLTIP_UPGRADE_BRIDGES                           :{BLACK}粘贴时升级桥梁
+STR_BLUEPRINT_TOOLTIP_WITH_STATIONS                             :{BLACK}同时粘贴车站和路点
+STR_BLUEPRINT_TOOLTIP_TERRAFORM                                 :{BLACK}粘贴时改变地形。点击切换：不改变地形、最小改变、完全改变
+STR_BLUEPRINT_TOOLTIP_TRANSFORMATION                            :{BLACK}当前变换，点击重置
+STR_BLUEPRINT_TOOLTIP_ROTATE_CCW                                :{BLACK}将蓝图逆时针旋转90度
+STR_BLUEPRINT_TOOLTIP_ROTATE_CW                                 :{BLACK}将蓝图顺时针旋转90度
+STR_BLUEPRINT_TOOLTIP_REFLECT_NW_SE                             :{BLACK}沿西北-东南轴翻转蓝图
+STR_BLUEPRINT_TOOLTIP_REFLECT_NE_SW                             :{BLACK}沿东北-西南轴翻转蓝图
+STR_BLUEPRINT_TOOLTIP_HEIGHT_DISPLAY                            :{BLACK}粘贴时应用的高度偏移
+STR_BLUEPRINT_TOOLTIP_HEIGHT_UP                                 :{BLACK}提高蓝图粘贴的高度
+STR_BLUEPRINT_TOOLTIP_HEIGHT_DOWN                               :{BLACK}降低蓝图粘贴的高度
+STR_BLUEPRINT_TOOLTIP_INFO                                      :{BLACK}关于 Blueprint 补丁的信息
+STR_BLUEPRINT_ERROR_NOTHING_TO_COPY                             :{WHITE}所选区域内没有贵公司的基础设施
+STR_BLUEPRINT_ERROR_AREA_TOO_LARGE                              :{WHITE}所选区域太大，无法复制
+STR_BLUEPRINT_ERROR_TOO_LARGE                                   :{WHITE}蓝图太大，无法在多人游戏中粘贴
+STR_TOOLBAR_TOOLTIP_BLUEPRINT                                   :{BLACK}显示用于复制和粘贴基础设施的蓝图工具栏
+STR_LANDSCAPING_TOOLTIP_SHOW_BLUEPRINT_TOOLBAR                  :{BLACK}显示用于复制和粘贴基础设施的蓝图工具栏
+STR_ERROR_CAN_T_PASTE_BLUEPRINT                                 :{WHITE}无法在此处粘贴蓝图...
+STR_BLUEPRINT_TOOLTIP_SLOT                                      :{BLACK}切换到此蓝图槽位。若槽位有名称或内容，悬停时会显示名称和预览。双击以重命名
+STR_BLUEPRINT_EXPORT                                            :{BLACK}导出
+STR_BLUEPRINT_IMPORT                                            :{BLACK}导入
+STR_BLUEPRINT_EXPORT_IMPORT                                     :{BLACK}导出/导入
+STR_BLUEPRINT_INFO_VERSION                                      :{WHITE}Blueprint 补丁，版本 {RAW_STRING}
+STR_BLUEPRINT_EXPORT_MENU_SLOT                                  :导出当前槽位...
+STR_BLUEPRINT_EXPORT_MENU_ALL                                   :将所有槽位导出到文件...
+STR_BLUEPRINT_IMPORT_MENU_SLOT                                  :导入到当前槽位...
+STR_BLUEPRINT_IMPORT_MENU_ALL                                   :从文件导入所有槽位...
+STR_BLUEPRINT_ERROR_CLIPBOARD_EXPORT                            :{WHITE}无法将蓝图复制到剪贴板
+STR_BLUEPRINT_ERROR_CLIPBOARD_PASTE                             :{WHITE}剪贴板为空
+STR_BLUEPRINT_EXPORT_CAPTION                                    :{WHITE}导出蓝图
+STR_BLUEPRINT_IMPORT_CAPTION                                    :{WHITE}导入蓝图
+STR_BLUEPRINT_COPY_TO_CLIPBOARD                                 :{BLACK}复制到剪贴板
+STR_BLUEPRINT_PASTE_FROM_CLIPBOARD                              :{BLACK}从剪贴板粘贴
+STR_BLUEPRINT_QUERY_OVERWRITE_CAPTION                           :{WHITE}替换蓝图？
+STR_BLUEPRINT_QUERY_OVERWRITE                                   :{YELLOW}当前槽位已有蓝图。要替换它吗？
+STR_BLUEPRINT_QUERY_OVERWRITE_ALL_CAPTION                       :{WHITE}替换所有蓝图？
+STR_BLUEPRINT_QUERY_OVERWRITE_ALL                               :{YELLOW}这将替换所有蓝图槽位的内容。要继续吗？
+STR_BLUEPRINT_QUERY_RENAME_CAPTION                              :{WHITE}重命名蓝图
+STR_BLUEPRINT_QUERY_EXPORT_FILE_CAPTION                         :{WHITE}将所有蓝图导出到文件
+STR_BLUEPRINT_QUERY_IMPORT_FILE_CAPTION                         :{WHITE}从文件导入所有蓝图
+STR_BLUEPRINT_QUERY_OVERWRITE_FILE_CAPTION                      :{WHITE}替换文件？
+STR_BLUEPRINT_QUERY_OVERWRITE_FILE                              :{YELLOW}已存在同名文件。要替换它吗？
+STR_BLUEPRINT_TOOLTIP_EXPORT_IMPORT                             :{BLACK}导出或导入蓝图
+STR_BLUEPRINT_TOOLTIP_FILE_LIST                                 :{BLACK}点击文件以选择，或点击文件夹以打开
+STR_BLUEPRINT_ERROR_INVALID_TEXT                                :{WHITE}该文本不是有效的蓝图
+STR_BLUEPRINT_ERROR_INVALID_FILE_NAME                           :{WHITE}文件名无效
+STR_BLUEPRINT_ERROR_FILE_NOT_FOUND                              :{WHITE}未找到蓝图文件，或不是有效的蓝图集
+STR_BLUEPRINT_ERROR_FILE_WRITE                                  :{WHITE}无法写入蓝图文件

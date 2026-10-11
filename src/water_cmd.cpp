@@ -8,6 +8,7 @@
 /** @file water_cmd.cpp Handling of water tiles. */
 
 #include "stdafx.h"
+#include "blueprint.h"
 #include "landscape.h"
 #include "landscape_cmd.h"
 #include "viewport_func.h"
@@ -176,6 +177,7 @@ CommandCost CmdBuildShipDepot(DoCommandFlags flags, TileIndex tile, Axis axis)
 
 		MakeShipDepot(tile,  _current_company, depot->index, DepotPart::North, axis, wc1);
 		MakeShipDepot(tile2, _current_company, depot->index, DepotPart::South, axis, wc2);
+		RecordBlueprintUndoShipDepot(tile, axis);
 		CheckForDockingTile(tile);
 		CheckForDockingTile(tile2);
 		MarkTileDirtyByTile(tile);
@@ -421,6 +423,7 @@ static CommandCost DoBuildLock(TileIndex tile, DiagDirection dir, DoCommandFlags
 		}
 
 		MakeLock(tile, _current_company, dir, wc_lower, wc_upper, wc_middle);
+		RecordBlueprintUndoLock(tile, dir);
 		CheckForDockingTile(tile - delta);
 		CheckForDockingTile(tile + delta);
 		MarkTileDirtyByTile(tile);
@@ -579,6 +582,9 @@ CommandCost CmdBuildCanal(DoCommandFlags flags, TileIndex tile, TileIndex start_
 						Company::Get(_current_company)->infrastructure.water++;
 						DirtyCompanyInfrastructureWindows(_current_company);
 					}
+					/* Only a company's canal is undoable; rivers and sea belong to
+					 * the scenario editor and have no owner to undo for. */
+					RecordBlueprintUndoCanal(current_tile);
 					break;
 			}
 			MarkTileDirtyByTile(current_tile);
