@@ -1700,6 +1700,11 @@ struct BlueprintToolbarWindow : Window {
 		this->InitNested(window_number);
 	}
 
+	Point OnInitialPosition(int16_t sm_width, [[maybe_unused]] int16_t sm_height, [[maybe_unused]] int window_number) override
+	{
+		return AlignInitialConstructionToolbar(sm_width);
+	}
+
 	/**
 	 * Get the sprite visualising the current transformation.
 	 * @return Sprite to show on the transformation indicator button.
@@ -2302,6 +2307,18 @@ struct BlueprintUndoToolbarWindow : Window {
 	BlueprintUndoToolbarWindow(WindowDesc &desc, WindowNumber window_number) : Window(desc)
 	{
 		this->InitNested(window_number);
+	}
+
+	Point OnInitialPosition(int16_t sm_width, [[maybe_unused]] int16_t sm_height, [[maybe_unused]] int window_number) override
+	{
+		/* Sit with the other construction toolbars, but next to the blueprint
+		 * toolbar rather than on top of it when both are open. */
+		Point pt = AlignInitialConstructionToolbar(sm_width);
+		const Window *w = FindWindowById(WindowClass::BlueprintToolbar, 0);
+		if (w != nullptr && w->top == pt.y) {
+			pt.x = w->left + (_current_text_dir == TD_RTL ? w->width : -sm_width);
+		}
+		return pt;
 	}
 
 	void OnPaint() override
