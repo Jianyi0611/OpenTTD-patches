@@ -11,6 +11,7 @@
 #include "../debug.h"
 #include "../vehicle_func.h"
 #include "../train.h"
+#include "../train_cmd.h"
 #include "../roadveh.h"
 #include "../ship.h"
 #include "../aircraft.h"
@@ -1973,6 +1974,45 @@ static ChunkSaveLoadSpecialOpResult Special_CPLM(uint32_t chunk_id, ChunkSaveLoa
 	return CSLSOR_NONE;
 }
 
+void Save_CSFC()
+{
+	assert(_sl_xv_feature_versions[XSLFI_COUPLE_SEARCH_FAIL_CACHE] != 0);
+
+	SlAutolength([]() {
+		SlWriteUint32((uint32_t)_couple_search_last_fail.size());
+		for (const auto &it : _couple_search_last_fail) {
+			SlWriteUint32(it.first.base());
+			SlWriteUint64(it.second);
+		}
+	});
+}
+
+void Load_CSFC()
+{
+	_couple_search_last_fail.clear();
+	if (SlGetFieldLength() == 0) return;
+
+	uint32_t count = SlReadUint32();
+	for (uint32_t i = 0; i < count; i++) {
+		VehicleID id = static_cast<VehicleID>(SlReadUint32());
+		uint64_t tick = SlReadUint64();
+		_couple_search_last_fail[id] = tick;
+	}
+}
+
+static ChunkSaveLoadSpecialOpResult Special_CSFC(uint32_t chunk_id, ChunkSaveLoadSpecialOp op)
+{
+	switch (op) {
+		case CSLSO_SHOULD_SAVE_CHUNK:
+			if (_sl_xv_feature_versions[XSLFI_COUPLE_SEARCH_FAIL_CACHE] == 0) return CSLSOR_DONT_SAVE_CHUNK;
+			break;
+
+		default:
+			break;
+	}
+	return CSLSOR_NONE;
+}
+
 void Load_VLKA()
 {
 	std::vector<SaveLoad> lookahead_desc = SlFilterNamedSaveLoadTable(GetVehicleLookAheadDescription());
@@ -2026,6 +2066,7 @@ static const ChunkHandler veh_chunk_handlers[] = {
 	{ 'VESR', Save_VESR, Load_VESR, nullptr,   nullptr, CH_SPARSE_TABLE },
 	{ 'VENC', Save_VENC, Load_VENC, nullptr,   nullptr, CH_RIFF,         Special_VENC },
 	{ 'CPLM', Save_CPLM, Load_CPLM, nullptr,  nullptr, CH_RIFF,         Special_CPLM },
+	{ 'CSFC', Save_CSFC, Load_CSFC, nullptr,  nullptr, CH_RIFF,         Special_CSFC },
 	{ 'VLKA', nullptr,   Load_VLKA, nullptr,   nullptr, CH_READONLY },
 	{ 'VUBS', nullptr,   Load_VUBS, nullptr,   nullptr, CH_READONLY },
 };

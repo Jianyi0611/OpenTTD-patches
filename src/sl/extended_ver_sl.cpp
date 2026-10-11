@@ -252,6 +252,7 @@ const std::initializer_list<SlxiSubChunkInfo> _sl_xv_sub_chunk_infos = {
 	{ XSLFI_CARGO_TYPES_128,                  XSCF_NULL,                1,   1, "cargo_types_128",                  nullptr, nullptr, nullptr          },
 	{ XSLFI_COUPLE_CLAIM_STATE,               XSCF_NULL,                1,   1, "couple_claim_state",               nullptr, nullptr, "CPLM"           },
 	{ XSLFI_WEATHER,                          XSCF_NULL,                1,   1, "weather",                          nullptr, nullptr, "WTHR"           },
+	{ XSLFI_COUPLE_SEARCH_FAIL_CACHE,         XSCF_NULL,                1,   1, "couple_search_fail_cache",         nullptr, nullptr, "CSFC"           },
 };
 
 /**

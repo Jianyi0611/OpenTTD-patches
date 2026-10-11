@@ -53,6 +53,7 @@
 extern TileIndex _cur_tileloop_tile;
 extern TileIndex _aux_tileloop_tile;
 extern void ClearAllSignalSpeedRestrictions();
+extern void ClearCoupleSearchLastFail();
 extern void MakeNewgameSettingsLive();
 
 extern uint64_t _station_tile_cache_hash;
@@ -208,6 +209,8 @@ void InitializeGame(uint size_x, uint size_y, bool reset_date, bool reset_settin
 	FreeSignalDependencies();
 
 	ClearAllSignalSpeedRestrictions();
+
+	ClearCoupleSearchLastFail();
 
 	ClearZoningCaches();
 	InvalidatePlanCaches();

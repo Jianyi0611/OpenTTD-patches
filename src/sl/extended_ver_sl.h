@@ -216,6 +216,7 @@ enum SlXvFeatureIndex {
 	XSLFI_CARGO_TYPES_128,                        ///< Cargo types extended from 64 to 128 slots, cargo ids above 64 in savegames need remapping
 	XSLFI_COUPLE_CLAIM_STATE,                     ///< Transient couple target/claim state of trains is persisted
 	XSLFI_WEATHER,                                ///< Cosmetic weather state is persisted
+	XSLFI_COUPLE_SEARCH_FAIL_CACHE,               ///< Couple target search last-fail timestamps are persisted
 
 	XSLFI_SIZE,                                   ///< Total count of features, including null feature
 };

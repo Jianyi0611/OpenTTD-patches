@@ -4683,7 +4683,12 @@ static Track DoTrainPathfind(const Train *v, TileIndex tile, DiagDirection enter
 }
 
 /** Tick of the last failed couple target search, per train (see #DoTrainCouplePathfind). */
-static btree::btree_map<VehicleID, uint64_t> _couple_search_last_fail;
+btree::btree_map<VehicleID, uint64_t> _couple_search_last_fail;
+
+void ClearCoupleSearchLastFail()
+{
+	_couple_search_last_fail.clear();
+}
 
 /** A failed couple target search is retried only after this many ticks. */
 constexpr uint64_t COUPLE_FAIL_RETRY_INTERVAL = 60;
