@@ -6370,7 +6370,7 @@ STR_BLUEPRINT_TOOLTIP_SLOT                                      :{BLACK}切换�
 STR_BLUEPRINT_EXPORT                                            :{BLACK}导出
 STR_BLUEPRINT_IMPORT                                            :{BLACK}导入
 STR_BLUEPRINT_EXPORT_IMPORT                                     :{BLACK}导出/导入
-STR_BLUEPRINT_INFO_VERSION                                      :{WHITE}Blueprint 补丁，版本 {RAW_STRING}
+STR_BLUEPRINT_INFO_VERSION                                      :{WHITE}Blueprint 补丁，版本 {STRING}
 STR_BLUEPRINT_EXPORT_MENU_SLOT                                  :导出当前槽位...
 STR_BLUEPRINT_EXPORT_MENU_ALL                                   :将所有槽位导出到文件...
 STR_BLUEPRINT_IMPORT_MENU_SLOT                                  :导入到当前槽位...
@@ -6396,3 +6396,102 @@ STR_BLUEPRINT_ERROR_INVALID_TEXT                                :{WHITE}该文�
 STR_BLUEPRINT_ERROR_INVALID_FILE_NAME                           :{WHITE}文件名无效
 STR_BLUEPRINT_ERROR_FILE_NOT_FOUND                              :{WHITE}未找到蓝图文件，或不是有效的蓝图集
 STR_BLUEPRINT_ERROR_FILE_WRITE                                  :{WHITE}无法写入蓝图文件
+
+
+# Blueprint feature (undo toolbar, paste options, import/export, info windows)
+STR_TOOLBAR_TOOLTIP_BLUEPRINT_UNDO                              :{BLACK}显示撤销工具栏，用于撤销您上次建造的内容
+STR_BLUEPRINT_UNDO_TOOLBAR                                      :{WHITE}撤销
+STR_BLUEPRINT_UNDO_LIST_CAPTION                                 :{WHITE}撤销历史
+STR_BLUEPRINT_UNDO_LIST_TRACK                                   :{COMMA}段轨道
+STR_BLUEPRINT_UNDO_LIST_SIGNAL                                  :{COMMA}个信号灯
+STR_BLUEPRINT_UNDO_LIST_RAIL_DEPOT                              :{COMMA}个列车车库
+STR_BLUEPRINT_UNDO_LIST_STATION                                 :{COMMA}个车站
+STR_BLUEPRINT_UNDO_LIST_WAYPOINT                                :{COMMA}个路点
+STR_BLUEPRINT_UNDO_LIST_ROAD                                    :{COMMA}段道路
+STR_BLUEPRINT_UNDO_LIST_ROAD_DEPOT                              :{COMMA}个汽车车库
+STR_BLUEPRINT_UNDO_LIST_ROAD_STOP                               :{COMMA}个公路站
+STR_BLUEPRINT_UNDO_LIST_BRIDGE                                  :{COMMA}座桥
+STR_BLUEPRINT_UNDO_LIST_TUNNEL                                  :{COMMA}条隧道
+STR_BLUEPRINT_UNDO_LIST_CANAL                                   :{COMMA}段运河
+STR_BLUEPRINT_UNDO_LIST_LOCK                                    :{COMMA}座船闸
+STR_BLUEPRINT_UNDO_LIST_SHIP_DEPOT                              :{COMMA}个船坞
+STR_BLUEPRINT_UNDO_LIST_DOCK                                    :{COMMA}个码头
+STR_BLUEPRINT_UNDO_LIST_BUOY                                    :{COMMA}个航标
+STR_BLUEPRINT_UNDO_LIST_AIRPORT                                 :{COMMA}个机场
+STR_BLUEPRINT_UNDO_LIST_LAND                                    :地形
+STR_BLUEPRINT_UNDO_LIST_UNDO_SELECTED                           :{BLACK}撤销所选
+STR_BLUEPRINT_SLOT                                              :{BLACK}{NUM}
+STR_BLUEPRINT_SLOT_SCRATCH                                      :{BLACK}*
+STR_BLUEPRINT_PAGE                                              :{BLACK}{STRING}
+STR_BLUEPRINT_PAGE_MENU_ITEM                                    :{STRING}   {STRING}
+STR_BLUEPRINT_OPTIONS_MENU_RAIL                                 :铁路
+STR_BLUEPRINT_OPTIONS_MENU_ROAD                                 :公路与电车
+STR_BLUEPRINT_OPTIONS_MENU_WATER                                :水运
+STR_BLUEPRINT_OPTIONS_MENU_AIR                                  :机场
+STR_BLUEPRINT_OPTIONS_MENU_WITH_STATIONS                        :车站与路点
+STR_BLUEPRINT_OPTIONS_MENU_CONVERT_RAILTYPE                     :转换为当前铁路类型
+STR_BLUEPRINT_OPTIONS_MENU_MIRROR_SIGNALS                       :镜像信号灯
+STR_BLUEPRINT_OPTIONS_MENU_UPGRADE_BRIDGES                      :升级桥梁
+STR_BLUEPRINT_OPTIONS_MENU_TERRAFORM_NONE                       :地形改造：无
+STR_BLUEPRINT_OPTIONS_MENU_TERRAFORM_MINIMAL                    :地形改造：基础设施之下
+STR_BLUEPRINT_OPTIONS_MENU_TERRAFORM_FULL                       :地形改造：整个区域
+STR_BLUEPRINT_OPTIONS_MENU_RESTORE_LAND                         :恢复地形
+STR_BLUEPRINT_HEIGHT_POSITIVE                                   :{YELLOW}+{NUM}
+STR_BLUEPRINT_HEIGHT_NEGATIVE                                   :{YELLOW}-{NUM}
+STR_BLUEPRINT_CLEAR_MENU_SLOT                                   :清空当前槽位...
+STR_BLUEPRINT_INFO_WINDOW_VERSION                               :{BLACK}蓝图补丁，版本 {STRING}
+STR_BLUEPRINT_INFO_CAPTION_BLUEPRINT                            :{WHITE}关于蓝图工具栏
+STR_BLUEPRINT_INFO_CAPTION_UNDO                                 :{WHITE}关于撤销工具栏
+STR_BLUEPRINT_INFO_TEXT_BLUEPRINT                               :{BLACK}复制您已建造的一部分，然后再把它盖到别处。{}在当前页的八个槽位中选一个，按“复制”并用鼠标框选您自己的基础设施。选好槽位后“粘贴”会自动就绪，光标处会有一个幽灵预览显示将要建造的内容；放不下的部分会显示为红色。蓝图以光标为中心，因此光标所指即您即将建造区域的正中。点击即可建造。{}蓝图在粘贴前可以旋转、镜像以及升高或降低。粘贴选项菜单决定带上哪些种类的基础设施以及如何铺设；其中的地形改造会让地面与所复制的内容相匹配。{}共有六页、每页八个槽位（A 到 F），通过工具栏左端的按钮切换；它的菜单会显示每页哪些槽位已被占用，每页还有各自的颜色，方便您分辨当前所在页。第 8 个槽位之后标有 * 的槽位是用于快速复制粘贴的临时缓冲：它不属于任何页、不会被保存，下次启动时又是空的。复制到其中会立即就绪“粘贴”，刚复制的内容可以直接放回去。{}槽位在重启后仍然保留。蓝图可以导出为文本字符串以便分享，也可以把整页保存到文件。
+STR_BLUEPRINT_INFO_TEXT_UNDO                                    :{BLACK}撤销您所建造的内容，无论是手动建造的还是粘贴的。{}一次操作就是一步：拖动建设的一条轨道会一次性撤销。历史记录按由新到旧列出仍可撤销的内容；选中条目会在地图上标记其所在的图块，按住 Ctrl 点击和按住 Shift 点击可以一次选择多项。{}选项菜单可以把撤销限制为铁路、公路、水运或航空，并决定是否同时恢复地形；修改时菜单会保持打开。{}撤销会移除您建造的内容，但无法恢复您已毁掉的东西：树木、房屋以及被推土机推掉的一切都将永久消失。移除会按通常价格收费。无法移除的部分（例如上面停着列车的轨道，或上面还建着东西的土地）会保留在历史记录中，直到可以移除为止。操作会在一小时后以及游戏重启时被遗忘。
+STR_BLUEPRINT_FILE_DETAILS_CAPTION                              :{BLACK}蓝图页
+STR_BLUEPRINT_FILE_DETAILS_HINT                                 :{BLACK}选择一个文件以查看其内容
+STR_BLUEPRINT_FILE_DETAILS_SLOT_NAMED                           :{BLACK}{NUM}：{STRING}（{COMMA}）
+STR_BLUEPRINT_FILE_DETAILS_SLOT_UNNAMED                         :{BLACK}{NUM}：{COMMA} 个元素
+STR_BLUEPRINT_FILE_DETAILS_SLOT_EMPTY                           :{GRAY}{NUM}：空
+STR_BLUEPRINT_DELETE                                            :{BLACK}删除
+STR_BLUEPRINT_TOOLTIP_DELETE_FILE                               :{BLACK}删除所选蓝图文件
+STR_BLUEPRINT_QUERY_DELETE_FILE_CAPTION                         :{WHITE}删除蓝图文件
+STR_BLUEPRINT_QUERY_DELETE_FILE                                 :{YELLOW}确定要永久删除此文件吗？
+STR_BLUEPRINT_QUERY_CLEAR_SLOT_CAPTION                          :{WHITE}清空蓝图槽位
+STR_BLUEPRINT_QUERY_CLEAR_SLOT                                  :{YELLOW}确定要丢弃此槽位的内容吗？
+STR_BLUEPRINT_TOOLTIP_PAGE                                      :{BLACK}右侧按钮显示的是八槽位蓝图页中的哪一页。点击可切换为六页中的另一页。每页都有自己的颜色，并各自保存八个蓝图
+STR_BLUEPRINT_TOOLTIP_SLOT_SCRATCH                              :{BLACK}临时槽位，用于不想保留的快速复制粘贴。它不属于任何页，不会被保存，也不会被导出——复制到其中绝不会覆盖您编号的槽位
+STR_BLUEPRINT_TOOLTIP_PASTE_OPTIONS                             :{BLACK}决定粘贴的内容与方式：铁路、公路、水运和航空筛选，车站，铁路转换，信号镜像，桥梁升级以及地形改造模式。修改时菜单会保持打开
+STR_BLUEPRINT_TOOLTIP_UNDO                                      :{BLACK}撤销蓝图粘贴：以通常的移除价格再次移除您上次粘贴所建造的内容。它不会撤销您手动建造的轨道、公路或其他内容。粘贴会在一小时后以及游戏重启时被遗忘
+STR_BLUEPRINT_TOOLTIP_UNDO_LIST                                 :{BLACK}显示撤销历史
+STR_BLUEPRINT_TOOLTIP_UNDO_OPTIONS                              :{BLACK}决定撤销会收回的内容：铁路、公路、水运和航空筛选，以及是否同时恢复地形。修改时菜单会保持打开
+STR_BLUEPRINT_TOOLTIP_UNDO_LIST_LIST                            :{BLACK}仍可撤销的内容，由新到旧。点击选择，按住 Ctrl 点击可添加或移除一项，按住 Shift 点击可选择一段范围
+STR_BLUEPRINT_TOOLTIP_UNDO_LIST_UNDO_SELECTED                   :{BLACK}撤销所有所选内容，最新的优先
+STR_BLUEPRINT_ERROR_NOTHING_TO_UNDO                             :{WHITE}没有可撤销的近期粘贴
+STR_BLUEPRINT_ERROR_UNDO_TOO_LARGE                              :{WHITE}该粘贴过大，无法在多人游戏中撤销
+STR_ERROR_CAN_T_UNDO_BLUEPRINT_PASTE                            :{WHITE}无法撤销该粘贴...
+
+# Strings newly present after the merge (jgrpp and upstream)
+STR_LANDSCAPING_MENU_PLACE_OBJECT                               :放置物体
+STR_ORDER_COUPLE_SLOT_BUTTON                                    :{BLACK}槽位
+STR_ORDER_COUPLE_SLOT_TOOLTIP                                   :{BLACK}列车必须与之编组的路径信号槽位
+STR_CONFIG_SETTING_TRAIN_FLIP_REVERSE_ALL                       :全部
+STR_CONFIG_SETTING_TRAIN_FLIP_REVERSE_END_OF_LINE_ONLY          :仅线路端点
+STR_CONFIG_SETTING_TRAIN_FLIP_REVERSE_NONE                      :无
+STR_CONFIG_SETTING_TRAIN_FLIP_REVERSE_HELPTEXT                  :选择列车可以在哪里掉头以反向行驶。选择“全部”时列车可以在任意位置掉头。选择“仅线路端点”时，如果前方存在可行路线，列车不会在车站内掉头。选择“无”时列车无法掉头，必要时将倒退行驶；如果尾部车厢没有驾驶室，速度会降低
+STR_CONFIG_SETTING_DEFAULT_RAIL_ROAD_TYPE                       :默认铁路、公路与电车类型（新游戏/载入游戏后）：{STRING}
+STR_CONFIG_SETTING_DEFAULT_RAIL_ROAD_TYPE_FIRST                 :最早可用
+STR_CONFIG_SETTING_DEFAULT_RAIL_ROAD_TYPE_LAST                  :最新可用
+STR_CONFIG_SETTING_DEFAULT_RAIL_ROAD_TYPE_MOST_USED             :使用最多
+STR_CONFIG_SETTING_DEFAULT_RAIL_ROAD_TYPE_HELPTEXT              :开始或载入游戏后默认选择的铁路、公路与电车类型。“最早可用”选择最旧的轨道类型，“最新可用”选择最新的轨道类型，“使用最多”选择当前使用最多的类型
+STR_TERRAFORM_TOOLTIP_LOWER_A_CORNER_OF_LAND                    :{BLACK}降低一角或一片土地。若范围为 1x1，点击并拖动可降低第一个选中的角，并将选中区域整平到该角的新高度。按住 Ctrl 点击并拖动可沿对角线框选区域。同时按住 Shift 则只显示费用估算
+STR_TERRAFORM_TOOLTIP_RAISE_A_CORNER_OF_LAND                    :{BLACK}升高一角或一片土地。若范围为 1x1，点击并拖动可升高第一个选中的角，并将选中区域整平到该角的新高度。按住 Ctrl 点击并拖动可沿对角线框选区域。同时按住 Shift 则只显示费用估算
+STR_SAVELOAD_NEW_DIRECTORY_BUTTON                               :{BLACK}新建文件夹
+STR_SAVELOAD_NEW_DIRECTORY_TOOLTIP                              :{BLACK}在当前位置新建一个文件夹
+STR_SAVELOAD_NEW_DIRECTORY_QUERY_CAPTION                        :{WHITE}请输入新文件夹的名称
+STR_ORDER_CONDITIONAL_DRIVING_BACKWARDS                         :反向行驶
+STR_ERROR_CANNOT_CREATE_DIRECTORY                               :无法创建文件夹...
+STR_ERROR_DIRECTORY_NAME_IN_USE                                 :已存在同名的文件或文件夹
+STR_ERROR_DIRECTORY_ILLEGAL_NAME                                :文件夹名称不能包含特殊字符
+STR_ERROR_DIRECTORY_LEADING_DOT                                 :文件夹名称不能以点开头
+STR_ERROR_DIRECTORY_PERMISSION_DENIED                           :您没有权限在此创建文件夹
+STR_ERROR_BRIDGE_TOO_LOW_FOR_TRAIN_DEPOT                        :桥梁对列车车库而言低了 {HEIGHT}
+STR_ERROR_BRIDGE_TOO_LOW_FOR_ROADVEH_DEPOT                      :桥梁对汽车车库而言低了 {HEIGHT}
+STR_ERROR_BRIDGE_TOO_LOW_FOR_SHIP_DEPOT                         :桥梁对船坞而言低了 {HEIGHT}
+STR_ERROR_BRIDGE_TOO_LOW_FOR_OBJECT                             :桥梁对物体而言低了 {HEIGHT}
