@@ -1632,33 +1632,35 @@ bool IsCouplePartnerTile(const Train *v, TileIndex tile)
 	return CouplePlatformStripHasPartner(tgt->Primary(), tile);
 }
 
-/** Worklist entry for the couple approach search. */
-struct CoupleApproachEntry {
-	TileIndex tile;  ///< Tile the step is taken from.
-	Trackdir td;     ///< Trackdir to follow from \a tile.
-	uint dist;       ///< Manhattan distance from \a tile to the partner, keeping the search on the direct route.
-};
-
 /** Tile budget for the couple approach walk. */
 static constexpr uint COUPLE_APPROACH_BUDGET = 256;
 
 enum class CoupleApproachOutcome {
 	Unreachable,     ///< the partner could not be reached at all
-	Reached,         ///< a route to the partner is free
-	Blocked,         ///< only branches that were heading towards the partner were cut off by a foreign consist
+	Reached,         ///< the route to the partner holds nothing but the partner and ourselves
+	Blocked,         ///< a foreign consist stands on the route to the partner
 };
 
 /**
- * Walk from the approaching consist towards \a tgt (see #IsCoupleApproachPathClearTo).
+ * Walk from the approaching consist towards \a tgt and report whether it is reached with nothing
+ * but ourselves in between (see #IsCoupleApproachPathClearTo).
+ *
+ * The train would drive the shortest route the track layout offers to the partner. Every other
+ * consist standing on that route -- on the track the train travels, before the partner itself --
+ * is in the way, and the couple has to wait for it to move instead of driving around it. A detour
+ * the layout forces (a loop, or a station platform only reachable from its far end) is fine: it is
+ * simply the shortest route that exists, and it is the foreign consists met *on* it that block.
+ *
+ * The route is measured in moves and every other consist is passed through, so the search finds
+ * the route the train would naturally drive even when a foreign consist stands on it (that is what
+ * is then reported). A clean and a blocked state of the same tile are kept apart so a clean route
+ * is never discarded in favour of a blocked one.
+ *
  * @param v the approaching consist with a goto-couple order.
  * @param tgt the claimed partner.
- * @param direct_only follow only branches that keep closing the distance to the
- *   partner, i.e. describe the direct approach. With this off, a detour the track
- *   layout forces (a loop, a platform entered from its far end) is followed too.
  */
-static CoupleApproachOutcome CoupleApproachSearch(const Train *v, const Train *tgt, bool direct_only)
+static CoupleApproachOutcome CoupleApproachSearch(const Train *v, const Train *tgt)
 {
-	bool foreign_blocked = false;
 	const Train *partner = tgt->Primary();
 	const Train *mover = v->Primary();
 	const Train *moving_front = mover->GetMovingFront();
@@ -1688,7 +1690,7 @@ static CoupleApproachOutcome CoupleApproachSearch(const Train *v, const Train *t
 
 	/* Anything else sharing one of our tiles is already in the way. */
 	if (foreign_on(moving_front->tile, moving_front->track) || foreign_on(moving_back->tile, moving_back->track)) {
-		return CoupleApproachOutcome::Unreachable;
+		return CoupleApproachOutcome::Blocked;
 	}
 
 	/* The way between us and the partner, walked from both ends of the consist: a couple is
@@ -1701,34 +1703,43 @@ static CoupleApproachOutcome CoupleApproachSearch(const Train *v, const Train *t
 		return CoupleApproachOutcome::Unreachable;
 	}
 
-	/* Visited (tile, trackdir) pairs, not bare tiles: a tile whose track is
-	 * occupied by a foreign consist may still be passable on a parallel track
-	 * of the same tile. */
-	btree::btree_set<uint64_t> visited;
+	struct CoupleWalkNode {
+		TileIndex tile;
+		Trackdir td;
+		uint cost;         ///< moves taken to reach this step
+		bool met_foreign;  ///< a foreign consist was passed on the way here
+	};
+
 	auto visit_key = [](TileIndex t, Trackdir td) {
 		return ((uint64_t)t.base() << 8) | (uint8_t)td;
 	};
-	/* Best-first: explore the branch nearest the partner first, so the budget is
-	 * spent around the straight route before it is spent far away. */
-	auto entry_greater = [](const CoupleApproachEntry &a, const CoupleApproachEntry &b) {
-		return a.dist > b.dist;
+	auto node_greater = [](const CoupleWalkNode &a, const CoupleWalkNode &b) {
+		if (a.cost != b.cost) return a.cost > b.cost;
+		return a.met_foreign > b.met_foreign;      // a clean route is explored before a blocked one
 	};
-	std::priority_queue<CoupleApproachEntry, std::vector<CoupleApproachEntry>, decltype(entry_greater)> todo(entry_greater);
-	visited.insert(visit_key(moving_front->tile, front_td));
-	visited.insert(visit_key(moving_back->tile, back_td));
-	if (front_td != INVALID_TRACKDIR) {
-		todo.push({moving_front->tile, front_td, DistanceManhattan(moving_front->tile, tgt->tile)});
-	}
-	if (back_td != INVALID_TRACKDIR) {
-		todo.push({moving_back->tile, back_td, DistanceManhattan(moving_back->tile, tgt->tile)});
-	}
+	std::priority_queue<CoupleWalkNode, std::vector<CoupleWalkNode>, decltype(node_greater)> todo(node_greater);
+	btree::btree_map<uint64_t, uint> best;
+	auto relax = [&](TileIndex t, Trackdir td, uint cost, bool met_foreign) {
+		/* The clean and the blocked state of a tile are distinct nodes. */
+		uint64_t key = visit_key(t, td) * 2 + (met_foreign ? 1 : 0);
+		auto it = best.find(key);
+		if (it != best.end()) {
+			if (it->second <= cost) return;
+		} else if (best.size() >= COUPLE_APPROACH_BUDGET) {
+			return;
+		}
+		best[key] = cost;
+		todo.push({t, td, cost, met_foreign});
+	};
+	relax(moving_front->tile, front_td, 0, false);
+	relax(moving_back->tile, back_td, 0, false);
 
 	CFollowTrackRail ft(v, v->GetIndirectCompatibleRailTypes());
 	while (!todo.empty()) {
-		CoupleApproachEntry e = todo.top();
+		CoupleWalkNode n = todo.top();
 		todo.pop();
 
-		if (!ft.Follow(e.tile, e.td)) continue;
+		if (!ft.Follow(n.tile, n.td)) continue;
 		if (!IsValidTile(ft.new_tile) || IsRailDepotTile(ft.new_tile)) continue;
 
 		/* The follower jumps whole station platforms in one step and lands past them, so a
@@ -1737,56 +1748,43 @@ static CoupleApproachOutcome CoupleApproachSearch(const Train *v, const Train *t
 		 * interior is jumped the same way, but those tiles are virtual and carry no vehicles,
 		 * which IsValidTile filters out. */
 		TileIndexDiff step = TileOffsByDiagDir(ft.exitdir);
+		TrackBits mover_track = TrackToTrackBits(TrackdirToTrack(n.td));
+		bool saw_foreign = false;
 		bool reached = false;
-		bool blocked = false;
 		for (uint i = 1; i <= ft.tiles_skipped + 1; i++) {
 			TileIndex t = ft.new_tile - step * (ft.tiles_skipped + 1 - i);
-			if (!IsValidTile(t) || t == e.tile) continue;
-			/* A consist occupying the track we follow cuts this branch off; a
-			 * consist on a different track sharing a skipped tile does not. Another
-			 * route to the partner may still be free. */
-			if (foreign_on(t, TrackToTrackBits(TrackdirToTrack(e.td)))) {
-				blocked = true;
-				break;
-			}
+			if (!IsValidTile(t) || t == n.tile) continue;
+			/* A foreign consist standing on the track we travel is in the way even when it shares
+			 * the partner's own tile (coupled consists overlap there), so it is checked first. */
+			if (foreign_on(t, mover_track)) saw_foreign = true;
+			/* The contact happens where the partner is met; tiles past it are not travelled. */
 			if (partner_on(t)) { reached = true; break; }
 		}
-		if (reached) return CoupleApproachOutcome::Reached;
-		if (blocked) {
-			/* A blocked branch is a dead end, not a tile we explored: it must
-			 * not consume budget, and the tile itself stays visitable via any
-			 * other track that reaches it. Remember that a consist, not the
-			 * layout, cut a way towards the partner. */
-			foreign_blocked = true;
-			continue;
+		if (reached) {
+			/* This is the first (shortest) route to the partner. A foreign consist met on the way
+			 * is in the way even though the route got past it. */
+			return (n.met_foreign || saw_foreign) ? CoupleApproachOutcome::Blocked : CoupleApproachOutcome::Reached;
 		}
+		const bool met_foreign = n.met_foreign || saw_foreign;
 
 		TrackdirBits tdb = ft.new_td_bits & DiagdirReachesTrackdirs(ft.exitdir);
-		uint dist = DistanceManhattan(ft.new_tile, tgt->tile);
-		/* In direct-only mode follow only branches that get closer to the
-		 * partner: a branch that swings away is a loop around whatever blocks
-		 * the straight route, not part of the direct approach. */
-		if (direct_only && dist >= e.dist) continue;
 		for (Trackdir ntd : SetTrackdirBitIterator(tdb)) {
-			if (visited.size() >= COUPLE_APPROACH_BUDGET && visited.find(visit_key(ft.new_tile, ntd)) == visited.end()) break;
-			auto res = visited.insert(visit_key(ft.new_tile, ntd));
-			if (!res.second) continue;
-			todo.push({ft.new_tile, ntd, dist});
+			relax(ft.new_tile, ntd, n.cost + 1, met_foreign);
 		}
 	}
 
-	/* The partner was never reached, so every way to it is cut off. */
-	return foreign_blocked ? CoupleApproachOutcome::Blocked : CoupleApproachOutcome::Unreachable;
+	return CoupleApproachOutcome::Unreachable;
 }
 
 /**
  * Check whether the way from the approaching consist to the claimed couple partner is free of
  * other consists, that is, whether nothing but the partner and ourselves stands on it.
  *
- * The direct approach is checked first. When only a detour reaches the partner (a loop or a
- * platform that has to be entered from its far end), that detour is accepted too -- unless a
- * foreign consist is what cuts the direct way, in which case the couple waits for that consist
- * to move instead of sending the train on a loop around the partner.
+ * The shortest route the track layout offers to the partner is walked and the first consist met on
+ * it decides: the partner means the approach is clear, any other consist means it is blocked and
+ * the couple has to wait for that consist to move instead of driving around it. A detour the layout
+ * forces (a loop, or a platform only reachable from its far end) is that shortest route and thus
+ * accepted; only consists standing *on* it block.
  *
  * @param v the approaching consist with a goto-couple order.
  * @param tgt the claimed partner.
@@ -1796,15 +1794,7 @@ bool IsCoupleApproachPathClearTo(const Train *v, const Train *tgt)
 {
 	if (tgt == nullptr) return false;
 
-	const CoupleApproachOutcome direct = CoupleApproachSearch(v, tgt, true);
-	if (direct == CoupleApproachOutcome::Reached) return true;
-
-	const CoupleApproachOutcome any = CoupleApproachSearch(v, tgt, false);
-	if (any != CoupleApproachOutcome::Reached) return false;
-
-	/* Reachable only by a detour: fine for the track layout, but not when a
-	 * foreign consist is what blocks the direct approach. */
-	return direct != CoupleApproachOutcome::Blocked;
+	return CoupleApproachSearch(v, tgt) == CoupleApproachOutcome::Reached;
 }
 
 bool IsCoupleApproachPathClear(const Train *v)
