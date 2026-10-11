@@ -23,6 +23,7 @@ struct Engine;
 static const uint8_t RVTF_WAITING     = 1 << 0; ///< Road vehicle waits at a station to be loaded onto a carrier.
 static const uint8_t RVTF_TRANSPORTED = 1 << 1; ///< Road vehicle is currently carried by another vehicle (off the road network).
 static const uint8_t RVTF_UNLOAD_WARNED = 1 << 2; ///< The "carried for too long" warning was already shown for this trip.
+static const uint8_t RVTF_PLACED_HELD = 1 << 3;   ///< Articulated part held on the stop tile it was put down on until the part in front of it pulls it out (like a part in a depot).
 
 /** Bits stored in OrderExtraInfo::rv_transport_flags. */
 static const uint8_t ORVTF_LOAD   = 1 << 0; ///< This station order loads road vehicles onto the carrier.

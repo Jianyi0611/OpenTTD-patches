@@ -1775,10 +1775,13 @@ bool RVTransportDetachAtStation(Vehicle *carrier, Station *st, bool force)
 		 * into that wall when it tries to leave. */
 		const DiagDirection travel_dd = IsBayRoadStopTile(tile) ? ReverseDiagDir(dd) : dd;
 
-		/* Put the whole road vehicle on that tile, in the same way a vehicle leaves a depot: every
-		 * part starts on the tile and spreads out while the vehicle drives off. */
+		/* Put the whole road vehicle on that tile, in the same way a vehicle leaves a depot: the
+		 * front starts on the tile and drives off, and every following part is held back like an
+		 * articulated part in a depot until the part in front of it has travelled its own length.
+		 * Releasing all parts ready to drive at once leaves them without any spacing on the one
+		 * tile they start on, and the chain then folds onto itself instead of driving out. */
 		for (Vehicle *u = v->First(); u != nullptr; u = u->Next()) {
-			u->rv_transport_flags &= ~RVTF_TRANSPORTED;
+			u->rv_transport_flags &= ~(RVTF_TRANSPORTED | RVTF_PLACED_HELD);
 			u->transported_by = VehicleID::Invalid();
 			u->transported_host_part = VehicleID::Invalid();
 			u->transported_weight = 0;
@@ -1797,6 +1800,13 @@ bool RVTransportDetachAtStation(Vehicle *carrier, Station *st, bool force)
 			u->cur_speed = 0;
 			u->vehstatus.Reset(VehState::Hidden);
 			u->vehstatus.Reset(VehState::Stopped);
+			if (u != v->First()) {
+				/* A following part is held like an articulated part in a depot: hidden, and not
+				 * ticking until IndividualRoadVehicleController() releases it once the part in
+				 * front has travelled its own length. */
+				u->rv_transport_flags |= RVTF_PLACED_HELD;
+				u->vehstatus.Set(VehState::Hidden);
+			}
 			UpdateVehicleTileHash(u, true);    // make sure it is not listed where it came from
 			UpdateVehicleTileHash(u, false);   // back on the road network
 			InvalidateVehicleTickCaches();
@@ -1812,6 +1822,7 @@ bool RVTransportDetachAtStation(Vehicle *carrier, Station *st, bool force)
 			/* The stop refused the vehicle after all: put it back on the carrier rather than leaving
 			 * it half placed (its room was checked above, so this should not happen). */
 			for (Vehicle *u = v->First(); u != nullptr; u = u->Next()) {
+				u->rv_transport_flags &= ~(RVTF_TRANSPORTED | RVTF_PLACED_HELD);
 				u->rv_transport_flags |= RVTF_TRANSPORTED;
 				u->transported_by = carrier->index;
 				u->transported_host_part = host_part;
