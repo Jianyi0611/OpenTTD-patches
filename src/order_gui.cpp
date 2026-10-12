@@ -548,6 +548,36 @@ static StringID RVTransportMaxLoadText(uint8_t max_load)
 }
 
 /**
+ * The content a criteria window edits: either a vehicle's order list or a standalone (player
+ * created) order list. Both order editing windows in this file work on either, so the target
+ * abstracted here is what their order access, their commands and their owner/type lookups go through.
+ */
+struct OrderCriteriaTarget {
+	const Vehicle *vehicle = nullptr;              ///< Vehicle whose orders are edited, or nullptr for a standalone list.
+	OrderListID list_id = OrderListID::Invalid();  ///< Standalone order list, when there is no vehicle.
+	Owner owner = OWNER_NONE;                      ///< Owner whose slots/groups the criteria dropdowns show.
+	VehicleType ref_type = VehicleType::Train;     ///< Vehicle type whose slots/groups the criteria dropdowns show.
+	WindowClass parent_class = WindowClass::VehicleOrders; ///< Class of the order window the criteria window was opened from.
+	WindowNumber window_number = 0;                ///< Window number of that order window.
+
+	bool IsList() const { return this->vehicle == nullptr; }
+
+	const Order *GetOrder(VehicleOrderID i) const
+	{
+		return this->IsList() ? OrderList::Get(this->list_id)->GetOrderAt(i) : this->vehicle->GetOrder(i);
+	}
+
+	uint GetNumOrders() const
+	{
+		return this->IsList() ? (uint)OrderList::Get(this->list_id)->GetNumOrders() : (uint)this->vehicle->GetNumOrders();
+	}
+
+	OrderTargetType TargetKind() const { return this->IsList() ? OrderTargetType::OrderList : OrderTargetType::Vehicle; }
+	uint32_t TargetId() const { return this->IsList() ? this->list_id.base() : this->vehicle->index.base(); }
+	TileIndex CmdTile() const { return this->IsList() ? TileIndex{} : this->vehicle->tile; } // TileIndex{} == 0 passes the command tile gate for tile-less commands
+};
+
+/**
  * Window with every road vehicle transport (RoRo) setting of one station order: whether road
  * vehicles are loaded here (or unloaded here, for a road vehicle itself), whether the carrier waits
  * for them, and which road vehicles are taken (load state, cargo, minimum waiting time, declared
@@ -555,10 +585,10 @@ static StringID RVTransportMaxLoadText(uint8_t max_load)
  */
 class RVTransportWindow : public Window {
 private:
-	const Vehicle *vehicle;  ///< Vehicle the edited order belongs to.
-	VehicleOrderID order_id; ///< Order which is being edited.
-	const Order *order;      ///< The order itself (used to check the window is still valid).
-	uint order_count;        ///< Number of orders the vehicle had when the window was opened.
+	OrderCriteriaTarget target; ///< Vehicle or standalone order list whose order is edited.
+	VehicleOrderID order_id;    ///< Order which is being edited.
+	const Order *order;         ///< The order itself (used to check the window is still valid).
+	uint order_count;           ///< Number of orders the target had when the window was opened.
 
 	/**
 	 * Snapshot of the settings which are shown, so that the buttons and dropdowns can be refreshed
@@ -758,15 +788,15 @@ private:
 	/** Is the edited order still there? */
 	bool CheckOrderStillValid() const
 	{
-		if (this->vehicle->GetNumOrders() != this->order_count) return false;
-		return this->vehicle->GetOrder(this->order_id) == this->order;
+		if (this->target.GetNumOrders() != this->order_count) return false;
+		return this->target.GetOrder(this->order_id) == this->order;
 	}
 
 	/** Apply an order change through the real order modification command. */
 	void ModifyOrder(ModifyOrderFlags mof, uint16_t data, CargoType cargo = INVALID_CARGO)
 	{
 		if (!this->CheckOrderStillValid()) return;
-		Command<Commands::ModifyOrder>::Post(STR_ERROR_CAN_T_MODIFY_THIS_ORDER, this->vehicle->tile, OrderTargetType::Vehicle, this->vehicle->index.base(),
+		Command<Commands::ModifyOrder>::Post(STR_ERROR_CAN_T_MODIFY_THIS_ORDER, this->target.CmdTile(), this->target.TargetKind(), this->target.TargetId(),
 				this->order_id, mof, data, cargo, {});
 	}
 
@@ -853,7 +883,7 @@ private:
 		const TraceRestrictSlotID slot_id = (current == 0) ? TraceRestrictSlotID{} : TraceRestrictSlotID{static_cast<uint16_t>(current - 1)};
 
 		int selected;
-		DropDownList slots = GetSlotDropDownList(this->vehicle->owner, slot_id, selected, this->slot_veh_type, false);
+		DropDownList slots = GetSlotDropDownList(this->target.owner, slot_id, selected, this->slot_veh_type, false);
 
 		DropDownList list;
 		list.push_back(MakeDropDownListCheckedItem(current == 0, STR_ORDER_RV_LOAD_STATE_ANY, RVTC_SLOT_ANY));
@@ -879,7 +909,7 @@ private:
 		const TraceRestrictSlotGroupID sg_id = (current == 0) ? TraceRestrictSlotGroupID{} : TraceRestrictSlotGroupID{static_cast<uint16_t>(current - 1)};
 
 		int selected;
-		DropDownList groups = GetSlotGroupDropDownList(this->vehicle->owner, sg_id, selected, this->slot_group_veh_type);
+		DropDownList groups = GetSlotGroupDropDownList(this->target.owner, sg_id, selected, this->slot_group_veh_type);
 
 		DropDownList list;
 		list.push_back(MakeDropDownListCheckedItem(current == 0, STR_ORDER_COUPLE_ANY_GROUP, RVTC_SLOT_GROUP_ANY));
@@ -897,7 +927,7 @@ private:
 		const GroupID group_id = (current == 0) ? GroupID::Invalid() : GroupID{static_cast<uint16_t>(current - 1)};
 
 		int selected;
-		DropDownList groups = GetGroupDropDownList(this->vehicle->owner, group_id, selected, false, this->group_veh_type);
+		DropDownList groups = GetGroupDropDownList(this->target.owner, group_id, selected, false, this->group_veh_type);
 
 		DropDownList list;
 		list.push_back(MakeDropDownListCheckedItem(current == 0, STR_ORDER_COUPLE_ANY_VEHICLE_GROUP, RVTC_GROUP_ANY));
@@ -908,12 +938,12 @@ private:
 	}
 
 public:
-	RVTransportWindow(WindowDesc &desc, const Vehicle *v, VehicleOrderID order_id) : Window(desc)
+	RVTransportWindow(WindowDesc &desc, const OrderCriteriaTarget &target, VehicleOrderID order_id) : Window(desc)
 	{
-		this->vehicle = v;
+		this->target = target;
 		this->order_id = order_id;
-		this->order_count = v->GetNumOrders();
-		this->order = v->GetOrder(order_id);
+		this->order_count = target.GetNumOrders();
+		this->order = target.GetOrder(order_id);
 
 		this->CreateNestedTree();
 		/* Show the type of the selected slot (train / road vehicle) on the slot type selector. */
@@ -921,9 +951,9 @@ public:
 		/* Set the widget texts before the layout is computed, so that the dropdowns are sized to fit
 		 * their current value (there is no fixed minimum width for them). */
 		this->UpdateWidgetTexts();
-		this->FinishInitNested(v->index);
+		this->FinishInitNested(target.window_number);
 		this->last_settings = this->GetSettings();
-		this->owner = v->owner;
+		this->owner = target.owner;
 	}
 
 	/**
@@ -937,7 +967,7 @@ public:
 			this->Close();
 			return;
 		}
-		this->order = this->vehicle->GetOrder(this->order_id);
+		this->order = this->target.GetOrder(this->order_id);
 		const SettingsSnapshot current = this->GetSettings();
 		if (!(current == this->last_settings)) {
 			this->last_settings = current;
@@ -950,7 +980,7 @@ public:
 
 	void Close(int data = 0) override
 	{
-		FocusWindowById(WindowClass::VehicleOrders, this->window_number);
+		FocusWindowById(this->target.parent_class, this->target.window_number);
 		this->Window::Close();
 	}
 
@@ -1126,7 +1156,7 @@ public:
 			this->Close();
 			return;
 		}
-		this->order = this->vehicle->GetOrder(this->order_id);
+		this->order = this->target.GetOrder(this->order_id);
 		this->UpdateWidgetTexts();
 		this->ReInit();
 		this->SetDirty();
@@ -1201,14 +1231,14 @@ static WindowDesc _rv_transport_desc(__FILE__, __LINE__,
 
 /**
  * Show the window with all road vehicle transport settings of an order.
- * @param v The vehicle the order belongs to.
- * @param parent The parent window.
+ * @param parent The parent order window.
+ * @param target The vehicle or standalone order list the order belongs to.
  * @param order_id Which order to edit.
  */
-void ShowRVTransportWindow(const Vehicle *v, Window *parent, VehicleOrderID order_id)
+void ShowRVTransportWindow(Window *parent, const OrderCriteriaTarget &target, VehicleOrderID order_id)
 {
-	CloseWindowById(WindowClass::VehicleRVTransportCriteria, v->index);
-	RVTransportWindow *w = new RVTransportWindow(_rv_transport_desc, v, order_id);
+	CloseWindowById(WindowClass::VehicleRVTransportCriteria, target.window_number);
+	RVTransportWindow *w = new RVTransportWindow(_rv_transport_desc, target, order_id);
 	w->parent = parent;
 }
 
@@ -1251,10 +1281,10 @@ static const int CPO_LOAD_FULL = 2;
  */
 class CoupleOptionsWindow : public Window {
 private:
-	const Vehicle *vehicle;  ///< Vehicle the edited order belongs to.
-	VehicleOrderID order_id; ///< Order which is being edited.
-	const Order *order;      ///< The order itself (used to check the window is still valid).
-	uint order_count;        ///< Number of orders the vehicle had when the window was opened.
+	OrderCriteriaTarget target; ///< Vehicle or standalone order list whose order is edited.
+	VehicleOrderID order_id;    ///< Order which is being edited.
+	const Order *order;         ///< The order itself (used to check the window is still valid).
+	uint order_count;           ///< Number of orders the target had when the window was opened.
 
 	/** Snapshot of the criteria which are shown, to refresh the dropdowns when the order changes. */
 	struct SettingsSnapshot {
@@ -1301,15 +1331,15 @@ private:
 	/** Is the edited order still there? */
 	bool CheckOrderStillValid() const
 	{
-		if (this->vehicle->GetNumOrders() != this->order_count) return false;
-		return this->vehicle->GetOrder(this->order_id) == this->order;
+		if (this->target.GetNumOrders() != this->order_count) return false;
+		return this->target.GetOrder(this->order_id) == this->order;
 	}
 
 	/** Apply an order change through the real order modification command. */
 	void ModifyOrder(ModifyOrderFlags mof, uint16_t data, CargoType cargo = INVALID_CARGO)
 	{
 		if (!this->CheckOrderStillValid()) return;
-		Command<Commands::ModifyOrder>::Post(STR_ERROR_CAN_T_MODIFY_THIS_ORDER, this->vehicle->tile, OrderTargetType::Vehicle, this->vehicle->index.base(),
+		Command<Commands::ModifyOrder>::Post(STR_ERROR_CAN_T_MODIFY_THIS_ORDER, this->target.CmdTile(), this->target.TargetKind(), this->target.TargetId(),
 				this->order_id, mof, data, cargo, {});
 	}
 
@@ -1328,7 +1358,7 @@ private:
 		const TraceRestrictSlotGroupID current = this->order->GetCoupleSlotGroup();
 
 		int selected;
-		DropDownList groups = GetSlotGroupDropDownList(this->vehicle->owner, current, selected, this->vehicle->type);
+		DropDownList groups = GetSlotGroupDropDownList(this->target.owner, current, selected, this->target.ref_type);
 
 		DropDownList list;
 		list.push_back(MakeDropDownListCheckedItem(current == TraceRestrictSlotGroupID::Invalid(), STR_ORDER_COUPLE_ANY_GROUP, CPO_SLOT_GROUP_ANY));
@@ -1346,7 +1376,7 @@ private:
 		int selected;
 		/* The default group is left out: a train in the default group has no user-assigned group,
 		 * so "any vehicle group" is the appropriate criterion for it. */
-		DropDownList groups = GetGroupDropDownList(this->vehicle->owner, current, selected, false);
+		DropDownList groups = GetGroupDropDownList(this->target.owner, current, selected, false, this->target.ref_type);
 
 		DropDownList list;
 		/* "Any" needs a result value no group id can have: the first user-created group has id 0. */
@@ -1382,25 +1412,25 @@ private:
 	}
 
 public:
-	CoupleOptionsWindow(WindowDesc &desc, const Vehicle *v, VehicleOrderID order_id) : Window(desc)
+	CoupleOptionsWindow(WindowDesc &desc, const OrderCriteriaTarget &target, VehicleOrderID order_id) : Window(desc)
 	{
-		this->vehicle = v;
+		this->target = target;
 		this->order_id = order_id;
-		this->order_count = v->GetNumOrders();
-		this->order = v->GetOrder(order_id);
+		this->order_count = target.GetNumOrders();
+		this->order = target.GetOrder(order_id);
 
 		this->CreateNestedTree();
 		/* Set the widget texts before the layout is computed, so that the dropdowns are sized to fit
 		 * their current value. */
 		this->UpdateWidgetTexts();
-		this->FinishInitNested(v->index);
+		this->FinishInitNested(target.window_number);
 		this->last_settings = this->GetSettings();
-		this->owner = v->owner;
+		this->owner = target.owner;
 	}
 
 	void Close(int data = 0) override
 	{
-		FocusWindowById(WindowClass::VehicleOrders, this->window_number);
+		FocusWindowById(this->target.parent_class, this->target.window_number);
 		this->Window::Close();
 	}
 
@@ -1415,7 +1445,7 @@ public:
 			this->Close();
 			return;
 		}
-		this->order = this->vehicle->GetOrder(this->order_id);
+		this->order = this->target.GetOrder(this->order_id);
 		const SettingsSnapshot current = this->GetSettings();
 		if (!(current == this->last_settings)) {
 			this->last_settings = current;
@@ -1554,7 +1584,7 @@ public:
 			this->Close();
 			return;
 		}
-		this->order = this->vehicle->GetOrder(this->order_id);
+		this->order = this->target.GetOrder(this->order_id);
 		this->UpdateWidgetTexts();
 		this->ReInit();
 		this->SetDirty();
@@ -1608,14 +1638,14 @@ static WindowDesc _couple_options_desc(__FILE__, __LINE__,
 
 /**
  * Show the window with all coupling selection criteria of a couple order.
- * @param v The vehicle the order belongs to.
- * @param parent The parent window.
+ * @param parent The parent order window.
+ * @param target The vehicle or standalone order list the order belongs to.
  * @param order_id Which order to edit.
  */
-void ShowCoupleOptionsWindow(const Vehicle *v, Window *parent, VehicleOrderID order_id)
+void ShowCoupleOptionsWindow(Window *parent, const OrderCriteriaTarget &target, VehicleOrderID order_id)
 {
-	CloseWindowById(WindowClass::VehicleCoupleCriteria, v->index);
-	CoupleOptionsWindow *w = new CoupleOptionsWindow(_couple_options_desc, v, order_id);
+	CloseWindowById(WindowClass::VehicleCoupleCriteria, target.window_number);
+	CoupleOptionsWindow *w = new CoupleOptionsWindow(_couple_options_desc, target, order_id);
 	w->parent = parent;
 }
 
@@ -3173,6 +3203,19 @@ private:
 public:
 	/** Owner the picked schedule must be visible to. */
 	Owner TargetOwner() const { return this->HasVehicle() ? this->vehicle->owner : (this->order_list != nullptr ? this->order_list->GetCompany() : OWNER_NONE); }
+
+	/** Build the target of a criteria window (which edits the same order content this window does). */
+	OrderCriteriaTarget CriteriaTarget() const
+	{
+		OrderCriteriaTarget t;
+		t.vehicle = this->vehicle;
+		t.list_id = this->HasVehicle() ? OrderListID::Invalid() : this->list_id;
+		t.owner = this->TargetOwner();
+		t.ref_type = this->RefType();
+		t.parent_class = this->window_class;
+		t.window_number = this->window_number;
+		return t;
+	}
 
 private:
 	/* ---- target mode helpers: order-content access goes through these ---- */
@@ -5983,7 +6026,7 @@ public:
 			}
 
 			case WID_O_COUPLE_MORE:
-				ShowCoupleOptionsWindow(this->vehicle, this, this->OrderGetSel());
+				ShowCoupleOptionsWindow(this, this->CriteriaTarget(), this->OrderGetSel());
 				break;
 
 			case WID_O_COUPLE_DIAGNOSTICS:
@@ -6169,7 +6212,7 @@ public:
 					case RVDD_TRANSPORT:
 						/* RoRo: open the window with the road vehicle transport selection criteria. */
 						HideDropDownMenu(this);
-						ShowRVTransportWindow(this->vehicle, this, this->OrderGetSel());
+						ShowRVTransportWindow(this, this->CriteriaTarget(), this->OrderGetSel());
 						return;
 					case RVDD_LOAD_ANY:
 						this->OrderClick_RVLoad(ORVTF_LOAD);
