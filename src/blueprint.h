@@ -268,7 +268,7 @@ struct BlueprintPasteData {
 
 	static constexpr bool command_payload_as_ref = true; ///< Passed to the command handler by reference.
 	void Serialise(struct BufferSerialisationRef buffer) const;
-	bool Deserialise(struct DeserialisationBuffer buffer, StringValidationSettings default_string_validation);
+	bool Deserialise(struct DeserialisationBuffer &buffer, StringValidationSettings default_string_validation);
 	void fmt_format_value(struct format_target &buf) const;
 };
 
@@ -298,7 +298,7 @@ struct BlueprintUndoData {
 
 	static constexpr bool command_payload_as_ref = true; ///< Passed to the command handler by reference.
 	void Serialise(struct BufferSerialisationRef buffer) const;
-	bool Deserialise(struct DeserialisationBuffer buffer, StringValidationSettings default_string_validation);
+	bool Deserialise(struct DeserialisationBuffer &buffer, StringValidationSettings default_string_validation);
 	void fmt_format_value(struct format_target &buf) const;
 };
 

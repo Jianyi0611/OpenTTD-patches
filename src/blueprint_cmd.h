@@ -63,7 +63,7 @@ inline void SerialiseBlueprintOffset(BufferSerialisationRef buffer, const TileIn
 	buffer.Send_generic_seq(data.x, data.y);
 }
 
-inline void DeserialiseBlueprintOffset(DeserialisationBuffer buffer, TileIndexDiffC &data, StringValidationSettings settings)
+inline void DeserialiseBlueprintOffset(DeserialisationBuffer &buffer, TileIndexDiffC &data, StringValidationSettings settings)
 {
 	buffer.Recv_generic_seq(settings, data.x, data.y);
 }
@@ -74,7 +74,7 @@ inline void SerialiseBlueprintItem(BufferSerialisationRef buffer, const Blueprin
 	buffer.Send_generic_seq(data.track, data.railtype);
 }
 
-inline void DeserialiseBlueprintItem(DeserialisationBuffer buffer, BlueprintRailTrack &data, StringValidationSettings settings)
+inline void DeserialiseBlueprintItem(DeserialisationBuffer &buffer, BlueprintRailTrack &data, StringValidationSettings settings)
 {
 	DeserialiseBlueprintOffset(buffer, data.offset, settings);
 	buffer.Recv_generic_seq(settings, data.track, data.railtype);
@@ -86,7 +86,7 @@ inline void SerialiseBlueprintItem(BufferSerialisationRef buffer, const Blueprin
 	buffer.Send_generic_seq(data.track, data.type, data.variant, data.along, data.against);
 }
 
-inline void DeserialiseBlueprintItem(DeserialisationBuffer buffer, BlueprintSignal &data, StringValidationSettings settings)
+inline void DeserialiseBlueprintItem(DeserialisationBuffer &buffer, BlueprintSignal &data, StringValidationSettings settings)
 {
 	DeserialiseBlueprintOffset(buffer, data.offset, settings);
 	buffer.Recv_generic_seq(settings, data.track, data.type, data.variant, data.along, data.against);
@@ -98,7 +98,7 @@ inline void SerialiseBlueprintItem(BufferSerialisationRef buffer, const Blueprin
 	buffer.Send_generic_seq(data.dir, data.railtype);
 }
 
-inline void DeserialiseBlueprintItem(DeserialisationBuffer buffer, BlueprintRailDepot &data, StringValidationSettings settings)
+inline void DeserialiseBlueprintItem(DeserialisationBuffer &buffer, BlueprintRailDepot &data, StringValidationSettings settings)
 {
 	DeserialiseBlueprintOffset(buffer, data.offset, settings);
 	buffer.Recv_generic_seq(settings, data.dir, data.railtype);
@@ -111,7 +111,7 @@ inline void SerialiseBlueprintItem(BufferSerialisationRef buffer, const Blueprin
 	buffer.Send_generic_seq(data.transport, data.is_bridge, data.bridge_type, data.railtype, data.roadtype, data.tramtype);
 }
 
-inline void DeserialiseBlueprintItem(DeserialisationBuffer buffer, BlueprintTunnelBridge &data, StringValidationSettings settings)
+inline void DeserialiseBlueprintItem(DeserialisationBuffer &buffer, BlueprintTunnelBridge &data, StringValidationSettings settings)
 {
 	DeserialiseBlueprintOffset(buffer, data.offset, settings);
 	DeserialiseBlueprintOffset(buffer, data.other_end, settings);
@@ -124,7 +124,7 @@ inline void SerialiseBlueprintItem(BufferSerialisationRef buffer, const Blueprin
 	buffer.Send_generic_seq(data.bits, data.roadtype);
 }
 
-inline void DeserialiseBlueprintItem(DeserialisationBuffer buffer, BlueprintRoad &data, StringValidationSettings settings)
+inline void DeserialiseBlueprintItem(DeserialisationBuffer &buffer, BlueprintRoad &data, StringValidationSettings settings)
 {
 	DeserialiseBlueprintOffset(buffer, data.offset, settings);
 	buffer.Recv_generic_seq(settings, data.bits, data.roadtype);
@@ -136,7 +136,7 @@ inline void SerialiseBlueprintItem(BufferSerialisationRef buffer, const Blueprin
 	buffer.Send_generic_seq(data.dir, data.roadtype);
 }
 
-inline void DeserialiseBlueprintItem(DeserialisationBuffer buffer, BlueprintRoadDepot &data, StringValidationSettings settings)
+inline void DeserialiseBlueprintItem(DeserialisationBuffer &buffer, BlueprintRoadDepot &data, StringValidationSettings settings)
 {
 	DeserialiseBlueprintOffset(buffer, data.offset, settings);
 	buffer.Recv_generic_seq(settings, data.dir, data.roadtype);
@@ -147,7 +147,7 @@ inline void SerialiseBlueprintItem(BufferSerialisationRef buffer, const Blueprin
 	SerialiseBlueprintOffset(buffer, data.offset);
 }
 
-inline void DeserialiseBlueprintItem(DeserialisationBuffer buffer, BlueprintCanal &data, StringValidationSettings settings)
+inline void DeserialiseBlueprintItem(DeserialisationBuffer &buffer, BlueprintCanal &data, StringValidationSettings settings)
 {
 	DeserialiseBlueprintOffset(buffer, data.offset, settings);
 }
@@ -158,7 +158,7 @@ inline void SerialiseBlueprintItem(BufferSerialisationRef buffer, const Blueprin
 	buffer.Send_generic(data.dir);
 }
 
-inline void DeserialiseBlueprintItem(DeserialisationBuffer buffer, BlueprintLock &data, StringValidationSettings settings)
+inline void DeserialiseBlueprintItem(DeserialisationBuffer &buffer, BlueprintLock &data, StringValidationSettings settings)
 {
 	DeserialiseBlueprintOffset(buffer, data.offset, settings);
 	buffer.Recv_generic(data.dir);
@@ -170,7 +170,7 @@ inline void SerialiseBlueprintItem(BufferSerialisationRef buffer, const Blueprin
 	buffer.Send_generic(data.axis);
 }
 
-inline void DeserialiseBlueprintItem(DeserialisationBuffer buffer, BlueprintShipDepot &data, StringValidationSettings settings)
+inline void DeserialiseBlueprintItem(DeserialisationBuffer &buffer, BlueprintShipDepot &data, StringValidationSettings settings)
 {
 	DeserialiseBlueprintOffset(buffer, data.offset, settings);
 	buffer.Recv_generic(data.axis);
@@ -182,7 +182,7 @@ inline void SerialiseBlueprintItem(BufferSerialisationRef buffer, const Blueprin
 	buffer.Send_generic_seq(data.is_waypoint, data.axis, data.railtype, data.station);
 }
 
-inline void DeserialiseBlueprintItem(DeserialisationBuffer buffer, BlueprintStationTile &data, StringValidationSettings settings)
+inline void DeserialiseBlueprintItem(DeserialisationBuffer &buffer, BlueprintStationTile &data, StringValidationSettings settings)
 {
 	DeserialiseBlueprintOffset(buffer, data.offset, settings);
 	buffer.Recv_generic_seq(settings, data.is_waypoint, data.axis, data.railtype, data.station);
@@ -194,7 +194,7 @@ inline void SerialiseBlueprintItem(BufferSerialisationRef buffer, const Blueprin
 	buffer.Send_generic_seq(data.type, data.drive_through, data.dir, data.axis, data.roadtype, data.tramtype, data.station);
 }
 
-inline void DeserialiseBlueprintItem(DeserialisationBuffer buffer, BlueprintRoadStop &data, StringValidationSettings settings)
+inline void DeserialiseBlueprintItem(DeserialisationBuffer &buffer, BlueprintRoadStop &data, StringValidationSettings settings)
 {
 	DeserialiseBlueprintOffset(buffer, data.offset, settings);
 	buffer.Recv_generic_seq(settings, data.type, data.drive_through, data.dir, data.axis, data.roadtype, data.tramtype, data.station);
@@ -206,7 +206,7 @@ inline void SerialiseBlueprintItem(BufferSerialisationRef buffer, const Blueprin
 	buffer.Send_generic_seq(data.dir, data.station);
 }
 
-inline void DeserialiseBlueprintItem(DeserialisationBuffer buffer, BlueprintDock &data, StringValidationSettings settings)
+inline void DeserialiseBlueprintItem(DeserialisationBuffer &buffer, BlueprintDock &data, StringValidationSettings settings)
 {
 	DeserialiseBlueprintOffset(buffer, data.offset, settings);
 	buffer.Recv_generic_seq(settings, data.dir, data.station);
@@ -217,21 +217,21 @@ inline void SerialiseBlueprintItem(BufferSerialisationRef buffer, const Blueprin
 	SerialiseBlueprintOffset(buffer, data.offset);
 }
 
-inline void DeserialiseBlueprintItem(DeserialisationBuffer buffer, BlueprintBuoy &data, StringValidationSettings settings)
+inline void DeserialiseBlueprintItem(DeserialisationBuffer &buffer, BlueprintBuoy &data, StringValidationSettings settings)
 {
 	DeserialiseBlueprintOffset(buffer, data.offset, settings);
 }
 
 
 void SerialiseBlueprintItem(BufferSerialisationRef buffer, const Blueprint &data);
-bool DeserialiseBlueprintItem(DeserialisationBuffer buffer, Blueprint &data, StringValidationSettings settings);
+bool DeserialiseBlueprintItem(DeserialisationBuffer &buffer, Blueprint &data, StringValidationSettings settings);
 
 inline void SerialiseBlueprintItem(BufferSerialisationRef buffer, const uint8_t &data)
 {
 	buffer.Send_generic_integer(data);
 }
 
-inline void DeserialiseBlueprintItem(DeserialisationBuffer buffer, uint8_t &data, StringValidationSettings)
+inline void DeserialiseBlueprintItem(DeserialisationBuffer &buffer, uint8_t &data, StringValidationSettings)
 {
 	buffer.Recv_generic_integer(data);
 }
@@ -246,7 +246,7 @@ inline void WriteBlueprintVector(BufferSerialisationRef buffer, const std::vecto
 
 /** Read a length-prefixed blueprint vector from a command buffer; the length is capped against malicious data. */
 template <typename T>
-inline bool ReadBlueprintVector(DeserialisationBuffer buffer, std::vector<T> &data, StringValidationSettings settings)
+inline bool ReadBlueprintVector(DeserialisationBuffer &buffer, std::vector<T> &data, StringValidationSettings settings)
 {
 	uint32_t count = 0;
 	buffer.Recv_generic_integer(count);
@@ -269,7 +269,7 @@ inline void SerialiseBlueprintItem(BufferSerialisationRef buffer, const Blueprin
 	buffer.Send_generic_seq(data.m4, data.m5, data.m6, data.m8);
 }
 
-inline void DeserialiseBlueprintItem(DeserialisationBuffer buffer, BlueprintAirportTile &data, StringValidationSettings settings)
+inline void DeserialiseBlueprintItem(DeserialisationBuffer &buffer, BlueprintAirportTile &data, StringValidationSettings settings)
 {
 	DeserialiseBlueprintOffset(buffer, data.offset, settings);
 	buffer.Recv_generic_seq(settings, data.m4, data.m5, data.m6, data.m8);
@@ -282,7 +282,7 @@ inline void SerialiseBlueprintItem(BufferSerialisationRef buffer, const Blueprin
 	WriteBlueprintVector(buffer, data.tiles);
 }
 
-inline void DeserialiseBlueprintItem(DeserialisationBuffer buffer, BlueprintAirport &data, StringValidationSettings settings)
+inline void DeserialiseBlueprintItem(DeserialisationBuffer &buffer, BlueprintAirport &data, StringValidationSettings settings)
 {
 	DeserialiseBlueprintOffset(buffer, data.offset, settings);
 	buffer.Recv_generic_seq(settings, data.type, data.layout, data.rotation, data.air_type, data.w, data.h, data.station);
@@ -309,7 +309,7 @@ inline void SerialiseBlueprint(BufferSerialisationRef buffer, const Blueprint &d
 	WriteBlueprintVector(buffer, data.corner_heights);
 }
 
-inline bool DeserialiseBlueprint(DeserialisationBuffer buffer, Blueprint &data, StringValidationSettings settings)
+inline bool DeserialiseBlueprint(DeserialisationBuffer &buffer, Blueprint &data, StringValidationSettings settings)
 {
 	buffer.Recv_generic_seq(settings, data.width, data.height, data.name);
 	bool ok = ReadBlueprintVector(buffer, data.rail_tracks, settings);
@@ -335,7 +335,7 @@ inline void SerialiseBlueprintItem(BufferSerialisationRef buffer, const Blueprin
 	SerialiseBlueprint(buffer, data);
 }
 
-inline bool DeserialiseBlueprintItem(DeserialisationBuffer buffer, Blueprint &data, StringValidationSettings settings)
+inline bool DeserialiseBlueprintItem(DeserialisationBuffer &buffer, Blueprint &data, StringValidationSettings settings)
 {
 	return DeserialiseBlueprint(buffer, data, settings);
 }
@@ -346,7 +346,7 @@ inline void BlueprintPasteData::Serialise(BufferSerialisationRef buffer) const
 	buffer.Send_generic_seq(this->terraform_mode, this->height_offset);
 }
 
-inline bool BlueprintPasteData::Deserialise(DeserialisationBuffer buffer, StringValidationSettings default_string_validation)
+inline bool BlueprintPasteData::Deserialise(DeserialisationBuffer &buffer, StringValidationSettings default_string_validation)
 {
 	if (!DeserialiseBlueprint(buffer, this->blueprint, default_string_validation)) return false;
 	buffer.Recv_generic_seq(default_string_validation, this->terraform_mode, this->height_offset);
@@ -367,7 +367,7 @@ inline void BlueprintUndoData::Serialise(BufferSerialisationRef buffer) const
 	buffer.Send_generic(this->restore_terrain);
 }
 
-inline bool BlueprintUndoData::Deserialise(DeserialisationBuffer buffer, StringValidationSettings default_string_validation)
+inline bool BlueprintUndoData::Deserialise(DeserialisationBuffer &buffer, StringValidationSettings default_string_validation)
 {
 	if (!DeserialiseBlueprint(buffer, this->built, default_string_validation)) return false;
 	buffer.Recv_generic(this->restore_terrain);
