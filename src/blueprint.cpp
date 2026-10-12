@@ -1813,8 +1813,10 @@ CommandCost CmdPasteBlueprint(DoCommandFlags flags, TileIndex origin, const Blue
 		if (signals_copy == 0) continue;
 
 		TileIndex signal_tile = target_tile(sig.offset);
+		/* No Convert flag: the paste lays the track first, so there is never an
+		 * existing signal to convert and Convert would be rejected as "no signals". */
 		BlueprintDoCommand<CMD_BUILD_SINGLE_SIGNAL>(state, flags, signal_tile, sig.track, sig.type, sig.variant,
-				0, 1, BuildSignalFlags::Convert, SignalCycleGroups{}, 0, signals_copy);
+				0, 1, BuildSignalFlags::None, SignalCycleGroups{}, 0, signals_copy);
 	}
 	for (const BlueprintRailDepot &depot : bp.rail_depots) {
 		if (!tile_valid(depot.offset)) continue;
