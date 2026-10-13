@@ -165,58 +165,73 @@ fi
 # so a fresh checkout has none and the APK would start to a black screen.
 #
 # The contents mirror the desktop distribution: OpenTTD's own build output
-# (baseset/ incl. the fonts, lang/, ai/, game/, scripts/ — lang/*.lng thereby
-# matches this source version) ships in the package, but OpenGFX, the
-# third-party base graphics set, does not. Without a usable base graphics set
-# OpenTTD starts in bootstrap mode (HandleBootstrap in src/bootstrap_gui.cpp)
-# and offers to download one, exactly like the desktop build. Set
-# BUNDLE_OPENGFX=1 to instead bundle OpenGFX and skip that prompt.
+# (baseset/ incl. the fonts, lang/, ai/, game/, scripts/) ships in the package,
+# but OpenGFX, the third-party base graphics set, does not. Set BUNDLE_OPENGFX=1
+# to bundle OpenGFX and skip the in-game download prompt.
+#
+# CRITICAL — the data is versioned against the *code*, so it has to come from the
+# same build as the native library: lang/*.lng carry LANGUAGE_PACK_VERSION (a hash
+# of the string table) and baseset/openttd.grf carries the sprite layout. The
+# archive is therefore assembled twice: here (the tree must be complete before
+# build.sh touches it) and again in step 7 right after the native build, which
+# regenerates both. Shipping the previous build's data makes OpenTTD reject every
+# language pack on start and quit. assemble_game_data() is idempotent.
 APP_DIR="$SDL/project/jni/application/openttd-jgrpp"
 BUILD_ROOT="$APP_DIR/openttd-build-${ARCH_LIST%% *}"
-rm -rf "$APP_DIR/data"
-mkdir -p "$APP_DIR/data"
-FROM_BUILD=0
-for sub in baseset lang ai game scripts; do
-    if [ -d "$BUILD_ROOT/$sub" ]; then
-        cp -r "$BUILD_ROOT/$sub" "$APP_DIR/data/"
-        FROM_BUILD=1
-    fi
-done
-if [ "$FROM_BUILD" = 0 ]; then
-    # No build outputs yet: fall back to a complete local installation.
-    for d in /usr/share/openttd /usr/share/games/openttd "$HOME/.local/share/openttd"; do
-        if [ -d "$d/baseset" ] && [ -n "$(ls -A "$d/baseset" 2>/dev/null)" ]; then
-            echo "== Game data from $d (build outputs unavailable) =="
-            for sub in baseset lang ai game scripts; do
-                [ -d "$d/$sub" ] && cp -r "$d/$sub" "$APP_DIR/data/"
-            done
-            break
+
+assemble_game_data() {
+    rm -rf "$APP_DIR/data"
+    mkdir -p "$APP_DIR/data"
+    local from_build=0
+    for sub in baseset lang ai game scripts; do
+        if [ -d "$BUILD_ROOT/$sub" ]; then
+            cp -r "$BUILD_ROOT/$sub" "$APP_DIR/data/"
+            from_build=1
         fi
     done
-fi
-
-if [ "${BUNDLE_OPENGFX:-0}" = 1 ]; then
-    OGFX_DIR="${OPENTTD_OPENGFX_DIR:-}"
-    if [ -z "$OGFX_DIR" ]; then
-        for d in /usr/share/openttd/baseset/opengfx /usr/share/games/openttd/baseset/opengfx \
-                 "$HOME/.local/share/openttd/baseset/opengfx"; do
-            if [ -f "$d/opengfx.obg" ]; then
-                OGFX_DIR="$d"
+    if [ "$from_build" = 0 ]; then
+        # No build outputs yet: fall back to a complete local installation. That
+        # only makes a first run produce a bootable APK; the data belongs to
+        # another revision, so step 7 re-assembles it once the native build has
+        # produced the matching output.
+        for d in /usr/share/openttd /usr/share/games/openttd "$HOME/.local/share/openttd"; do
+            if [ -d "$d/baseset" ] && [ -n "$(ls -A "$d/baseset" 2>/dev/null)" ]; then
+                echo "WARNING: no native build output yet; game data taken from $d." \
+                     "It may not match this source; step 7 will refresh it." >&2
+                for sub in baseset lang ai game scripts; do
+                    [ -d "$d/$sub" ] && cp -r "$d/$sub" "$APP_DIR/data/"
+                done
                 break
             fi
         done
     fi
-    if [ -n "$OGFX_DIR" ]; then
-        echo "== Bundling OpenGFX from $OGFX_DIR =="
-        mkdir -p "$APP_DIR/data/baseset/opengfx"
-        cp -r "$OGFX_DIR/." "$APP_DIR/data/baseset/opengfx/"
-    else
-        echo "WARNING: BUNDLE_OPENGFX=1 but no OpenGFX found; set" \
-             "OPENTTD_OPENGFX_DIR to a directory containing opengfx.obg." >&2
-    fi
-fi
 
-if [ -d "$APP_DIR/data/baseset" ] && [ -n "$(ls -A "$APP_DIR/data/baseset" 2>/dev/null)" ]; then
+    if [ "${BUNDLE_OPENGFX:-0}" = 1 ]; then
+        OGFX_DIR="${OPENTTD_OPENGFX_DIR:-}"
+        if [ -z "$OGFX_DIR" ]; then
+            for d in /usr/share/openttd/baseset/opengfx /usr/share/games/openttd/baseset/opengfx \
+                     "$HOME/.local/share/openttd/baseset/opengfx"; do
+                if [ -f "$d/opengfx.obg" ]; then
+                    OGFX_DIR="$d"
+                    break
+                fi
+            done
+        fi
+        if [ -n "$OGFX_DIR" ]; then
+            echo "== Bundling OpenGFX from $OGFX_DIR =="
+            mkdir -p "$APP_DIR/data/baseset/opengfx"
+            cp -r "$OGFX_DIR/." "$APP_DIR/data/baseset/opengfx/"
+        else
+            echo "WARNING: BUNDLE_OPENGFX=1 but no OpenGFX found; set" \
+                 "OPENTTD_OPENGFX_DIR to a directory containing opengfx.obg." >&2
+        fi
+    fi
+
+    if [ ! -d "$APP_DIR/data/baseset" ] || [ -z "$(ls -A "$APP_DIR/data/baseset" 2>/dev/null)" ]; then
+        echo "WARNING: no base data assembled; the APK will start to a black screen." >&2
+        return
+    fi
+
     # Tune the default config that gets written to .openttd/openttd.cfg on the
     # first run:
     #  * pelya's copy sets osk_activation = disabled, and OpenTTD only starts
@@ -237,12 +252,41 @@ if [ -d "$APP_DIR/data/baseset" ] && [ -n "$(ls -A "$APP_DIR/data/baseset" 2>/de
         grep -q '^scroll_mode' "$DEFAULT_CFG" || sed -i '/^\[gui\]/a scroll_mode = 3' "$DEFAULT_CFG"
         echo "== Default config: $(basename "$DEFAULT_CFG") =="
     fi
+    # The wrapper looks the data up by file name and remembers that name in a flag
+    # file beside the extracted files; while the name is unchanged it skips the
+    # extraction entirely ("download_unneeded"), so a device that already unpacked
+    # an older build keeps its old lang/ and baseset/ forever. The desktop has no
+    # such cache: it reads lang/ and baseset/ straight from the run directory, which
+    # every build replaces.
+    #
+    # Name the archive after the game version. Exactly at a clean tag that version is
+    # the tag, and the data for a release is fixed, so the bare tag is enough. Any
+    # other build appends a hash of the data: the version string alone does not change
+    # for local edits (git describe only adds -dirty), and the name is what makes the
+    # wrapper re-check the files (CRC) instead of trusting the extracted copy.
+    if git -C "$REPO_DIR" describe --exact-match --tags HEAD >/dev/null 2>&1 &&
+            [ -z "$(git -C "$REPO_DIR" status --porcelain --untracked-files=no 2>/dev/null)" ]; then
+        DATA_VERSION="${VERSION_NAME}"
+    else
+        DATA_VERSION="${VERSION_NAME}-$(game_data_fingerprint | cut -c1-8)"
+    fi
+    sed -i "s@^VER=.*@VER=${DATA_VERSION}@" "$APP_DIR/pack-data.sh"
+    sed -i "s@openttd-data-[^|\"]*\.zip\.xz@openttd-data-${DATA_VERSION}.zip.xz@g" \
+        "$APP_DIR/AndroidAppSettings.cfg"
+
     # pack-data.sh zips data/ into AndroidData/openttd-data-<VER>.zip.xz
     ( cd "$APP_DIR" && ./pack-data.sh )
     ls -l "$APP_DIR/AndroidData/"
-else
-    echo "WARNING: no base data assembled; the APK will start to a black screen." >&2
-fi
+}
+
+# Fingerprint of the assembled data/. Step 7 compares it before and after the
+# native build to decide whether the APK has to be packaged again.
+game_data_fingerprint() {
+    { find "$APP_DIR/data" -type f -print0 2>/dev/null | sort -z | xargs -0 -r md5sum || true; } | md5sum
+}
+
+assemble_game_data
+GAME_DATA_FINGERPRINT="$(game_data_fingerprint)"
 
 # --- 3c. Android UI patches --------------------------------------------------
 # See patches/android/README.md. On the SDL2 path pelya's template is a thin
@@ -829,6 +873,17 @@ echo "proguard.config=proguard.cfg;proguard-local.cfg" >> local.properties
 cd "$SDL"
 export PATH="$ANDROID_NDK_LATEST_HOME:$ANDROID_SDK_ROOT/build-tools/$ANDROID_BUILD_TOOLS:$PATH"
 ./build.sh
+# build.sh first compiles the native library — which regenerates lang/*.lng and
+# baseset/openttd.grf in the build output — and only then packs the APK with the
+# data/ assembled in step 3b, i.e. the *previous* build's data. That data no
+# longer matches the code whenever the string table or the sprites changed (a new
+# LANGUAGE_PACK_VERSION makes OpenTTD reject every language pack and quit on
+# start). Re-assemble from the output just built and repackage if it differs.
+assemble_game_data
+if [ "$(game_data_fingerprint)" != "$GAME_DATA_FINGERPRINT" ]; then
+    echo "== Game data changed after the native build; repackaging the APK =="
+    ./build.sh
+fi
 
 # --- 8. Sign ------------------------------------------------------------------
 mkdir -p "$REPO_DIR/upload"
