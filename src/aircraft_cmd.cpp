@@ -2928,12 +2928,22 @@ void MoveAircraft(Aircraft *v, const bool nudge_towards_target)
 
 				/* Must reverse now and rotate in the middle of the tile. */
 				if (CountBits(trackdirs) == 0) {
-					[[maybe_unused]] TrackBits reserved_tracks = GetReservedAirportTracks(gp.old_tile);
-					assert(CountBits(reserved_tracks) == 1);
-					assert(IsDiagonalTrack(RemoveFirstTrack(&reserved_tracks)));
-					v->SetWaitTime(AIRCRAFT_ROTATION_STEP_TICKS);
-					v->next_trackdir = ReverseTrackdir(v->trackdir);
-					SetAirportTrackReservation(gp.old_tile, TrackdirToTrack(v->next_trackdir));
+					TrackBits reserved_tracks = GetReservedAirportTracks(gp.old_tile);
+					if (CountBits(reserved_tracks) == 1 && IsDiagonalTrack(RemoveFirstTrack(&reserved_tracks))) {
+						v->SetWaitTime(AIRCRAFT_ROTATION_STEP_TICKS);
+						v->next_trackdir = ReverseTrackdir(v->trackdir);
+						SetAirportTrackReservation(gp.old_tile, TrackdirToTrack(v->next_trackdir));
+						return;
+					}
+
+					/* The reserved path no longer matches the airport layout (the airport
+					 * was edited under this aircraft, invalidating the reservation ahead).
+					 * Rather than aborting, drop the stale path and let the controller
+					 * reserve a fresh one on the next tick. */
+					v->path.clear();
+					v->next_trackdir = INVALID_TRACKDIR;
+					v->state = AS_IDLE;
+					v->UpdateNextTile(INVALID_TILE);
 					return;
 				}
 
@@ -3014,7 +3024,9 @@ bool HandleAircraftMovement(Aircraft *v)
 
 	for (; count > 0; count--) {
 		MoveAircraft(v, nudge_towards_target);
-		if (HandleAircraftState(v)) break;
+		/* MoveAircraft may have dropped the aircraft to a non-moving state when its
+		 * reserved path turned out to be invalid; stop moving it this tick. */
+		if (v->state < AS_MOVING || HandleAircraftState(v)) break;
 	}
 
 	SetAircraftPosition(v, v->x_pos, v->y_pos, v->z_pos);

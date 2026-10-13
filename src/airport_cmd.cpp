@@ -652,7 +652,15 @@ CommandCost RemoveRunway(DoCommandFlags flags, TileIndex start_tile, TileIndex e
 
 	for (TileIndex tile_iter : ta) {
 		assert(IsRunway(tile_iter));
-		if (GetReservationAsRunway(tile_iter)) return CMD_ERROR;
+		/* While taxiing, an aircraft only reserves its taxi path. That path's last tile,
+		 * and the tile the aircraft transitions to takeoff from, is the runway start;
+		 * the rest of the runway carries no reservation. Removing the runway deletes
+		 * that start tile and strands the aircraft, so refuse only when the start tile
+		 * is reserved (either as a runway, or as a per-track taxi reservation). */
+		if (GetReservationAsRunway(tile_iter) ||
+				(IsRunwayStart(tile_iter) && HasAirportTrackReserved(tile_iter))) {
+			return CommandCost(STR_ERROR_AIRPORT_PRESENT_AIRCRAFT);
+		}
 	}
 
 	if (flags.Test(DoCommandFlag::Execute)) {
