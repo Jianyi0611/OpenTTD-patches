@@ -7519,10 +7519,17 @@ static void Couple(Train *v, Train *u)
 	 * tick), so any manual override (e.g. forcing u->direction to a quantized
 	 * travel axis) desyncs direction from the vehicle's pixels and produces the
 	 * 45-degree visual skew seen before. Only clear stale flags that would make
-	 * the next tick trigger an unrequested auto-reversal. */
-	for (Train *w = v; w != nullptr; w = w->Next()) {
+	 * the next tick trigger an unrequested auto-reversal.
+	 *
+	 * Iterate from the physical chain head: the primary may sit mid-chain, so
+	 * starting the walk at it would leave the vehicles ahead of it - which this
+	 * cleanup is meant to cover just as much - carrying a stale flag. */
+	for (Train *w = v->First(); w != nullptr; w = w->Next()) {
 		w->flags.Reset(VehicleRailFlag::Reversed);
 	}
+	/* Reversing is a property of the consist as a whole: it is set on and read
+	 * from the primary (see the CheckReverseTrain calls and the movement
+	 * handler), so it is cleared there instead of on every vehicle. */
 	v->flags.Reset(VehicleRailFlag::Reversing);
 
 	/* If the absorbed consist was queued for loading/unloading at a station,
