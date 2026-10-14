@@ -6205,7 +6205,11 @@ static Train *GetDecoupleVehicle(Train *v)
 	 * physical chain head, which may be a different vehicle when the primary
 	 * sits mid-chain after a couple. */
 	Train *prim = v->Primary();
-	Order *decouple_order = prim->orders->GetOrderAt(prim->cur_implicit_order_index + 1);
+	/* The split count lives on the decouple marker behind the current order.
+	 * A stale or misaligned index leaves no marker there (the arrival then
+	 * counts as a plain stop); report "no cut" instead of dereferencing it. */
+	const Order *decouple_order = (prim->orders != nullptr) ? prim->orders->GetOrderAt(prim->cur_implicit_order_index + 1) : nullptr;
+	if (decouple_order == nullptr || !decouple_order->IsType(OT_DECOUPLE)) return nullptr;
 	return GetDecoupleVehicleForCount(v, decouple_order->GetNumDecouple());
 }
 
@@ -6391,6 +6395,7 @@ static bool IsDecoupleWaitMode(OrderDecoupleOrdersFlags mode)
 static StringID PrepareDecoupleWaitOrders(const Train *v, std::unique_ptr<OrderList> (&copies)[2])
 {
 	const Order *decouple = v->GetOrder(v->cur_implicit_order_index + 1);
+	if (decouple == nullptr || !decouple->IsType(OT_DECOUPLE)) return STR_DECOUPLE_DIAGNOSTIC_ORDER;
 	const OrderDecoupleOrdersFlags modes[] = {decouple->GetDecoupleFirstOrdersType(), decouple->GetDecoupleSecondOrdersType()};
 	if (!IsDecoupleWaitMode(modes[0]) && !IsDecoupleWaitMode(modes[1])) return STR_NULL;
 	if (v->GetNumOrders() >= MAX_VEH_ORDER_ID) return STR_ERROR_TOO_MANY_ORDERS;
@@ -6517,8 +6522,16 @@ static bool AdoptDecoupleSchedule(Train *part, OrderListID schedule_id, StationI
 
 static void SplitOrders(Train *v, Train *u, uint8_t &load_trains, std::unique_ptr<OrderList> (&wait_orders)[2])
 {
-	const Order after_decouple_flags = *v->orders->GetOrderAt(v->cur_implicit_order_index + 1);
-	assert(after_decouple_flags.GetType() == OT_DECOUPLE);
+	/* The decouple marker has to sit behind the implicit index, which every
+	 * caller guarantees (see #TrainEnterStation). Re-check it instead of
+	 * dereferencing a possibly stale index: without the marker the two parts'
+	 * order modes cannot be determined at all. */
+	const Order *decouple_marker = (v->orders != nullptr) ? v->orders->GetOrderAt(v->cur_implicit_order_index + 1) : nullptr;
+	if (decouple_marker == nullptr || !decouple_marker->IsType(OT_DECOUPLE)) {
+		Debug(desync, 1, "SplitOrders: veh={} has no decouple marker behind order {}", v->index, v->cur_implicit_order_index);
+		return;
+	}
+	const Order after_decouple_flags = *decouple_marker;
 	const VehicleOrderID wait_index = v->cur_implicit_order_index + 2;
 	const BaseConsist order_state = *v;
 
@@ -7695,16 +7708,6 @@ static void TrainEnterStation(Train *consist, StationID station)
 	const Order *after_current = (consist->orders != nullptr) ? consist->orders->GetOrderAt(consist->cur_implicit_order_index + 1) : nullptr;
 	bool want_decouple = after_current != nullptr && after_current->IsType(OT_DECOUPLE) &&
 			consist->current_order.GetDestination() == station && consist->current_order.GetDecouple() == ODF_DECOUPLE;
-	/* Which parts may leave the station in the same direction as the other
-	 * part. For such a part the JustDecoupled flag below is withheld, so the
-	 * normal departure reverse check can turn it back around once its natural
-	 * side is blocked; waiting for the other part to leave is handled by path
-	 * reservation. Both set would let the parts wait for each other forever,
-	 * so treat that as neither set (the command layer prevents it anyway). */
-	const Order *decouple_flags_order = want_decouple ? consist->GetOrder(consist->cur_implicit_order_index + 1) : nullptr;
-	bool first_same_dir = decouple_flags_order != nullptr && decouple_flags_order->IsType(OT_DECOUPLE) && decouple_flags_order->GetDecoupleFirstSameDirExit();
-	bool second_same_dir = decouple_flags_order != nullptr && decouple_flags_order->IsType(OT_DECOUPLE) && decouple_flags_order->GetDecoupleSecondSameDirExit();
-	if (first_same_dir && second_same_dir) first_same_dir = second_same_dir = false;
 	if (want_decouple) {
 		/* Stopping at a via station leaves an OT_IMPLICIT marker at the implicit index (see the
 		 * implicit-order handling in #HandleLoading), so that index can point at the marker while
@@ -7723,6 +7726,26 @@ static void TrainEnterStation(Train *consist, StationID station)
 			consist->cur_timetable_order_index = INVALID_VEH_ORDER_ID;
 		}
 	}
+	/* The decouple marker must sit right behind the (possibly just realigned)
+	 * implicit index: every step below reads it relative to that index, and the
+	 * realignment can move the index onto an order whose successor is not a
+	 * marker (or has none). Re-check it and treat the arrival as a plain stop
+	 * when there is no marker, instead of letting the decouple read a stale
+	 * position. */
+	const Order *decouple_flags_order = (want_decouple && consist->orders != nullptr) ? consist->orders->GetOrderAt(consist->cur_implicit_order_index + 1) : nullptr;
+	if (decouple_flags_order == nullptr || !decouple_flags_order->IsType(OT_DECOUPLE)) {
+		want_decouple = false;
+		decouple_flags_order = nullptr;
+	}
+	/* Which parts may leave the station in the same direction as the other
+	 * part. For such a part the JustDecoupled flag below is withheld, so the
+	 * normal departure reverse check can turn it back around once its natural
+	 * side is blocked; waiting for the other part to leave is handled by path
+	 * reservation. Both set would let the parts wait for each other forever,
+	 * so treat that as neither set (the command layer prevents it anyway). */
+	bool first_same_dir = decouple_flags_order != nullptr && decouple_flags_order->GetDecoupleFirstSameDirExit();
+	bool second_same_dir = decouple_flags_order != nullptr && decouple_flags_order->GetDecoupleSecondSameDirExit();
+	if (first_same_dir && second_same_dir) first_same_dir = second_same_dir = false;
 	Debug(desync, 1, "TrainEnterStation: veh={} st={} tile=({},{}) want_decouple={} ordertype={}", consist->index, station, TileX(consist->tile), TileY(consist->tile), want_decouple, (int)consist->current_order.GetType());
 	std::unique_ptr<OrderList> wait_orders[2];
 	const StringID order_failure = want_decouple ? PrepareDecoupleWaitOrders(consist, wait_orders) : STR_NULL;

@@ -1059,6 +1059,7 @@ STR_DECOUPLE_DIAGNOSTIC_PLATFORM                              :the train is not 
 STR_DECOUPLE_DIAGNOSTIC_TOO_SHORT                             :the train has fewer than two separable vehicle units
 STR_DECOUPLE_DIAGNOSTIC_CUT                                   :the selected cut would split an articulated or multiheaded unit
 STR_DECOUPLE_DIAGNOSTIC_ARRANGEMENT                           :a consist or NewGRF compatibility check failed
+STR_DECOUPLE_DIAGNOSTIC_ORDER                                 :the decouple order is not where the schedule expects it
 STR_NEWS_VEHICLE_AUTORENEW_FAILED                               :{WHITE}Autorenew failed on {VEHICLE}{}{STRING1}
 
 STR_NEWS_NEW_VEHICLE_NOW_AVAILABLE                              :{BIG_FONT}{BLACK}New {STRING} now available!
