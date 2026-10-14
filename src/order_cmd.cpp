@@ -5734,7 +5734,11 @@ bool UpdateOrderDest(Vehicle *v, const Order *order, int conditional_depth, bool
 			assert(!pbs_look_ahead);
 			{
 				OrderList *target = OrderList::GetIfValid(order->GetDestination().ToOrderListID());
-				if (target != nullptr && target != v->orders && target->IsPlayerCreated() && target->IsVisibleToCompany(v->owner)) {
+				/* An empty list has nothing to execute: the order indices would be
+				 * reset against a list of length 0 and the vehicle would end up in
+				 * an inconsistent state. Treat it like an invalid target and step
+				 * past the order instead (same rule as the prediction paths). */
+				if (target != nullptr && target != v->orders && target->GetNumOrders() > 0 && target->IsPlayerCreated() && target->IsVisibleToCompany(v->owner)) {
 					/* Execute the target order list: switch this vehicle to it (shared list).
 					 * The primary order list is kept as-is; after one full pass of the
 					 * target list the vehicle returns to it and resumes where it left.
