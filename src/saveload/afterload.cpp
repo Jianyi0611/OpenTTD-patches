@@ -794,7 +794,7 @@ static void AfterLoadValidateCoupleClaims()
 	 * entries here would make the joining client drop state the server still
 	 * acts on, and re-derive it differently -> desync on join. Only sanitize
 	 * migrated data from older feature versions. */
-	if (_sl_xv_feature_versions[XSLFI_COUPLE_CLAIM_STATE] >= 1) return;
+	if (_sl_xv_feature_versions[XSLFI_COUPLE_CLAIM_STATE] >= 2) return;
 
 	for (Train *t : Train::Iterate()) {
 		if (!t->IsPrimaryVehicle()) continue;

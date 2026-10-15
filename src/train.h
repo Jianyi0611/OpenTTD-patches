@@ -48,6 +48,9 @@ enum class VehicleRailFlag : uint8_t {
 	ConsistSpeedReduction     = 20, ///< One or more vehicles in this consist may be in a depot or on a bridge (may be false positive but not false negative).
 	PendingSpeedRestriction   = 21, ///< This vehicle has one or more pending speed restriction changes.
 	SpeedAdaptationExempt     = 22, ///< This vehicle is exempt from train speed adaptation.
+	SameDirDecouplePending    = 23, ///< Trailing split part waits for the leading part to clear its platform before following.
+	CoupleCheckReversePending = 24, ///< Wait for a selected early couple target only after a waypoint reversal completes.
+	CoupleCheckReservationReleased = 25, ///< Forward reservation has already been released for an early couple checkpoint.
 };
 using VehicleRailFlags = EnumBitSet<VehicleRailFlag, uint32_t>;
 
@@ -136,11 +139,11 @@ enum class CoupleCandidateResult : uint8_t {
 };
 
 CoupleCandidateResult GetCoupleCandidateResult(const Train *moving, const Order &order,
-		Train *waiting_first, TileIndex contact_tile, bool respect_claim = false, uint32_t claim_cost = 0);
+		Train *waiting_first, TileIndex contact_tile, bool respect_claim = true, uint32_t claim_cost = 0);
 Train *ValidateCoupleCandidate(const Train *moving, Train *waiting_first, TileIndex contact_tile,
-		bool respect_claim = false, uint32_t claim_cost = 0);
+		bool respect_claim = true, uint32_t claim_cost = 0);
 Train *ResolveCoupleTargetStation(const Train *moving, TileIndex tile, Trackdir td,
-		bool respect_claim = false, uint32_t claim_cost = 0);
+		bool respect_claim = true, uint32_t claim_cost = 0);
 void ClaimCoupleTarget(Train *moving, Train *carrier, uint32_t claim_cost);
 const Train *GetCoupleClaimant(const Train *carrier);
 Train *GetDecoupleVehicleForCount(Train *v, uint num_keep);

@@ -546,6 +546,8 @@ NamedSaveLoadTable GetOrderListDescription()
 		NSLT("route_overlay_colour", SLE_VAR(OrderList, route_overlay_colour, SLE_UINT8)),
 
 		NSL("name",              SLE_SSTR(OrderList, name, SLE_STR)),
+		NSL("is_schedule_group", SLE_CONDVAR_X(OrderList, is_schedule_group, SLE_BOOL, SL_MIN_VERSION, SL_MAX_VERSION, SlXvFeatureTest(XSLFTO_AND, XSLFI_ORDER_LIST_GROUPS))),
+		NSL("schedule_group", SLE_CONDVAR_X(OrderList, schedule_group, SLE_UINT16, SL_MIN_VERSION, SL_MAX_VERSION, SlXvFeatureTest(XSLFTO_AND, XSLFI_ORDER_LIST_GROUPS))),
 		NSL("company",           SLE_VAR(OrderList, company, SLE_UINT8)),
 		NSL("is_public",         SLE_VAR(OrderList, is_public, SLE_BOOL)),
 		NSL("dispatch_enabled",  SLE_VAR(OrderList, dispatch_enabled, SLE_BOOL)),
@@ -644,6 +646,7 @@ static void Load_ORDL()
 		}
 	}
 
+	if (!AreScheduleGroupsValid()) SlErrorCorrupt("Invalid schedule group hierarchy");
 	_old_scheduled_dispatch_slots.clear();
 }
 

@@ -12,14 +12,19 @@
 #include "order_cmd.h"
 #include "orderlist_edit.h"
 #include "orderlist_gui.h"
+#include "tilehighlight_func.h"
 #include "command_func.h"
 #include "company_func.h"
 #include "company_base.h"
 #include "company_gui.h"
 #include "dropdown_func.h"
+#include "dropdown_type.h"
+#include <map>
+#include <set>
 #include "window_gui.h"
 #include "window_func.h"
 #include "gfx_func.h"
+#include "zoom_func.h"
 #include "textbuf_gui.h"
 #include "strings_func.h"
 #include "string_func.h"
@@ -42,23 +47,27 @@ static constexpr NWidgetPart _nested_orderlist_widgets[] = {
 		NWidget(WWT_DEFSIZEBOX, Colours::Grey),
 		NWidget(WWT_STICKYBOX, Colours::Grey),
 	EndContainer(),
-
 	NWidget(NWID_HORIZONTAL),
 		NWidget(WWT_TEXTBTN, Colours::Grey, WID_OL_SORT_ORDER), SetStringTip(STR_BUTTON_SORT_BY, STR_TOOLTIP_SORT_ORDER),
 		NWidget(WWT_DROPDOWN, Colours::Grey, WID_OL_SORT_CRITERIA), SetToolTip(STR_TOOLTIP_SORT_CRITERIA),
 		NWidget(WWT_EDITBOX, Colours::Grey, WID_OL_FILTER), SetFill(1, 0), SetResize(1, 0), SetStringTip(STR_LIST_FILTER_OSKTITLE, STR_LIST_FILTER_TOOLTIP),
 	EndContainer(),
+	NWidget(WWT_TEXTBTN, Colours::Grey, WID_OL_UNGROUPED), SetFill(1, 0), SetStringTip(STR_ORDER_LIST_UNGROUPED, STR_ORDER_LIST_MOVE_GROUP_TOOLTIP),
 
 	NWidget(NWID_HORIZONTAL),
 		NWidget(WWT_PANEL, Colours::Grey),
 			NWidget(NWID_HORIZONTAL),
-				NWidget(WWT_INSET, Colours::Grey, WID_OL_LIST), SetFill(1, 1), SetPadding(2, 1, 2, 2), SetResize(1, 0), SetScrollbar(WID_OL_SCROLLBAR), SetToolTip(STR_ORDER_LIST_LIST_TOOLTIP),
+				NWidget(WWT_INSET, Colours::Grey, WID_OL_LIST), SetFill(1, 1), SetPadding(2, 1, 2, 2), SetResize(1, 1), SetScrollbar(WID_OL_SCROLLBAR), SetToolTip(STR_ORDER_LIST_LIST_TOOLTIP),
 				EndContainer(),
 			EndContainer(),
 		EndContainer(),
 		NWidget(NWID_VSCROLLBAR, Colours::Grey, WID_OL_SCROLLBAR),
 	EndContainer(),
 
+	NWidget(NWID_HORIZONTAL),
+		NWidget(WWT_PUSHTXTBTN, Colours::Grey, WID_OL_NEW_GROUP), SetResize(1, 0), SetFill(1, 0), SetStringTip(STR_ORDER_LIST_NEW_GROUP, STR_ORDER_LIST_NEW_GROUP_TOOLTIP),
+		NWidget(WWT_DROPDOWN, Colours::Grey, WID_OL_MOVE_GROUP), SetResize(1, 0), SetFill(1, 0), SetStringTip(STR_ORDER_LIST_MOVE_GROUP, STR_ORDER_LIST_MOVE_GROUP_TOOLTIP),
+	EndContainer(),
 	NWidget(WWT_PANEL, Colours::Grey),
 		NWidget(NWID_HORIZONTAL),
 			NWidget(NWID_HORIZONTAL, NWidContainerFlag::EqualSize),
@@ -89,6 +98,15 @@ struct OrderListWindow : Window {
 	uint edit_btn_left = 0;                         ///< left offset of the edit buttons
 	Dimension company_icon_spr_dim{};               ///< dimensions of company icon
 	Dimension edit_btn_spr_dim{};                   ///< dimensions of the edit button sprite
+	std::vector<uint> depths;                       ///< Indentation of each displayed row.
+	std::set<OrderListID> collapsed;                ///< Local folder expansion state, never simulation state.
+	std::vector<OrderListID> move_targets;
+	OrderListID query_target = OrderListID::Invalid();
+	OrderListID query_parent = OrderListID::Invalid();
+	OrderListID move_source = OrderListID::Invalid();
+	OrderListID drag_source = OrderListID::Invalid();
+	OrderListID drag_target = OrderListID::Invalid();
+	bool drag_root = false;
 
 private:
 	/* Runtime saved values */
@@ -114,14 +132,7 @@ private:
 			this->orders.reserve(OrderList::GetNumItems());
 
 			for (const OrderList *ol : OrderList::Iterate()) {
-				if (!ol->IsVisibleToCompany(_local_company)) continue;
-				if (this->string_filter.IsEmpty()) {
-					this->orders.push_back(ol);
-				} else {
-					this->string_filter.ResetState();
-					this->string_filter.AddLine(ol->GetName());
-					if (this->string_filter.GetState()) this->orders.push_back(ol);
-				}
+				if (ol->IsVisibleToCompany(_local_company) || (ol->IsScheduleGroup() && ol->GetCompany() == _local_company)) this->orders.push_back(ol);
 			}
 
 			this->orders.RebuildDone();
@@ -137,17 +148,58 @@ private:
 	void RebuildList()
 	{
 		std::optional<OrderListID> previously_selected;
-		if (this->selected != INT_MAX) previously_selected = this->list[this->selected];
+		if (this->selected >= 0 && this->selected < (int)this->list.size()) previously_selected = this->list[this->selected];
 
 		this->selected = INT_MAX;
 
 		this->list.clear();
+		this->depths.clear();
+		std::map<OrderListID, std::vector<const OrderList *>> children;
+		std::set<OrderListID> matches;
 		for (const OrderList *ol : this->orders) {
+			/* Other companies' public schedules are visible at the root. */
+			OrderListID parent = ol->GetCompany() == _local_company ? ol->GetScheduleGroup() : OrderListID::Invalid();
+			children[parent].push_back(ol);
+			if (!this->string_filter.IsEmpty()) {
+				this->string_filter.ResetState();
+				this->string_filter.AddLine(ol->GetName());
+				if (this->string_filter.GetState()) {
+					matches.insert(ol->index);
+					while (parent != OrderListID::Invalid() && matches.insert(parent).second) parent = OrderList::Get(parent)->GetScheduleGroup();
+				}
+			}
+		}
+		std::vector<std::pair<const OrderList *, uint>> pending;
+		auto append_children = [&](OrderListID parent, uint depth) {
+			auto &items = children[parent];
+			std::stable_partition(items.begin(), items.end(), [](const OrderList *ol) { return ol->IsScheduleGroup(); });
+			for (auto it = items.rbegin(); it != items.rend(); ++it) pending.emplace_back(*it, depth);
+		};
+		append_children(OrderListID::Invalid(), 0);
+		while (!pending.empty()) {
+			auto [ol, depth] = pending.back();
+			pending.pop_back();
+			if (!this->string_filter.IsEmpty() && !matches.contains(ol->index)) continue;
 			this->list.push_back(ol->index);
-			if (previously_selected == ol->index) this->selected = (int) this->list.size() - 1;
+			this->depths.push_back(depth);
+			if (previously_selected == ol->index) this->selected = (int)this->list.size() - 1;
+			if (ol->IsScheduleGroup() && (!this->collapsed.contains(ol->index) || !this->string_filter.IsEmpty())) append_children(ol->index, depth + 1);
 		}
 
 		this->vscroll->SetCount((int) this->list.size());
+	}
+
+	bool CanDropOn(OrderListID target) const
+	{
+		const OrderList *source = OrderList::GetIfValid(this->drag_source);
+		const OrderList *group = OrderList::GetIfValid(target);
+		if (source == nullptr || source->GetCompany() != _local_company) return false;
+		if (target == OrderListID::Invalid()) return source->GetScheduleGroup() != target;
+		if (group == nullptr || !group->IsScheduleGroup() || group->GetCompany() != _local_company || source->GetScheduleGroup() == target) return false;
+		for (const OrderList *ancestor = group; ancestor != nullptr; ancestor = OrderList::GetIfValid(ancestor->GetScheduleGroup())) {
+			if (ancestor == source) return false;
+		}
+		return true;
 	}
 
 	/** Sort by order list ID */
@@ -191,13 +243,45 @@ public:
 		switch (widget) {
 			case WID_OL_NEW:
 				{
-					bool posted = Command<Commands::CreateOrderList>::Post(CommandCallback::CreateOrderList, TileIndex{}, {});
+					Command<Commands::CreateOrderList>::Post(CommandCallback::CreateOrderList, TileIndex{}, std::string{}, this->SelectedParent(), false);
 				}
+				break;
+			case WID_OL_NEW_GROUP:
+				this->query_widget = widget;
+				this->query_parent = this->SelectedParent();
+				ShowQueryString(std::string{}, STR_ORDER_LIST_NEW_GROUP, MAX_LENGTH_ORDERLIST_NAME_CHARS, this, CS_ALPHANUMERAL, QueryStringFlag::LengthIsInChars);
+				break;
+			case WID_OL_MOVE_GROUP:
+				if (const OrderList *ol = this->GetSelectedOrderList(); ol != nullptr && ol->GetCompany() == _local_company) {
+					this->move_source = ol->index;
+					this->move_targets = {OrderListID::Invalid()};
+					DropDownList items;
+					items.push_back(MakeDropDownListStringItem(GetString(STR_ORDER_LIST_UNGROUPED), 0, false));
+					int selected_parent = 0;
+					for (const OrderList *group : this->orders) {
+						if (!group->IsScheduleGroup()) continue;
+						bool descendant = false;
+						for (const OrderList *ancestor = group; ancestor != nullptr; ancestor = OrderList::GetIfValid(ancestor->GetScheduleGroup())) {
+							if (ancestor == ol) { descendant = true; break; }
+						}
+						if (descendant) continue;
+						int index = (int)this->move_targets.size();
+						if (group->index == ol->GetScheduleGroup()) selected_parent = index;
+						this->move_targets.push_back(group->index);
+						items.push_back(MakeDropDownListStringItem(this->GroupPath(group), index, false));
+					}
+					ShowDropDownList(this, std::move(items), selected_parent, widget);
+				}
+				break;
+			case WID_OL_UNGROUPED:
+				this->selected = INT_MAX;
+				this->SetDirty();
 				break;
 
 			case WID_OL_RENAME:
 				if (const OrderList *ol = this->GetSelectedOrderList(); ol != nullptr) {
 					this->query_widget = WID_OL_RENAME;
+					this->query_target = ol->index;
 					ShowQueryString(GetString(STR_JUST_RAW_STRING, ol->GetName()),
 							STR_ORDER_LIST_QUERY_RENAME, MAX_LENGTH_ORDERLIST_NAME_CHARS,
 							this, CS_ALPHANUMERAL, QueryStringFlag::LengthIsInChars);
@@ -218,14 +302,29 @@ public:
 
 			case WID_OL_LIST: {
 				int new_selected = this->vscroll->GetScrolledRowFromWidget(pt.y, this, WID_OL_LIST, WidgetDimensions::scaled.framerect.top);
-				if (new_selected != INT_MAX) {
+				bool opened_editor = false;
+				if (new_selected >= 0 && new_selected < (int)this->list.size()) {
+					const OrderList *ol = OrderList::Get(this->list[new_selected]);
+					const int fold_left = this->edit_btn_left + SETTING_BUTTON_WIDTH + 4 + std::min<uint>(this->depths[new_selected] * ScaleGUITrad(12), 100);
+					if (ol->IsScheduleGroup() && (click_count > 1 || (pt.x >= fold_left && pt.x < fold_left + ScaleGUITrad(14)))) {
+						this->selected = new_selected;
+						if (!this->collapsed.erase(ol->index)) this->collapsed.insert(ol->index);
+						this->RebuildList();
+						this->SetDirty();
+						break;
+					}
 					const int btn_left = this->edit_btn_left;
 					const int btn_right = btn_left + SETTING_BUTTON_WIDTH;
 					if (pt.x >= btn_left && pt.x < btn_right) {
-						if (new_selected >= 0 && static_cast<size_t>(new_selected) < this->list.size()) ShowOrderListEditor(this->list[new_selected]);
+						ShowOrderListEditor(this->list[new_selected]);
+						opened_editor = true;
 					}
 				}
-				this->selected = new_selected;
+				this->selected = new_selected >= 0 && new_selected < (int)this->list.size() ? new_selected : INT_MAX;
+				if (const OrderList *selected = this->GetSelectedOrderList(); !opened_editor && selected != nullptr && selected->GetCompany() == _local_company) {
+					this->drag_source = selected->index;
+					SetObjectToPlaceWnd(SPR_CURSOR_MOUSE, PAL_NONE, HT_DRAG, this);
+				}
 				this->SetDirty();
 				break;
 			}
@@ -245,9 +344,44 @@ public:
 		}
 	}
 
+	void OnMouseDrag(Point pt, WidgetID widget) override
+	{
+		OrderListID target = OrderListID::Invalid();
+		bool root = widget == WID_OL_UNGROUPED && this->CanDropOn(OrderListID::Invalid());
+		if (widget == WID_OL_LIST) {
+			int row = this->vscroll->GetScrolledRowFromWidget(pt.y, this, WID_OL_LIST, WidgetDimensions::scaled.framerect.top);
+			if (row >= 0 && row < (int)this->list.size() && this->CanDropOn(this->list[row])) target = this->list[row];
+		}
+		if (target != this->drag_target || root != this->drag_root) {
+			this->drag_target = target;
+			this->drag_root = root;
+			this->SetWidgetDirty(WID_OL_LIST);
+			this->SetWidgetDirty(WID_OL_UNGROUPED);
+		}
+	}
+
+	void OnDragDrop(Point pt, WidgetID widget) override
+	{
+		if (widget == WID_OL_LIST) {
+			int row = this->vscroll->GetScrolledRowFromWidget(pt.y, this, WID_OL_LIST, WidgetDimensions::scaled.framerect.top);
+			if (row >= 0 && row < (int)this->list.size() && this->CanDropOn(this->list[row])) {
+				Command<Commands::MoveOrderListToGroup>::Post(this->drag_source, this->list[row]);
+			}
+		} else if (widget == WID_OL_UNGROUPED && this->CanDropOn(OrderListID::Invalid())) {
+			Command<Commands::MoveOrderListToGroup>::Post(this->drag_source, OrderListID::Invalid());
+		}
+		this->drag_source = OrderListID::Invalid();
+		this->drag_target = OrderListID::Invalid();
+		this->drag_root = false;
+		this->SetDirty();
+	}
+
 	virtual void OnDropdownSelect(WidgetID widget, int index, int) override
 	{
 		switch (widget) {
+			case WID_OL_MOVE_GROUP:
+				if (index >= 0 && index < (int)this->move_targets.size()) Command<Commands::MoveOrderListToGroup>::Post(this->move_source, this->move_targets[index]);
+				break;
 			case WID_OL_SORT_CRITERIA:
 				if (this->orders.SortType() != index) {
 					this->orders.SetSortType(index);
@@ -260,18 +394,33 @@ public:
 
 	void OnQueryTextFinished(std::optional<std::string> str) override
 	{
-		if (!str.has_value() || this->query_widget != WID_OL_RENAME) return;
-		this->query_widget = {};
+		WidgetID query = this->query_widget;
+		this->query_widget = WID_OL_CAPTION;
+		if (!str.has_value()) return;
+		if (query == WID_OL_NEW_GROUP && !str->empty()) {
+			Command<Commands::CreateOrderList>::Post(TileIndex{}, *str, this->query_parent, true);
+		} else if (query == WID_OL_RENAME) {
+			Command<Commands::RenameOrderList>::Post(STR_ERROR_CAN_T_RENAME_ORDER_LIST, TileIndex{}, this->query_target, *str);
+		}
+	}
 
-		if (this->selected == INT_MAX || this->selected >= static_cast<int>(this->list.size())) return;
-		OrderListID id = this->list[this->selected];
+	OrderListID SelectedParent() const
+	{
+		const OrderList *ol = this->GetSelectedOrderList();
+		if (ol == nullptr || ol->GetCompany() != _local_company) return OrderListID::Invalid();
+		return ol->IsScheduleGroup() ? ol->index : ol->GetScheduleGroup();
+	}
 
-		Command<Commands::RenameOrderList>::Post(STR_ERROR_CAN_T_RENAME_ORDER_LIST, TileIndex{}, id, *str);
+	std::string GroupPath(const OrderList *group) const
+	{
+		std::string path = group->GetName();
+		for (const OrderList *parent = OrderList::GetIfValid(group->GetScheduleGroup()); parent != nullptr; parent = OrderList::GetIfValid(parent->GetScheduleGroup())) path = parent->GetName() + " / " + path;
+		return path;
 	}
 
 	const OrderList *GetSelectedOrderList() const
 	{
-		if (this->selected == INT_MAX || this->selected >= (int) this->list.size()) return nullptr;
+		if (this->selected < 0 || this->selected >= (int) this->list.size()) return nullptr;
 		OrderListID id = this->list[this->selected];
 		return OrderList::IsValidID(id) ? OrderList::Get(id) : nullptr;
 	}
@@ -280,16 +429,18 @@ public:
 	{
 		bool no_company = _game_mode != GameMode::Editor && !Company::IsValidID(_local_company);
 		this->SetWidgetDisabledState(WID_OL_NEW, no_company);
+		this->SetWidgetDisabledState(WID_OL_NEW_GROUP, no_company);
+		this->SetWidgetLoweredState(WID_OL_UNGROUPED, this->drag_root);
 
 		const OrderList *ol = this->GetSelectedOrderList();
 		if (ol != nullptr && ol->GetCompany() == _local_company) {
-			this->SetWidgetsDisabledState(false, WID_OL_RENAME, WID_OL_PUBLIC, WID_OL_DELETE);
+			this->SetWidgetsDisabledState(false, WID_OL_RENAME, WID_OL_MOVE_GROUP, WID_OL_PUBLIC, WID_OL_DELETE);
 			this->GetWidget<NWidgetCore>(WID_OL_PUBLIC)->SetString(ol->IsPublic() ? STR_ORDER_LIST_MAKE_PRIVATE : STR_ORDER_LIST_MAKE_PUBLIC);
 			/* A public list may already be used by other companies; making it
 			 * private again has no effect. Keep the button as a placeholder, but disabled. */
-			this->SetWidgetDisabledState(WID_OL_PUBLIC, ol->IsPublic());
+			this->SetWidgetDisabledState(WID_OL_PUBLIC, ol->IsPublic() || ol->IsScheduleGroup());
 		} else {
-			this->SetWidgetsDisabledState(true, WID_OL_RENAME, WID_OL_PUBLIC, WID_OL_DELETE);
+			this->SetWidgetsDisabledState(true, WID_OL_RENAME, WID_OL_MOVE_GROUP, WID_OL_PUBLIC, WID_OL_DELETE);
 			this->GetWidget<NWidgetCore>(WID_OL_PUBLIC)->SetString(STR_ORDER_LIST_MAKE_PUBLIC);
 		}
 		this->DrawWidgets();
@@ -320,7 +471,7 @@ public:
 				for (int32_t i = this->vscroll->GetPosition(); this->vscroll->IsVisible(i) && i < this->vscroll->GetCount(); i++) {
 					OrderListID id = this->list[i];
 
-					if (i == this->selected) GfxFillRect(r.left + 1, y, r.right, y + this->resize.step_height, PC_DARK_GREY);
+					if (i == this->selected || id == this->drag_target) GfxFillRect(r.left + 1, y, r.right, y + this->resize.step_height, id == this->drag_target ? PC_LIGHT_BLUE : PC_DARK_GREY);
 
 					if (OrderList::IsValidID(id)) {
 						const OrderList *ol = OrderList::Get(id);
@@ -331,12 +482,15 @@ public:
 
 						Rect br{(int) btn_left, (int) y + ((int) this->resize.step_height - SETTING_BUTTON_HEIGHT) / 2,
 								(int) btn_left + SETTING_BUTTON_WIDTH - 1, (int) y + ((int) this->resize.step_height + SETTING_BUTTON_HEIGHT) / 2 - 1};
-						DrawFrameRect(br, Colours::Grey, {});
-						DrawSprite(SPR_RENAME, PAL_NONE, CentreBounds(br.left, br.right, this->edit_btn_spr_dim.width), CentreBounds(br.top, br.bottom, this->edit_btn_spr_dim.height));
+						if (!ol->IsScheduleGroup()) {
+							DrawFrameRect(br, Colours::Grey, {});
+							DrawSprite(SPR_RENAME, PAL_NONE, CentreBounds(br.left, br.right, this->edit_btn_spr_dim.width), CentreBounds(br.top, br.bottom, this->edit_btn_spr_dim.height));
+						}
 
 						std::string base_name = ol->GetName().empty() ? GetString(STR_ORDER_LIST_DEFAULT_NAME, ol->index.base() + 1) : ol->GetName();
-					std::string str = ol->IsPublic() ? base_name : GetString(STR_PLANS_LIST_ITEM_PLAN_PRIVATE) + base_name;
-						DrawString(text_left, text_right, y + (this->resize.step_height - GetCharacterHeight(FontSize::Normal)) / 2, str, TextColour::White);
+						std::string str = ol->IsScheduleGroup() ? (this->collapsed.contains(id) && this->string_filter.IsEmpty() ? "+ " : "- ") + base_name : (ol->IsPublic() ? base_name : GetString(STR_PLANS_LIST_ITEM_PLAN_PRIVATE) + base_name);
+						int indent = std::min<uint>(this->depths[i] * ScaleGUITrad(12), (text_right - text_left) / 2);
+						DrawString(text_left + (rtl ? 0 : indent), text_right - (rtl ? indent : 0), y + (this->resize.step_height - GetCharacterHeight(FontSize::Normal)) / 2, str, TextColour::White);
 					}
 					y += this->resize.step_height;
 				}
@@ -416,7 +570,7 @@ public:
 
 	virtual void OnInvalidateData(int data = 0, bool gui_scope = true) override
 	{
-		if (data != 0 && this->selected != INT_MAX) {
+		if (data != 0 && this->selected >= 0 && this->selected < (int)this->list.size()) {
 			if (this->list[this->selected].base() == data) {
 				/* Invalidate the selection if the selected order list has been deleted. */
 				this->selected = INT_MAX;
@@ -440,9 +594,9 @@ const std::initializer_list<GUIOrderList::SortFunction * const> OrderListWindow:
 /**
  * Callback after creating a new order list; opens the editor for it.
  */
-void CcCreateOrderList(const CommandCost &result, [[maybe_unused]] const std::string &name)
+void CcCreateOrderList(const CommandCost &result, [[maybe_unused]] const std::string &name, [[maybe_unused]] OrderListID parent, bool is_group)
 {
-	if (!result.Succeeded()) return;
+	if (!result.Succeeded() || is_group) return;
 
 	auto id = result.GetResultData<OrderListID>();
 	ShowOrderListEditor(*id);

@@ -390,11 +390,11 @@ CommandCost CmdChangeTimetable(DoCommandFlags flags, OrderTargetType target_type
 	const bool is_list = target_type == OrderTargetType::OrderList;
 	if (is_list) {
 		OrderList *ol = OrderList::GetIfValid(OrderListID(static_cast<uint16_t>(id)));
-		if (ol == nullptr || !ol->IsPlayerCreated()) return CMD_ERROR;
+		if (id >= OrderListID::End().base() || ol == nullptr || !ol->IsPlayerCreated() || ol->IsScheduleGroup()) return CMD_ERROR;
 		return CmdChangeTimetableOnStandaloneList(flags, ol, order_number, mtf, data, ctrl_flags);
 	}
 
-	Vehicle *v = Vehicle::GetIfValid(VehicleID(static_cast<uint16_t>(id)));
+	Vehicle *v = Vehicle::GetIfValid(VehicleID(id));
 	if (v == nullptr || !IsCompanyBuildableVehicleType(v) || !v->IsPrimaryVehicle()) return CMD_ERROR;
 
 	CommandCost ret = CheckOwnership(v->owner);
@@ -578,7 +578,7 @@ CommandCost CmdBulkChangeTimetable(DoCommandFlags flags, OrderTargetType target_
 	const bool is_list = target_type == OrderTargetType::OrderList;
 	if (is_list) {
 		OrderList *ol = OrderList::GetIfValid(OrderListID(static_cast<uint16_t>(id)));
-		if (ol == nullptr || !ol->IsPlayerCreated()) return CMD_ERROR;
+		if (id >= OrderListID::End().base() || ol == nullptr || !ol->IsPlayerCreated() || ol->IsScheduleGroup()) return CMD_ERROR;
 
 		CommandCost ret = CheckOwnership(ol->GetCompany());
 		if (ret.Failed()) return ret;
@@ -600,7 +600,7 @@ CommandCost CmdBulkChangeTimetable(DoCommandFlags flags, OrderTargetType target_
 		return CommandCost();
 	}
 
-	Vehicle *v = Vehicle::GetIfValid(VehicleID(static_cast<uint16_t>(id)));
+	Vehicle *v = Vehicle::GetIfValid(VehicleID(id));
 	if (v == nullptr || !IsCompanyBuildableVehicleType(v) || !v->IsPrimaryVehicle()) return CMD_ERROR;
 
 	CommandCost ret = CheckOwnership(v->owner);

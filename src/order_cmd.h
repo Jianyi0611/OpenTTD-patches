@@ -58,10 +58,11 @@ DEF_CMD_TUPLE_NT (Commands::MassChangeOrder,        CmdMassChangeOrder,         
 DEF_CMD_TUPLE    (Commands::ClearOrderBackup,       CmdClearOrderBackup,     CMD_CLIENT_ID, CommandType::ServerSetting,   CmdDataT<ClientID>)
 
 /* Player-created order list management commands. */
-DEF_CMD_TUPLE_LT (Commands::CreateOrderList,        CmdCreateOrderList,                 {}, CommandType::RouteManagement, CmdDataT<std::string>)
+DEF_CMD_TUPLE_LT (Commands::CreateOrderList,        CmdCreateOrderList,                 {}, CommandType::RouteManagement, CmdDataT<std::string, OrderListID, bool>)
 DEF_CMD_TUPLE_LT (Commands::RenameOrderList,        CmdRenameOrderList,                 {}, CommandType::RouteManagement, CmdDataT<OrderListID, std::string>)
 DEF_CMD_TUPLE_NT (Commands::DeleteOrderList,        CmdDeleteOrderList,                 {}, CommandType::RouteManagement, CmdDataT<OrderListID>)
 DEF_CMD_TUPLE_NT (Commands::SetOrderListPublic,     CmdSetOrderListPublic,              {}, CommandType::RouteManagement, CmdDataT<OrderListID, bool>)
+DEF_CMD_TUPLE_NT (Commands::MoveOrderListToGroup,   CmdMoveOrderListToGroup,            {}, CommandType::RouteManagement, CmdDataT<OrderListID, OrderListID>)
 DEF_CMD_TUPLE_LT (Commands::ExitExecuteSchedule,    CmdExitExecuteSchedule,             {}, CommandType::RouteManagement, CmdDataT<VehicleID>)
 
 /** Invalidate every GUI that displays a standalone player-created order list. */

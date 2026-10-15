@@ -682,7 +682,8 @@ void CheckCaches(bool force_check, std::function<void(std::string_view)> log, Ch
 			IntialiseOrderDestinationRefcountMap();
 			if (saved_order_destination_refcount_map != _order_destination_refcount_map) cclog("Order destination refcount map mismatch");
 		} else {
-			cclog("Order destination refcount map not valid");
+			/* An explicitly invalidated cache is rebuilt lazily and is not an inconsistency. */
+			IntialiseOrderDestinationRefcountMap();
 		}
 	}
 

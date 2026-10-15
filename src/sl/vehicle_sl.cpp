@@ -1924,8 +1924,8 @@ void Save_CPLM()
 		SlWriteUint32((uint32_t)claims.size());
 		for (const CoupleClaimSave &cs : claims) {
 			SlWriteUint32(cs.vehicle.base());
-			SlWriteUint16(cs.couple_target.base());
-			SlWriteUint16(cs.couple_claimant.base());
+			SlWriteUint32(cs.couple_target.base());
+			SlWriteUint32(cs.couple_claimant.base());
 			SlWriteUint32(cs.couple_claim_cost);
 			SlWriteByte(cs.couple_body_hold);
 		}
@@ -1938,11 +1938,24 @@ void Load_CPLM()
 	if (SlGetFieldLength() == 0) return;
 
 	uint32_t count = SlReadUint32();
+	const bool wide_ids = SlXvIsFeaturePresent(XSLFI_COUPLE_CLAIM_STATE, 2);
+	const uint32_t record_size = wide_ids ? 17 : 13;
+	if (count > VehicleID::End().base() || SlGetFieldLength() != 4ULL + uint64_t(count) * record_size) {
+		SlErrorCorrupt("Invalid couple claim record count");
+	}
 	_couple_claims.resize(count);
 	for (CoupleClaimSave &cs : _couple_claims) {
 		cs.vehicle = static_cast<VehicleID>(SlReadUint32());
-		cs.couple_target = static_cast<VehicleID>(SlReadUint16());
-		cs.couple_claimant = static_cast<VehicleID>(SlReadUint16());
+		if (wide_ids) {
+			cs.couple_target = static_cast<VehicleID>(SlReadUint32());
+			cs.couple_claimant = static_cast<VehicleID>(SlReadUint32());
+		} else {
+			/* Version 1 truncated both IDs, including the invalid sentinel. */
+			const uint16_t target = SlReadUint16();
+			const uint16_t claimant = SlReadUint16();
+			cs.couple_target = target == UINT16_MAX ? VehicleID::Invalid() : VehicleID(target);
+			cs.couple_claimant = claimant == UINT16_MAX ? VehicleID::Invalid() : VehicleID(claimant);
+		}
 		cs.couple_claim_cost = SlReadUint32();
 		cs.couple_body_hold = SlReadByte() != 0;
 	}
