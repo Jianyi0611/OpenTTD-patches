@@ -9,6 +9,7 @@
 #include "../3rdparty/catch2/catch.hpp"
 #include "../train.h"
 #include "../train_cmd.h"
+#include "../aircraft.h"
 #include "../engine_base.h"
 #include "../newgrf.h"
 #include "../newgrf_spritegroup.h"
@@ -30,6 +31,42 @@ struct CoupleSnapshotCapture : SaveFilter {
 	CoupleSnapshotCapture() : SaveFilter(nullptr) {}
 	void Write(uint8_t *data, size_t size) override { bytes.insert(bytes.end(), data, data + size); }
 };
+
+TEST_CASE("Aircraft - state transitions refresh callback caches even when stopped")
+{
+	REQUIRE(Engine::GetNumItems() == 0);
+	REQUIRE(Vehicle::GetNumItems() == 0);
+	REQUIRE(Engine::CanAllocateItem());
+	Engine *engine = Engine::Create(VehicleType::Aircraft, 0);
+	GRFFile grf;
+	grf.grf_version = 8;
+	engine->grf_prop.grffile = &grf;
+	engine->cb36_properties_used = 0;
+	SetBit(engine->cb36_properties_used, PROP_AIRCRAFT_SPEED);
+	CallbackResultSpriteGroup ground(100);
+	CallbackResultSpriteGroup flight(200);
+	engine->grf_prop.SetSpriteGroup(CargoGRFFileProps::SG_DEFAULT, &ground);
+	REQUIRE(Aircraft::CanAllocateItem(2));
+	Aircraft *aircraft = Aircraft::Create();
+	Aircraft *shadow = Aircraft::Create();
+	aircraft->subtype = AIR_AIRCRAFT;
+	shadow->subtype = AIR_SHADOW;
+	aircraft->engine_type = shadow->engine_type = engine->index;
+	aircraft->SetNext(shadow);
+	aircraft->vehstatus.Set(VehState::Stopped);
+	aircraft->cur_speed = 0;
+	aircraft->state = AS_HANGAR;
+	UpdateAircraftCache(aircraft);
+	CHECK(aircraft->vcache.cached_max_speed == 1280);
+	CHECK(aircraft->last_cached_state == AS_HANGAR);
+	engine->grf_prop.SetSpriteGroup(CargoGRFFileProps::SG_DEFAULT, &flight);
+	aircraft->state = AS_FLYING;
+	CHECK(aircraft->Tick());
+	CHECK(aircraft->vcache.cached_max_speed == 2560);
+	CHECK(aircraft->last_cached_state == AS_FLYING);
+	_vehicle_pool.CleanPool();
+	_engine_pool.CleanPool();
+}
 
 class TrainDecoupleFixture {
 protected:
