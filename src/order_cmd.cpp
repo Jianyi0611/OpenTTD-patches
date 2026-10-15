@@ -9,6 +9,8 @@
 
 #include "stdafx.h"
 #include <map>
+#include <set>
+#include <tuple>
 #include <string>
 #include "3rdparty/fmt/format.h"
 #include "debug.h"
@@ -129,8 +131,9 @@ static CommandCost CmdInsertOrderIntl(DoCommandFlags flags, Vehicle *v, VehicleO
 void IntialiseOrderDestinationRefcountMap()
 {
 	ClearOrderDestinationRefcountMap();
+	std::set<std::tuple<OrderListID, Owner, VehicleType>> counted;
 	for (const Vehicle *v : Vehicle::IterateFrontOnly()) {
-		if (v != v->FirstShared()) continue;
+		if (v->orders == nullptr || !counted.emplace(v->orders->index, v->owner, v->type).second) continue;
 		for (const Order *order : v->Orders()) {
 			if (order->IsType(OT_GOTO_STATION) || order->IsType(OT_GOTO_WAYPOINT) || order->IsType(OT_IMPLICIT)) {
 				_order_destination_refcount_map[OrderDestinationRefcountMapKey(order->GetDestination().ToStationID(), v->owner, order->GetType(), v->type)]++;
@@ -609,6 +612,7 @@ void OrderList::CopyOrderListContents(const OrderList &other)
  */
 void OrderList::Initialize(Vehicle *v)
 {
+	if (this->IsPlayerCreated()) ClearOrderDestinationRefcountMap();
 	this->first_shared = v;
 
 	this->num_manual_orders = 0;
@@ -625,7 +629,7 @@ void OrderList::Initialize(Vehicle *v)
 			this->timetable_duration += o->GetTimetabledWait() + o->GetTimetabledTravel();
 			this->total_duration += o->GetWaitTime() + o->GetTravelTime();
 		}
-		RegisterOrderDestination(o, type, owner);
+		if (!this->IsPlayerCreated()) RegisterOrderDestination(o, type, owner);
 	}
 
 	for (Vehicle *u = this->first_shared->PreviousShared(); u != nullptr; u = u->PreviousShared()) {
@@ -739,6 +743,7 @@ void OrderList::FreeChain(bool keep_orderlist)
 	if (this->IsPlayerCreated()) {
 		/* Player-created order lists are managed via dedicated commands. They must not be freed by the
 		 * normal lifecycle, and they also do not unregister destinations as none were ever registered. */
+		ClearOrderDestinationRefcountMap();
 		for (Order *o : this->Orders()) {
 			if (!CleaningPool()) o->InvalidateGuiOnRemove();
 		}
@@ -1083,6 +1088,8 @@ void OrderList::InsertOrderAt(Order &&ins_order, VehicleOrderID index)
 	/* Player-created order lists have no executing vehicle and never register their destinations. */
 	if (!this->IsPlayerCreated()) {
 		RegisterOrderDestination(new_order, this->GetFirstSharedVehicle()->type, this->GetFirstSharedVehicle()->owner);
+	} else {
+		ClearOrderDestinationRefcountMap();
 	}
 
 	/* We can visit oil rigs and buoys that are not our own. They will be shown in
@@ -1111,6 +1118,8 @@ void OrderList::DeleteOrderAt(VehicleOrderID index)
 	}
 	if (!this->IsPlayerCreated()) {
 		UnregisterOrderDestination(to_remove, this->GetFirstSharedVehicle()->type, this->GetFirstSharedVehicle()->owner);
+	} else {
+		ClearOrderDestinationRefcountMap();
 	}
 
 	to_remove->InvalidateGuiOnRemove();
@@ -1148,6 +1157,7 @@ void OrderList::MoveOrders(VehicleOrderID from, VehicleOrderID to, uint16_t coun
  */
 void OrderList::RemoveVehicle(Vehicle *v)
 {
+	ClearOrderDestinationRefcountMap();
 	--this->num_vehicles;
 	if (v == this->first_shared) this->first_shared = v->NextShared();
 }
@@ -1159,6 +1169,7 @@ void OrderList::RemoveVehicle(Vehicle *v)
  */
 void OrderList::AssignVehicle(Vehicle *v)
 {
+	ClearOrderDestinationRefcountMap();
 	if (this->first_shared == nullptr) {
 		this->first_shared = v;
 		this->AddVehicle(v);
@@ -1346,6 +1357,7 @@ uint GetOrderDistance(const Order *prev, const Order *cur, const Vehicle *v, int
 /** Invalidate every GUI that displays a standalone player-created order list. */
 void InvalidateStandaloneOrderGUIs()
 {
+	ClearOrderDestinationRefcountMap();
 	InvalidateWindowClassesData(WindowClass::OrderList, VIWD_MODIFY_ORDERS);
 	InvalidateWindowClassesData(WindowClass::OrderListEditor, VIWD_MODIFY_ORDERS);
 	InvalidateWindowClassesData(WindowClass::OrderListTimetable, VIWD_MODIFY_ORDERS);
@@ -1363,8 +1375,40 @@ void InvalidateStandaloneOrderGUIs()
 /** Resolve a command id to a standalone (player-created) order list, or nullptr when invalid. */
 static OrderList *GetStandaloneOrderList(uint32_t id)
 {
+	if (id >= OrderListID::End().base()) return nullptr;
 	OrderList *ol = OrderList::GetIfValid(OrderListID(static_cast<uint16_t>(id)));
-	return (ol != nullptr && ol->IsPlayerCreated()) ? ol : nullptr;
+	return (ol != nullptr && ol->IsPlayerCreated() && !ol->IsScheduleGroup()) ? ol : nullptr;
+}
+
+/** Validate a folder belonging to the command company. The root has no folder. */
+static bool IsValidScheduleGroup(OrderListID id)
+{
+	if (id == OrderListID::Invalid()) return true;
+	const OrderList *group = OrderList::GetIfValid(id);
+	return group != nullptr && group->IsScheduleGroup() && group->GetCompany() == _current_company;
+}
+
+/** Check a loaded folder hierarchy in linear time before exposing it to commands/UI. */
+bool AreScheduleGroupsValid()
+{
+	std::vector<uint8_t> visited(OrderListID::End().base(), 0);
+	for (const OrderList *ol : OrderList::Iterate()) {
+		if (ol->IsScheduleGroup() && (!ol->IsPlayerCreated() || ol->IsPublic() || ol->GetNumOrders() != 0)) return false;
+		std::vector<OrderListID> path;
+		for (const OrderList *node = ol; node != nullptr;) {
+			if (visited[node->index.base()] == 2) break;
+			if (visited[node->index.base()] == 1) return false;
+			visited[node->index.base()] = 1;
+			path.push_back(node->index);
+			OrderListID parent = node->GetScheduleGroup();
+			if (parent == OrderListID::Invalid()) break;
+			const OrderList *group = OrderList::GetIfValid(parent);
+			if (!node->IsPlayerCreated() || group == nullptr || !group->IsScheduleGroup() || group->GetCompany() != node->GetCompany()) return false;
+			node = group;
+		}
+		for (OrderListID id : path) visited[id.base()] = 2;
+	}
+	return true;
 }
 
 static bool StandaloneHasUnbunchingOrder(const OrderList *ol)
@@ -2295,7 +2339,7 @@ CommandCost CmdDeleteOrder(DoCommandFlags flags, OrderTargetType target_type, ui
 		return CommandCost();
 	}
 
-	Vehicle *v = Vehicle::GetIfValid(VehicleID(static_cast<uint16_t>(id)));
+	Vehicle *v = Vehicle::GetIfValid(VehicleID(id));
 
 	if (v == nullptr || !IsCompanyBuildableVehicleType(v) || !v->IsPrimaryVehicle()) return CMD_ERROR;
 
@@ -2526,7 +2570,7 @@ CommandCost CmdMoveOrder(DoCommandFlags flags, OrderTargetType target_type, uint
 		ol = GetStandaloneOrderList(id);
 		if (ol == nullptr) return CMD_ERROR;
 	} else {
-		v = Vehicle::GetIfValid(VehicleID(static_cast<uint16_t>(id)));
+		v = Vehicle::GetIfValid(VehicleID(id));
 		if (v == nullptr || !IsCompanyBuildableVehicleType(v) || !v->IsPrimaryVehicle()) return CMD_ERROR;
 	}
 
@@ -2886,10 +2930,10 @@ CommandCost CmdModifyOrder(DoCommandFlags flags, OrderTargetType target_type, ui
 	OrderList *ol = nullptr;
 	Vehicle *v = nullptr;
 	if (is_list) {
-		ol = OrderList::GetIfValid(OrderListID(static_cast<uint16_t>(id)));
-		if (ol == nullptr || !ol->IsPlayerCreated()) return CMD_ERROR;
+		ol = GetStandaloneOrderList(id);
+		if (ol == nullptr) return CMD_ERROR;
 	} else {
-		v = Vehicle::GetIfValid(VehicleID(static_cast<uint16_t>(id)));
+		v = Vehicle::GetIfValid(VehicleID(id));
 		if (v == nullptr || !IsCompanyBuildableVehicleType(v) || !v->IsPrimaryVehicle()) return CMD_ERROR;
 	}
 
@@ -2950,7 +2994,11 @@ CommandCost CmdModifyOrder(DoCommandFlags flags, OrderTargetType target_type, ui
 				break;
 
 			case OT_GOTO_COUPLE:
-				if (mof != MOF_COUPLE_LOAD && mof != MOF_COUPLE_CARGO && mof != MOF_COUPLE_VALUE && mof != MOF_COUPLE_SLOT && mof != MOF_COUPLE_SLOT_GROUP && mof != MOF_COUPLE_GROUP && mof != MOF_COUPLE_STATION && mof != MOF_COUPLE_USE_WAITING_SCHEDULE) return CMD_ERROR;
+				if (mof != MOF_COUPLE_LOAD && mof != MOF_COUPLE_CARGO && mof != MOF_COUPLE_VALUE && mof != MOF_COUPLE_SLOT && mof != MOF_COUPLE_SLOT_GROUP && mof != MOF_COUPLE_GROUP && mof != MOF_COUPLE_STATION && mof != MOF_COUPLE_USE_WAITING_SCHEDULE && mof != MOF_COUPLE_CHECK_POINT) return CMD_ERROR;
+				break;
+
+			case OT_WAIT_COUPLE:
+				if (mof != MOF_WAIT_COUPLE_STATION) return CMD_ERROR;
 				break;
 
 			case OT_DECOUPLE:
@@ -3405,6 +3453,29 @@ CommandCost CmdModifyOrder(DoCommandFlags flags, OrderTargetType target_type, ui
 			}
 			break;
 
+		case MOF_WAIT_COUPLE_STATION:
+			if ((!is_list && v->type != VehicleType::Train) || (data != 0 && !Station::IsValidID(StationID{(uint16_t)(data - 1)}))) return CMD_ERROR;
+			if (data != 0) {
+				bool in_schedule = false;
+				for (const Order *candidate : ol->Orders()) {
+					if (candidate->IsType(OT_GOTO_STATION) && candidate->GetDestination().ToStationID().base() == data - 1) { in_schedule = true; break; }
+				}
+				if (!in_schedule) return CMD_ERROR;
+			}
+			break;
+
+		case MOF_COUPLE_CHECK_POINT:
+			if (!is_list && v->type != VehicleType::Train) return CMD_ERROR;
+			if (data != 0) {
+				bool found = false;
+				for (VehicleOrderID i = 0; i < sel_ord; ++i) {
+					const Order *candidate = ol->GetOrderAt(i);
+					if (candidate != nullptr && (candidate->IsType(OT_GOTO_STATION) || candidate->IsType(OT_GOTO_WAYPOINT)) && candidate->GetDestination().base() == data - 1) { found = true; break; }
+				}
+				if (!found) return CMD_ERROR;
+			}
+			break;
+
 		case MOF_COUPLE_USE_WAITING_SCHEDULE:
 			if (!is_list && v->type != VehicleType::Train) return CMD_ERROR;
 			if (order->GetType() != OT_GOTO_COUPLE) return CMD_ERROR;
@@ -3855,8 +3926,16 @@ CommandCost CmdModifyOrder(DoCommandFlags flags, OrderTargetType target_type, ui
 				order->SetCoupleStation(data == 0 ? StationID::Invalid() : StationID{(uint16_t)(data - 1)});
 				break;
 
+			case MOF_WAIT_COUPLE_STATION:
+				order->SetWaitCoupleStation(data == 0 ? StationID::Invalid() : StationID{(uint16_t)(data - 1)});
+				break;
+
 			case MOF_COUPLE_USE_WAITING_SCHEDULE:
 				order->SetCoupleUseWaitingSchedule(data != 0);
+				break;
+
+			case MOF_COUPLE_CHECK_POINT:
+				order->SetCoupleCheckPoint(data == 0 ? StationID::Invalid() : StationID{(uint16_t)(data - 1)});
 				break;
 
 			case MOF_FIRST_ORDERS:
@@ -3869,14 +3948,10 @@ CommandCost CmdModifyOrder(DoCommandFlags flags, OrderTargetType target_type, ui
 
 			case MOF_DECOUPLE_FIRST_SAME_DIR:
 				order->SetDecoupleFirstSameDirExit(data != 0);
-				/* At most one part may be allowed a same-direction exit, otherwise
-				 * both parts could wait for each other forever. */
-				if (data != 0) order->SetDecoupleSecondSameDirExit(false);
 				break;
 
 			case MOF_DECOUPLE_SECOND_SAME_DIR:
 				order->SetDecoupleSecondSameDirExit(data != 0);
-				if (data != 0) order->SetDecoupleFirstSameDirExit(false);
 				break;
 
 			case MOF_DECOUPLE_FIRST_SCHEDULE:
@@ -4016,6 +4091,11 @@ CommandCost CmdModifyOrder(DoCommandFlags flags, OrderTargetType target_type, ui
 				u->current_order.SetCoupleSlotGroup(order->GetCoupleSlotGroup());
 				u->current_order.SetCoupleGroup(order->GetCoupleGroup());
 				u->current_order.SetXData2Low(order->GetXData2Low());
+				u->current_order.SetCoupleCheckPoint(order->GetCoupleCheckPoint());
+			}
+			if (sel_ord == u->cur_real_order_index && u->current_order.IsType(OT_WAIT_COUPLE) && mof == MOF_WAIT_COUPLE_STATION) {
+				u->current_order.SetWaitCoupleStation(order->GetWaitCoupleStation());
+				u->SetDestTile(order->HasWaitCoupleStation() ? u->GetOrderStationLocation(order->GetWaitCoupleStation()) : INVALID_TILE);
 			}
 
 			/* Unbunching data is no longer valid. */
@@ -4103,22 +4183,25 @@ static bool ShouldResetOrderIndicesOnOrderCopy(const Vehicle *src, const Vehicle
  * @param name the name of the list; may be empty, in which case a default
  *             name is displayed by the GUI (kept empty on purpose so every
  *             client generates it in its own language).
+ * @param parent Parent schedule group, or invalid for the root.
+ * @param is_group Whether to create a folder instead of an executable list.
  * @return the cost of this operation; result data is the id of the created order list
  */
-CommandCost CmdCreateOrderList(DoCommandFlags flags, const std::string &name)
+CommandCost CmdCreateOrderList(DoCommandFlags flags, const std::string &name, OrderListID parent, bool is_group)
 {
-
-
+	if (!Company::IsValidID(_current_company) || !OrderList::CanAllocateItem()) return CMD_ERROR;
+	if (Utf8StringLength(name) >= MAX_LENGTH_ORDERLIST_NAME_CHARS || !IsValidScheduleGroup(parent)) return CMD_ERROR;
 	OrderListID id = OrderListID::Invalid();
 	if (flags.Test(DoCommandFlag::Execute)) {
 		OrderList *ol = OrderList::Create();
 		ol->SetCompany(_current_company);
 		ol->SetName(name);
 		ol->SetPublic(false);
+		ol->SetIsScheduleGroup(is_group);
+		ol->SetScheduleGroup(parent);
 		id = ol->index;
+		InvalidateStandaloneOrderGUIs();
 	}
-
-	InvalidateStandaloneOrderGUIs();
 
 	CommandCost cost;
 	cost.SetResultData(id);
@@ -4134,8 +4217,8 @@ CommandCost CmdCreateOrderList(DoCommandFlags flags, const std::string &name)
  */
 CommandCost CmdRenameOrderList(DoCommandFlags flags, OrderListID list_id, const std::string &name)
 {
-	OrderList *ol = GetStandaloneOrderList(list_id.base());
-	if (ol == nullptr) return CMD_ERROR;
+	OrderList *ol = OrderList::GetIfValid(list_id);
+	if (ol == nullptr || !ol->IsPlayerCreated()) return CMD_ERROR;
 	if (!name.empty() && Utf8StringLength(name) >= MAX_LENGTH_ORDERLIST_NAME_CHARS) return CMD_ERROR;
 
 	CommandCost ret = CheckOwnership(ol->GetCompany());
@@ -4156,8 +4239,8 @@ CommandCost CmdRenameOrderList(DoCommandFlags flags, OrderListID list_id, const 
  */
 CommandCost CmdDeleteOrderList(DoCommandFlags flags, OrderListID list_id)
 {
-	OrderList *ol = GetStandaloneOrderList(list_id.base());
-	if (ol == nullptr) return CMD_ERROR;
+	OrderList *ol = OrderList::GetIfValid(list_id);
+	if (ol == nullptr || !ol->IsPlayerCreated()) return CMD_ERROR;
 	/* Refuse while vehicles still execute this list. */
 	if (ol->GetNumVehicles() != 0) return CommandCost(STR_ERROR_ORDER_LIST_IN_USE);
 
@@ -4165,6 +4248,10 @@ CommandCost CmdDeleteOrderList(DoCommandFlags flags, OrderListID list_id)
 	if (ret.Failed()) return ret;
 
 	if (flags.Test(DoCommandFlag::Execute)) {
+		/* Deleting a folder keeps its schedules and subfolders in its parent. */
+		for (OrderList *child : OrderList::Iterate()) {
+			if (child->GetScheduleGroup() == list_id) child->SetScheduleGroup(ol->GetScheduleGroup());
+		}
 		/* Vehicles away on an execute-schedule detour may still call this list
 		 * home (they are not part of its shared chain). Their home is gone, so
 		 * they adopt the list they are currently executing. */
@@ -4199,6 +4286,24 @@ CommandCost CmdSetOrderListPublic(DoCommandFlags flags, OrderListID list_id, boo
 
 	if (flags.Test(DoCommandFlag::Execute)) {
 		ol->SetPublic(is_public);
+		InvalidateStandaloneOrderGUIs();
+	}
+	return CommandCost();
+}
+
+/** Move a standalone schedule/folder, rejecting cross-company links and cycles. */
+CommandCost CmdMoveOrderListToGroup(DoCommandFlags flags, OrderListID list_id, OrderListID parent)
+{
+	OrderList *ol = OrderList::GetIfValid(list_id);
+	if (ol == nullptr || !ol->IsPlayerCreated() || !IsValidScheduleGroup(parent)) return CMD_ERROR;
+	CommandCost ret = CheckOwnership(ol->GetCompany());
+	if (ret.Failed()) return ret;
+	for (OrderListID ancestor = parent; ancestor != OrderListID::Invalid();) {
+		if (ancestor == list_id) return CMD_ERROR;
+		ancestor = OrderList::Get(ancestor)->GetScheduleGroup();
+	}
+	if (flags.Test(DoCommandFlag::Execute)) {
+		ol->SetScheduleGroup(parent);
 		InvalidateStandaloneOrderGUIs();
 	}
 	return CommandCost();
@@ -5579,8 +5684,8 @@ void Vehicle::ReturnFromExecuteSchedule()
 	this->SetDestTile(INVALID_TILE);
 	if (!target->IsPlayerCreated()) {
 		FreeOrphanedExecuteScheduleHome(target);
-		ClearOrderDestinationRefcountMap();
 	}
+	ClearOrderDestinationRefcountMap();
 	InvalidateVehicleOrder(this, VIWD_MODIFY_ORDERS);
 }
 
@@ -5604,6 +5709,19 @@ bool UpdateOrderDest(Vehicle *v, const Order *order, int conditional_depth, bool
 		case OT_GOTO_STATION:
 			v->SetDestTile(v->GetOrderStationLocation(order->GetDestination().ToStationID()));
 			return true;
+
+		case OT_WAIT_COUPLE:
+			if (order->HasWaitCoupleStation() && Station::IsValidID(order->GetWaitCoupleStation())) {
+				if (v->last_station_visited == order->GetWaitCoupleStation() && v->type == VehicleType::Train &&
+						v->cur_speed == 0 && IsRailStationTile(v->tile) && GetStationIndex(v->tile) == order->GetWaitCoupleStation()) {
+					v->SetDestTile(INVALID_TILE);
+					return false;
+				}
+				v->SetDestTile(v->GetOrderStationLocation(order->GetWaitCoupleStation()));
+				return true;
+			}
+			v->SetDestTile(INVALID_TILE);
+			return false;
 
 		case OT_GOTO_DEPOT:
 			if (order->GetDepotOrderType().Test(OrderDepotTypeFlag::Service) && !v->NeedsServicing()) {
@@ -5865,6 +5983,15 @@ bool ProcessOrders(Vehicle *v)
 	 */
 	bool may_reverse = v->current_order.IsType(OT_NOTHING) || v->current_order.IsType(OT_GOTO_COUPLE) || v->current_order.IsType(OT_WAIT_COUPLE);
 	Vehicle *moving_front = v->GetMovingFront();
+	/* A selected early couple checkpoint must hold before a via order advances.
+	 * ProcessOrders also runs from path reservation, outside TrainLocoHandler. */
+	if (v->type == VehicleType::Train && (v->current_order.IsType(OT_GOTO_WAYPOINT) ||
+			(v->current_order.IsType(OT_GOTO_STATION) && (v->current_order.GetNonStopType() & ONSF_NO_STOP_AT_DESTINATION_STATION))) &&
+			TrainShouldWaitForCoupleAtCheckpoint(Train::From(v))) {
+		v->cur_speed = 0;
+		v->subspeed = 0;
+		return false;
+	}
 
 	v->vehicle_flags.Reset(VehicleFlag::ConditionalOrderWait);
 
@@ -5957,6 +6084,7 @@ bool Order::UseOccupancyValueForAverage() const
 bool Order::ShouldStopAtStation(StationID last_station_visited, StationID station, bool waypoint) const
 {
 	if (waypoint) return this->IsType(OT_GOTO_WAYPOINT) && this->dest == station && this->IsWaitTimetabled();
+	if (this->IsType(OT_WAIT_COUPLE) && this->HasWaitCoupleStation()) return this->GetWaitCoupleStation() == station && last_station_visited != station;
 	if (this->IsType(OT_LOADING_ADVANCE) && this->dest == station) return true;
 	bool is_dest_station = this->IsType(OT_GOTO_STATION) && this->dest == station;
 

@@ -2102,6 +2102,17 @@ STR_SORT_BY_DATE                                                :Date
 STR_ORDER_LIST_CAPTION                                          :{WHITE}Order lists
 STR_ORDER_LIST_NEW                                              :{BLACK}New
 STR_ORDER_LIST_NEW_TOOLTIP                                      :{BLACK}Create a new order list
+STR_ORDER_LIST_NEW_GROUP                                        :{BLACK}New schedule group
+STR_ORDER_LIST_NEW_GROUP_TOOLTIP                                :{BLACK}Create a schedule group inside the selected group. Groups can contain schedules and subgroups.
+STR_ORDER_LIST_MOVE_GROUP                                       :{BLACK}Move to group
+STR_ORDER_LIST_MOVE_GROUP_TOOLTIP                               :{BLACK}Move the selected schedule or group. Deleting a group keeps its contents in the parent group.
+STR_ORDER_LIST_UNGROUPED                                        :Ungrouped
+STR_ORDER_WAIT_COUPLE_HERE                                      :{BLACK}Wait here
+STR_ORDER_WAIT_COUPLE_TARGET_TOOLTIP                            :{BLACK}Choose a station from this train's schedule. The train travels there before waiting for a coupling partner.
+STR_ORDER_WAIT_COUPLE_AT                                        : at {STATION}
+STR_ORDER_COUPLE_CHECK_NONE                                     :{BLACK}Check only when going to couple
+STR_ORDER_COUPLE_CHECK_MENU                                     :{BLACK}Check for partner at: {RAW_STRING}
+STR_ORDER_COUPLE_CHECK_AT                                       :; check at {STATION} first
 STR_ORDER_LIST_EDIT                                             :{BLACK}Edit
 STR_ORDER_LIST_DELETE                                           :{BLACK}Delete
 STR_ORDER_LIST_DELETE_TOOLTIP                                   :{BLACK}Delete the selected order list
