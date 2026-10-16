@@ -38,9 +38,9 @@ OrderList *ResolveSchDispatchTarget(OrderTargetType target_type, uint32_t id, Ve
 	*veh = nullptr;
 	if (target_type == OrderTargetType::OrderList) {
 		OrderList *ol = OrderList::GetIfValid(OrderListID(static_cast<uint16_t>(id)));
-		return (ol != nullptr && ol->IsPlayerCreated()) ? ol : nullptr;
+		return (id < OrderListID::End().base() && ol != nullptr && ol->IsPlayerCreated() && !ol->IsScheduleGroup()) ? ol : nullptr;
 	}
-	Vehicle *v = Vehicle::GetIfValid(VehicleID(static_cast<uint16_t>(id)));
+	Vehicle *v = Vehicle::GetIfValid(VehicleID(id));
 	*veh = v;
 	if (v == nullptr || !IsCompanyBuildableVehicleType(v) || !v->IsPrimaryVehicle()) return nullptr;
 	return v->orders;

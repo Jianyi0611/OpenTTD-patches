@@ -692,6 +692,8 @@ void SetAircraftPosition(Aircraft *v, int x, int y, int z)
  */
 void UpdateAircraftCache(Aircraft *v, bool update_range)
 {
+	/* State-sensitive NewGRF callbacks must see the current vehicle state. */
+	v->InvalidateNewGRFCacheOfChain();
 	uint max_speed = GetVehicleProperty(v, PROP_AIRCRAFT_SPEED, 0);
 	if (max_speed != 0) {
 		/* Convert from original units to km-ish/h */
@@ -714,6 +716,7 @@ void UpdateAircraftCache(Aircraft *v, bool update_range)
 		/* Squared it now so we don't have to do it later all the time. */
 		v->acache.cached_max_range_sqr = v->acache.cached_max_range * v->acache.cached_max_range;
 	}
+	v->last_cached_state = v->state;
 }
 
 /**
@@ -1997,7 +2000,6 @@ bool HandleAircraftState(Aircraft *v)
 	 * captured when leaving the hangar. */
 	if (v->IsNormalAircraft() && v->state != v->last_cached_state) {
 		UpdateAircraftCache(v);
-		v->last_cached_state = v->state;
 	}
 
 	if (!IsAircraftOnNextPosition(v)) return false;
@@ -3101,8 +3103,12 @@ bool Aircraft::Tick()
 	this->current_order_time++;
 
 	for (uint i = 0; i != 2; i++) {
+		if (this->state != this->last_cached_state) UpdateAircraftCache(this);
 		/* stop if the aircraft was deleted */
 		if (!AircraftController(this, i)) return false;
+		/* Movement itself may change state. Finish each sub-tick with current
+		 * callback caches rather than leaving them stale until the next tick. */
+		if (this->state != this->last_cached_state) UpdateAircraftCache(this);
 	}
 
 	return true;

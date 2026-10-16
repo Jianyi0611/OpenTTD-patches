@@ -250,9 +250,13 @@ const std::initializer_list<SlxiSubChunkInfo> _sl_xv_sub_chunk_infos = {
 
 	{ XSLFI_ROAD_VEH_TRANSPORT,               XSCF_NULL,                4,   4, "road_veh_transport",               nullptr, nullptr, nullptr          },
 	{ XSLFI_CARGO_TYPES_128,                  XSCF_NULL,                1,   1, "cargo_types_128",                  nullptr, nullptr, nullptr          },
-	{ XSLFI_COUPLE_CLAIM_STATE,               XSCF_NULL,                1,   1, "couple_claim_state",               nullptr, nullptr, "CPLM"           },
+	{ XSLFI_COUPLE_CLAIM_STATE,               XSCF_NULL,                2,   2, "couple_claim_state",               nullptr, nullptr, "CPLM"           },
 	{ XSLFI_WEATHER,                          XSCF_NULL,                1,   1, "weather",                          nullptr, nullptr, "WTHR"           },
 	{ XSLFI_COUPLE_SEARCH_FAIL_CACHE,         XSCF_NULL,                1,   1, "couple_search_fail_cache",         nullptr, nullptr, "CSFC"           },
+	{ XSLFI_ORDER_LIST_GROUPS,               XSCF_NULL,                1,   1, "order_list_groups",               nullptr, nullptr, nullptr          },
+	{ XSLFI_AIRCRAFT_CACHE_STATE,            XSCF_NULL,                1,   1, "aircraft_cache_state",            nullptr, nullptr, nullptr          },
+	{ XSLFI_WAIT_COUPLE_TARGET,              XSCF_NULL,                1,   1, "wait_couple_target",              nullptr, nullptr, nullptr          },
+	{ XSLFI_COUPLE_CHECK_POINT,               XSCF_NULL,                1,   1, "couple_check_point",               nullptr, nullptr, nullptr          },
 };
 
 /**

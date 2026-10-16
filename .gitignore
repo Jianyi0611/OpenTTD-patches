@@ -19,3 +19,6 @@ openttd.new
 !/build-android-local.sh
 # Signed APKs written by that script.
 /upload/
+
+# Portable Windows build entry point.
+!/build-windows.ps1

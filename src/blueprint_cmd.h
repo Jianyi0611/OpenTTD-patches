@@ -84,12 +84,14 @@ inline void SerialiseBlueprintItem(BufferSerialisationRef buffer, const Blueprin
 {
 	SerialiseBlueprintOffset(buffer, data.offset);
 	buffer.Send_generic_seq(data.track, data.type, data.variant, data.along, data.against);
+	buffer.Send_generic_seq(data.spec.grfid, data.spec.local_id);
 }
 
-inline void DeserialiseBlueprintItem(DeserialisationBuffer &buffer, BlueprintSignal &data, StringValidationSettings settings)
+inline void DeserialiseBlueprintItem(DeserialisationBuffer &buffer, BlueprintSignal &data, StringValidationSettings settings, bool with_specs = true)
 {
 	DeserialiseBlueprintOffset(buffer, data.offset, settings);
 	buffer.Recv_generic_seq(settings, data.track, data.type, data.variant, data.along, data.against);
+	if (with_specs) buffer.Recv_generic_seq(settings, data.spec.grfid, data.spec.local_id);
 }
 
 inline void SerialiseBlueprintItem(BufferSerialisationRef buffer, const BlueprintRailDepot &data)
@@ -180,24 +182,28 @@ inline void SerialiseBlueprintItem(BufferSerialisationRef buffer, const Blueprin
 {
 	SerialiseBlueprintOffset(buffer, data.offset);
 	buffer.Send_generic_seq(data.is_waypoint, data.axis, data.railtype, data.station);
+	buffer.Send_generic_seq(data.spec.grfid, data.spec.local_id);
 }
 
-inline void DeserialiseBlueprintItem(DeserialisationBuffer &buffer, BlueprintStationTile &data, StringValidationSettings settings)
+inline void DeserialiseBlueprintItem(DeserialisationBuffer &buffer, BlueprintStationTile &data, StringValidationSettings settings, bool with_specs = true)
 {
 	DeserialiseBlueprintOffset(buffer, data.offset, settings);
 	buffer.Recv_generic_seq(settings, data.is_waypoint, data.axis, data.railtype, data.station);
+	if (with_specs) buffer.Recv_generic_seq(settings, data.spec.grfid, data.spec.local_id);
 }
 
 inline void SerialiseBlueprintItem(BufferSerialisationRef buffer, const BlueprintRoadStop &data)
 {
 	SerialiseBlueprintOffset(buffer, data.offset);
 	buffer.Send_generic_seq(data.type, data.drive_through, data.dir, data.axis, data.roadtype, data.tramtype, data.station);
+	buffer.Send_generic_seq(data.spec.grfid, data.spec.local_id);
 }
 
-inline void DeserialiseBlueprintItem(DeserialisationBuffer &buffer, BlueprintRoadStop &data, StringValidationSettings settings)
+inline void DeserialiseBlueprintItem(DeserialisationBuffer &buffer, BlueprintRoadStop &data, StringValidationSettings settings, bool with_specs = true)
 {
 	DeserialiseBlueprintOffset(buffer, data.offset, settings);
 	buffer.Recv_generic_seq(settings, data.type, data.drive_through, data.dir, data.axis, data.roadtype, data.tramtype, data.station);
+	if (with_specs) buffer.Recv_generic_seq(settings, data.spec.grfid, data.spec.local_id);
 }
 
 inline void SerialiseBlueprintItem(BufferSerialisationRef buffer, const BlueprintDock &data)
@@ -236,6 +242,18 @@ inline void DeserialiseBlueprintItem(DeserialisationBuffer &buffer, uint8_t &dat
 	buffer.Recv_generic_integer(data);
 }
 
+inline void SerialiseBlueprintItem(BufferSerialisationRef buffer, const BlueprintObject &data)
+{
+	SerialiseBlueprintOffset(buffer, data.offset);
+	buffer.Send_generic_seq(data.spec.grfid, data.spec.local_id, data.view, data.views, data.w, data.h);
+}
+
+inline void DeserialiseBlueprintItem(DeserialisationBuffer &buffer, BlueprintObject &data, StringValidationSettings settings)
+{
+	DeserialiseBlueprintOffset(buffer, data.offset, settings);
+	buffer.Recv_generic_seq(settings, data.spec.grfid, data.spec.local_id, data.view, data.views, data.w, data.h);
+}
+
 /** Write a length-prefixed blueprint vector to a command buffer. */
 template <typename T>
 inline void WriteBlueprintVector(BufferSerialisationRef buffer, const std::vector<T> &data)
@@ -246,7 +264,7 @@ inline void WriteBlueprintVector(BufferSerialisationRef buffer, const std::vecto
 
 /** Read a length-prefixed blueprint vector from a command buffer; the length is capped against malicious data. */
 template <typename T>
-inline bool ReadBlueprintVector(DeserialisationBuffer &buffer, std::vector<T> &data, StringValidationSettings settings)
+inline bool ReadBlueprintVector(DeserialisationBuffer &buffer, std::vector<T> &data, StringValidationSettings settings, bool with_specs = true)
 {
 	uint32_t count = 0;
 	buffer.Recv_generic_integer(count);
@@ -256,7 +274,11 @@ inline bool ReadBlueprintVector(DeserialisationBuffer &buffer, std::vector<T> &d
 	data.reserve(count);
 	for (uint32_t i = 0; i < count; i++) {
 		T item{};
-		DeserialiseBlueprintItem(buffer, item, settings);
+		if constexpr (std::is_same_v<T, BlueprintStationTile> || std::is_same_v<T, BlueprintRoadStop> || std::is_same_v<T, BlueprintSignal>) {
+			DeserialiseBlueprintItem(buffer, item, settings, with_specs);
+		} else {
+			DeserialiseBlueprintItem(buffer, item, settings);
+		}
 		if (buffer.error) return false;
 		data.push_back(item);
 	}
@@ -291,6 +313,9 @@ inline void DeserialiseBlueprintItem(DeserialisationBuffer &buffer, BlueprintAir
 
 inline void SerialiseBlueprint(BufferSerialisationRef buffer, const Blueprint &data)
 {
+	/* An impossible width distinguishes styled blueprints from legacy data,
+	 * including when several blueprints are nested in a slot set. */
+	buffer.Send_generic(uint16_t{UINT16_MAX - 1}); // Version 5, including explicit signal styles and complete objects.
 	buffer.Send_generic_seq(data.width, data.height, data.name);
 	WriteBlueprintVector(buffer, data.rail_tracks);
 	WriteBlueprintVector(buffer, data.signals);
@@ -307,13 +332,18 @@ inline void SerialiseBlueprint(BufferSerialisationRef buffer, const Blueprint &d
 	WriteBlueprintVector(buffer, data.buoys);
 	WriteBlueprintVector(buffer, data.airports);
 	WriteBlueprintVector(buffer, data.corner_heights);
+	WriteBlueprintVector(buffer, data.objects);
 }
 
 inline bool DeserialiseBlueprint(DeserialisationBuffer &buffer, Blueprint &data, StringValidationSettings settings)
 {
-	buffer.Recv_generic_seq(settings, data.width, data.height, data.name);
+	buffer.Recv_generic(data.width);
+	bool with_signal_specs = data.width == UINT16_MAX - 1;
+	bool with_specs = data.width == UINT16_MAX || with_signal_specs;
+	if (with_specs) buffer.Recv_generic(data.width);
+	buffer.Recv_generic_seq(settings, data.height, data.name);
 	bool ok = ReadBlueprintVector(buffer, data.rail_tracks, settings);
-	ok &= ReadBlueprintVector(buffer, data.signals, settings);
+	ok &= ReadBlueprintVector(buffer, data.signals, settings, with_signal_specs);
 	ok &= ReadBlueprintVector(buffer, data.rail_depots, settings);
 	ok &= ReadBlueprintVector(buffer, data.tunnel_bridges, settings);
 	ok &= ReadBlueprintVector(buffer, data.roads, settings);
@@ -321,12 +351,14 @@ inline bool DeserialiseBlueprint(DeserialisationBuffer &buffer, Blueprint &data,
 	ok &= ReadBlueprintVector(buffer, data.canals, settings);
 	ok &= ReadBlueprintVector(buffer, data.locks, settings);
 	ok &= ReadBlueprintVector(buffer, data.ship_depots, settings);
-	ok &= ReadBlueprintVector(buffer, data.station_tiles, settings);
-	ok &= ReadBlueprintVector(buffer, data.road_stops, settings);
+	ok &= ReadBlueprintVector(buffer, data.station_tiles, settings, with_specs);
+	ok &= ReadBlueprintVector(buffer, data.road_stops, settings, with_specs);
 	ok &= ReadBlueprintVector(buffer, data.docks, settings);
 	ok &= ReadBlueprintVector(buffer, data.buoys, settings);
 	ok &= ReadBlueprintVector(buffer, data.airports, settings);
 	ok &= ReadBlueprintVector(buffer, data.corner_heights, settings);
+	data.objects.clear();
+	if (with_signal_specs) ok &= ReadBlueprintVector(buffer, data.objects, settings);
 	return ok;
 }
 

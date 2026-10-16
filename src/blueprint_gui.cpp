@@ -28,6 +28,8 @@
 #include "network/network.h"
 #include "newgrf_roadstop.h"
 #include "newgrf_station.h"
+#include "newgrf_object.h"
+#include "object_cmd.h"
 #include "querystring_gui.h"
 #include "textbuf_gui.h"
 #include "air.h"
@@ -64,7 +66,19 @@
 bool SetClipboardContents(const std::string &contents); ///< Implemented per OS.
 
 /** Identifying prefix of a blueprint in clipboard text form; the trailing digit is the format version. */
-static constexpr std::string_view BLUEPRINT_CLIPBOARD_PREFIX = "OTTD-BP-3;";
+static constexpr std::string_view BLUEPRINT_CLIPBOARD_PREFIX = "OTTD-BP-5;";
+
+/** Also accept older exports: v3 has no styles, v4 has station styles only. */
+static bool HasBlueprintTextPrefix(std::string_view text, std::string_view prefix)
+{
+	if (text.starts_with(prefix)) return true;
+	std::string legacy(prefix);
+	for (char version : {'3', '4'}) {
+		legacy[legacy.size() - 2] = version;
+		if (text.starts_with(legacy)) return true;
+	}
+	return false;
+}
 
 /** Base64 alphabet used for blueprint clipboard strings. */
 static constexpr std::string_view BASE64_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -119,7 +133,7 @@ static bool ParseBlueprintText(std::string_view text, Blueprint &blueprint)
 
 	while (!text.empty() && (text.back() == '\n' || text.back() == '\r' || text.back() == ' ' || text.back() == '\t')) text.remove_suffix(1);
 	while (!text.empty() && (text.front() == '\n' || text.front() == '\r' || text.front() == ' ' || text.front() == '\t')) text.remove_prefix(1);
-	if (!text.starts_with(BLUEPRINT_CLIPBOARD_PREFIX)) return false;
+	if (!HasBlueprintTextPrefix(text, BLUEPRINT_CLIPBOARD_PREFIX)) return false;
 
 	auto bytes = Base64Decode(text.substr(BLUEPRINT_CLIPBOARD_PREFIX.size()));
 	if (!bytes.has_value()) return false;
@@ -153,10 +167,10 @@ static std::string EncodeBlueprintText(const Blueprint &blueprint)
 }
 
 /** Identifying prefix of one page of slots saved to a file; the trailing digit is the format version. */
-static constexpr std::string_view BLUEPRINT_SET_FILE_PREFIX = "OTTD-BPSET-3;";
+static constexpr std::string_view BLUEPRINT_SET_FILE_PREFIX = "OTTD-BPSET-5;";
 
 /** Identifying prefix of the autosave, which holds every page; the trailing digit is the format version. */
-static constexpr std::string_view BLUEPRINT_ALL_FILE_PREFIX = "OTTD-BPALL-3;";
+static constexpr std::string_view BLUEPRINT_ALL_FILE_PREFIX = "OTTD-BPALL-5;";
 
 /** File extension used for exported blueprint sets, appended to the player-typed file name. */
 static constexpr std::string_view BLUEPRINT_SET_FILE_EXTENSION = ".txt";
@@ -214,7 +228,7 @@ static bool ParseBlueprintSlotsText(std::string_view text, std::string_view pref
 
 	while (!text.empty() && (text.back() == '\n' || text.back() == '\r' || text.back() == ' ' || text.back() == '\t')) text.remove_suffix(1);
 	while (!text.empty() && (text.front() == '\n' || text.front() == '\r' || text.front() == ' ' || text.front() == '\t')) text.remove_prefix(1);
-	if (!text.starts_with(prefix)) return false;
+	if (!HasBlueprintTextPrefix(text, prefix)) return false;
 
 	auto bytes = Base64Decode(text.substr(prefix.size()));
 	if (!bytes.has_value()) return false;
@@ -538,11 +552,14 @@ static void InvalidateBlueprintUndoToolbars()
 	for (WindowClass wc : BLUEPRINT_UNDO_TOOLBARS) InvalidateWindowClassesData(wc, 0, true);
 }
 
+/** Object undo filter, kept for this session like the active blueprint transformation. */
+static bool _blueprint_undo_objects = true;
+
 /** The kinds of infrastructure the undo buttons are currently allowed to remove. */
 static BlueprintUndoFilters GetBlueprintUndoFilters()
 {
 	const GUISettings &g = _settings_client.gui;
-	return {g.blueprint_undo_rail, g.blueprint_undo_road, g.blueprint_undo_water, g.blueprint_undo_air};
+	return {g.blueprint_undo_rail, g.blueprint_undo_road, g.blueprint_undo_water, g.blueprint_undo_air, _blueprint_undo_objects};
 }
 
 /** Is there a paste this company can still undo? */
@@ -673,6 +690,7 @@ static std::string DescribeBlueprintUndoRecord(const Blueprint &built, const Blu
 	add(STR_BLUEPRINT_UNDO_LIST_DOCK, water(built.docks.size()));
 	add(STR_BLUEPRINT_UNDO_LIST_BUOY, water(built.buoys.size()));
 	add(STR_BLUEPRINT_UNDO_LIST_AIRPORT, filters.air ? built.airports.size() : 0);
+	add(STR_BLUEPRINT_UNDO_LIST_OBJECT, filters.objects ? built.objects.size() : 0);
 	if (!built.corner_heights.empty()) {
 		if (!text.empty()) text += ", ";
 		text += GetString(STR_BLUEPRINT_UNDO_LIST_LAND);
@@ -739,6 +757,9 @@ static void RebuildPastePreview()
 	}
 	for (const BlueprintStationTile &st : bp.station_tiles) {
 		mark(st.offset.x, st.offset.y, (st.axis == Axis::X ? TRACK_BIT_X : TRACK_BIT_Y) | (1 << BLUEPRINT_PREVIEW_HIGHLIGHT_BIT));
+	}
+	for (const BlueprintObject &v : bp.objects) {
+		for (uint y = 0; y < v.h; ++y) for (uint x = 0; x < v.w; ++x) highlight(v.offset.x + x, v.offset.y + y);
 	}
 	for (const BlueprintRoadStop &stop : bp.road_stops) highlight(stop.offset.x, stop.offset.y);
 	for (const BlueprintDock &dock : bp.docks) {
@@ -940,6 +961,11 @@ static void RecomputePasteBlocked(TileIndex origin)
 		}
 		if (!ok) block(stop.offset.x, stop.offset.y);
 	}
+	for (const BlueprintObject &v : bp.objects) {
+		const ObjectSpec *spec = ResolveBlueprintObject(v.spec);
+		if (spec != nullptr && tile_valid(v.offset) && PreviewTest<Commands::BuildObject>(target(v.offset), static_cast<ObjectType>(spec->Index()), v.view)) continue;
+		for (uint y = 0; y < v.h; ++y) for (uint x = 0; x < v.w; ++x) block(v.offset.x + x, v.offset.y + y);
+	}
 	for (const BlueprintDock &dock : bp.docks) {
 		TileIndexDiffC d = TileIndexDiffCByDiagDir(dock.dir);
 		if (tile_valid(dock.offset) && PreviewTest<CMD_BUILD_DOCK>(target(dock.offset), NEW_STATION, true)) continue;
@@ -975,6 +1001,7 @@ enum class BlueprintPreviewCell : uint8_t {
 	Rail,    ///< Rail tracks, rail depots, rail tunnels and bridges.
 	Airport, ///< Airport tiles.
 	Station, ///< Stations, waypoints, road stops, docks.
+	Object,  ///< Complete NewGRF objects.
 };
 
 /** Colours the schematic cells are drawn in, indexed by #BlueprintPreviewCell. */
@@ -985,6 +1012,7 @@ static constexpr PixelColour BLUEPRINT_PREVIEW_CELL_COLOURS[] = {
 	PC_WHITE,      // Rail
 	PC_RED,        // Airport
 	PC_YELLOW,     // Station
+	PC_ORANGE,     // Object
 };
 
 /** Downscaled top-down schematic of a blueprint for the hover preview. */
@@ -1002,6 +1030,9 @@ struct BlueprintSchematic {
 			if (cell > current) current = cell;
 		};
 
+		for (const BlueprintObject &v : bp.objects) {
+			for (uint y = 0; y < v.h; ++y) for (uint x = 0; x < v.w; ++x) mark(v.offset.x + x, v.offset.y + y, BlueprintPreviewCell::Object);
+		}
 		for (const BlueprintRailTrack &rt : bp.rail_tracks) mark(rt.offset.x, rt.offset.y, BlueprintPreviewCell::Rail);
 		for (const BlueprintRailDepot &depot : bp.rail_depots) mark(depot.offset.x, depot.offset.y, BlueprintPreviewCell::Rail);
 		for (const BlueprintRoad &road : bp.roads) mark(road.offset.x, road.offset.y, BlueprintPreviewCell::Road);
@@ -2333,6 +2364,7 @@ struct BlueprintUndoToolbarWindow : Window {
 		UOMI_ROAD,    ///< Toggle: undo road infrastructure.
 		UOMI_WATER,   ///< Toggle: undo water infrastructure.
 		UOMI_AIR,     ///< Toggle: undo airports.
+		UOMI_OBJECTS, ///< Toggle: undo NewGRF objects.
 		UOMI_TERRAIN, ///< Toggle: restore the landscape too, not only remove what was built.
 	};
 
@@ -2345,6 +2377,7 @@ struct BlueprintUndoToolbarWindow : Window {
 		list.push_back(MakeDropDownListCheckedItem(g.blueprint_undo_road, STR_BLUEPRINT_OPTIONS_MENU_ROAD, UOMI_ROAD));
 		list.push_back(MakeDropDownListCheckedItem(g.blueprint_undo_water, STR_BLUEPRINT_OPTIONS_MENU_WATER, UOMI_WATER));
 		list.push_back(MakeDropDownListCheckedItem(g.blueprint_undo_air, STR_BLUEPRINT_OPTIONS_MENU_AIR, UOMI_AIR));
+		list.push_back(MakeDropDownListCheckedItem(_blueprint_undo_objects, STR_BLUEPRINT_OPTIONS_MENU_OBJECTS, UOMI_OBJECTS));
 		list.push_back(MakeDropDownListDividerItem());
 		list.push_back(MakeDropDownListCheckedItem(g.blueprint_undo_terrain, STR_BLUEPRINT_OPTIONS_MENU_RESTORE_LAND, UOMI_TERRAIN));
 		return list;
@@ -2362,6 +2395,7 @@ struct BlueprintUndoToolbarWindow : Window {
 			case UOMI_ROAD: g.blueprint_undo_road = !g.blueprint_undo_road; break;
 			case UOMI_WATER: g.blueprint_undo_water = !g.blueprint_undo_water; break;
 			case UOMI_AIR: g.blueprint_undo_air = !g.blueprint_undo_air; break;
+			case UOMI_OBJECTS: _blueprint_undo_objects = !_blueprint_undo_objects; break;
 
 			case UOMI_TERRAIN:
 				g.blueprint_undo_terrain = !g.blueprint_undo_terrain;

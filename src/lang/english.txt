@@ -3384,6 +3384,12 @@ STR_BLUEPRINT_ERROR_FILE_NOT_FOUND                              :{WHITE}Blueprin
 STR_BLUEPRINT_ERROR_FILE_WRITE                                  :{WHITE}Could not write the blueprint file
 STR_BLUEPRINT_ERROR_AREA_TOO_LARGE                              :{WHITE}The selected area is too large to copy
 STR_BLUEPRINT_ERROR_TOO_LARGE                                   :{WHITE}Blueprint too large to paste in a multiplayer game
+STR_BLUEPRINT_ERROR_MISSING_NEWGRF                              :{WHITE}A NewGRF station or waypoint style required by this blueprint is not available
+STR_BLUEPRINT_ERROR_MISSING_SIGNAL_STYLE                        :{WHITE}A NewGRF signal style required by this blueprint is not loaded or enabled
+STR_BLUEPRINT_ERROR_MISSING_OBJECT                              :{WHITE}A NewGRF object required by this blueprint is not loaded or enabled
+STR_BLUEPRINT_ERROR_OBJECT_ORIENTATION                          :{WHITE}A NewGRF object does not support the rotated footprint; reset the blueprint rotation or reflection
+STR_BLUEPRINT_UNDO_LIST_OBJECT                                  :{COMMA} object{P "" s}
+STR_BLUEPRINT_OPTIONS_MENU_OBJECTS                              :NewGRF objects (OBJ)
 STR_BLUEPRINT_ERROR_NOTHING_TO_UNDO                             :{WHITE}There is no recent paste left to undo
 STR_BLUEPRINT_ERROR_UNDO_TOO_LARGE                              :{WHITE}That paste is too large to undo in a multiplayer game
 STR_ERROR_CAN_T_PASTE_BLUEPRINT                                 :{WHITE}Can't paste blueprint here...

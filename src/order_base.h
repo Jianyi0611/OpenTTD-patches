@@ -47,15 +47,18 @@ inline uint32_t OrderDestinationRefcountMapKey(DestinationID dest, CompanyID cid
 	return (((uint32_t) dest.base()) << 16) | (((uint32_t) cid.base()) << 8) | (((uint32_t) order_type) << 3) | (uint8_t) ((uint32_t) veh_type);
 }
 
+void IntialiseOrderDestinationRefcountMap();
+
 template <typename F> void IterateOrderRefcountMapForDestinationID(DestinationID dest, F handler)
 {
+	/* Execute-schedule changes invalidate this derived cache; reads must rebuild it. */
+	if (!_order_destination_refcount_map_valid) IntialiseOrderDestinationRefcountMap();
 	for (auto lb = _order_destination_refcount_map.lower_bound(OrderDestinationRefcountMapKey(dest, (CompanyID) 0, (OrderType) 0, (VehicleType) 0)); lb != _order_destination_refcount_map.end(); ++lb) {
 		if (GB(lb->first, 16, 16) != dest) return;
 		if (lb->second && !handler((CompanyID) GB(lb->first, 8, 8), (OrderType) GB(lb->first, 3, 5), (VehicleType) GB(lb->first, 0, 3), lb->second)) return;
 	}
 }
 
-void IntialiseOrderDestinationRefcountMap();
 void ClearOrderDestinationRefcountMap();
 
 /*
@@ -617,6 +620,10 @@ public:
 	 * @param station the station, or #StationID::Invalid() for any station.
 	 */
 	inline void SetCoupleStation(StationID station) { this->SetXData2Low(station == StationID::Invalid() ? 0 : station.base() + 1); }
+	/** Optional station or waypoint where an approaching train checks for a matching partner before continuing its schedule. */
+	inline bool HasCoupleCheckPoint() const { return this->IsType(OT_GOTO_COUPLE) && HasBit(this->GetXFlags(), 6); }
+	inline StationID GetCoupleCheckPoint() const { return this->HasCoupleCheckPoint() ? this->GetDestination().ToStationID() : StationID::Invalid(); }
+	inline void SetCoupleCheckPoint(StationID station) { AssignBit(this->GetXFlagsRef(), 6, station != StationID::Invalid()); this->SetDestination(station); }
 
 	/**
 	 * Update the jump_counter of this order.
@@ -907,6 +914,10 @@ public:
 	inline void SetCoupleLoad(OrderCoupleFlags load_type) { SB(this->flags, 0, 3, to_underlying(load_type)); }
 	/** Set how many units to take */
 	inline void SetNumCouple(uint8_t value) { SB(this->decouple_flags, 1, 7, value); }
+	/** A wait-for-couple order can travel to a station before it starts holding. The flag keeps old saves' unused destination field inert. */
+	inline bool HasWaitCoupleStation() const { return this->IsType(OT_WAIT_COUPLE) && HasBit(this->GetXFlags(), 6); }
+	inline StationID GetWaitCoupleStation() const { return this->HasWaitCoupleStation() ? this->GetDestination().ToStationID() : StationID::Invalid(); }
+	inline void SetWaitCoupleStation(StationID station) { AssignBit(this->GetXFlagsRef(), 6, station != StationID::Invalid()); this->SetDestination(station); }
 	/** Set what orders first part should get */
 	inline void SetDecoupleFirstOrdersType(OrderDecoupleOrdersFlags orders_type) { SB(this->flags, 0, 3, to_underlying(orders_type)); }
 	/** Set what orders second part should get */
@@ -951,7 +962,7 @@ public:
 	inline bool IsExecuteScheduleOrder() const { return this->IsType(OT_EXECUTE_SCHEDULE); }
 
 	/** Does this order not have any associated travel or wait times */
-	inline bool HasNoTimetableTimes() const { return this->IsSlotCounterOrder() || this->IsType(OT_LABEL) || this->IsExecuteScheduleOrder(); }
+	inline bool HasNoTimetableTimes() const { return this->IsSlotCounterOrder() || this->IsType(OT_LABEL) || this->IsExecuteScheduleOrder() || this->IsType(OT_DECOUPLE) || this->IsType(OT_WAIT_COUPLE); }
 
 	/**
 	 * Does this order have an explicit wait time set?
@@ -1532,6 +1543,8 @@ private:
 	Colours route_overlay_colour = Colours::White;
 
 	std::string name{};               ///< Name of the order list. Empty for vehicle-owned order lists.
+	bool is_schedule_group = false;   ///< A folder in the standalone schedule manager, never an executable list.
+	OrderListID schedule_group = OrderListID::Invalid(); ///< Parent folder; invalid means ungrouped.
 	Owner company = INVALID_OWNER;    ///< Company owning this player-created order list. INVALID_OWNER for vehicle-owned order lists.
 	bool is_public = false;           ///< Whether this player-created order list is public.
 	bool dispatch_enabled = false;    ///< Whether scheduled dispatch is enabled (mirrors VehicleFlag::ScheduledDispatch).
@@ -1811,6 +1824,10 @@ public:
 	 * @return whether this order list is player-created
 	 */
 	inline bool IsPlayerCreated() const { return this->company != INVALID_OWNER; }
+	inline bool IsScheduleGroup() const { return this->is_schedule_group; }
+	inline void SetIsScheduleGroup(bool is_group) { this->is_schedule_group = is_group; }
+	inline OrderListID GetScheduleGroup() const { return this->schedule_group; }
+	inline void SetScheduleGroup(OrderListID parent) { this->schedule_group = parent; }
 
 
 	inline const std::string &GetName() const { return this->name; }
@@ -1835,7 +1852,7 @@ public:
 	 */
 	inline bool IsVisibleToCompany(Owner owner) const
 	{
-		return this->IsPlayerCreated() && (this->company == owner || this->is_public);
+		return this->IsPlayerCreated() && !this->IsScheduleGroup() && (this->company == owner || this->is_public);
 	}
 
 	/**
@@ -1847,5 +1864,6 @@ public:
 };
 
 void UpdateOrderUIOnDateChange();
+bool AreScheduleGroupsValid();
 
 #endif /* ORDER_BASE_H */

@@ -282,28 +282,11 @@ void CreateConsole()
 	/* redirect unbuffered STDIN, STDOUT, STDERR to the console */
 #if !defined(__CYGWIN__)
 
-	/* Check if we can open a handle to STDOUT. */
-	int fd = _open_osfhandle((intptr_t)hand, _O_TEXT);
-	if (fd == -1) {
-		/* Free everything related to the console. */
-		FreeConsole();
-		_has_console = false;
-		_close(fd);
-		CloseHandle(hand);
-
-		ShowInfoI("Unable to open an output handle to the console. Check known-bugs.md for details.");
-		return;
-	}
-
-#if defined(_MSC_VER)
+	/* Reopen the standard streams instead of copying FILE objects. The UCRT keeps
+	 * internal stream state that cannot be transferred by assigning FILE structs. */
 	freopen("CONOUT$", "a", stdout);
 	freopen("CONIN$", "r", stdin);
 	freopen("CONOUT$", "a", stderr);
-#else
-	*stdout = *_fdopen(fd, "w");
-	*stdin = *_fdopen(_open_osfhandle((intptr_t)GetStdHandle(STD_INPUT_HANDLE), _O_TEXT), "r" );
-	*stderr = *_fdopen(_open_osfhandle((intptr_t)GetStdHandle(STD_ERROR_HANDLE), _O_TEXT), "w" );
-#endif
 
 #else
 	/* open_osfhandle is not in cygwin */

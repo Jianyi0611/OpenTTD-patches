@@ -218,6 +218,10 @@ enum SlXvFeatureIndex {
 	XSLFI_WEATHER,                                ///< Cosmetic weather state is persisted
 	XSLFI_COUPLE_SEARCH_FAIL_CACHE,               ///< Couple target search last-fail timestamps are persisted
 
+	XSLFI_ORDER_LIST_GROUPS,                      ///< Hierarchical standalone schedule folders
+	XSLFI_AIRCRAFT_CACHE_STATE,                   ///< Aircraft callback cache state survives network snapshots
+	XSLFI_WAIT_COUPLE_TARGET,                     ///< Wait-for-couple orders may travel to a selected station first
+	XSLFI_COUPLE_CHECK_POINT,                      ///< Go-to-couple orders may check for a partner at an earlier schedule stop
 	XSLFI_SIZE,                                   ///< Total count of features, including null feature
 };
 

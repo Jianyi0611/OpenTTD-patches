@@ -11,6 +11,7 @@
 #define BLUEPRINT_H
 
 #include <chrono>
+#include <optional>
 
 #include "string_type.h"
 
@@ -110,6 +111,13 @@ struct BlueprintRailTrack {
 	RailType railtype;     ///< Rail type of the track.
 };
 
+/** Stable identity of a NewGRF style; zero GRFID means the original style. */
+struct BlueprintSpecRef {
+	uint32_t grfid = 0;
+	uint16_t local_id = 0;
+	bool operator==(const BlueprintSpecRef &) const = default;
+};
+
 /** Signals on one track piece. */
 struct BlueprintSignal {
 	TileIndexDiffC offset;  ///< Tile offset relative to the blueprint origin.
@@ -118,6 +126,17 @@ struct BlueprintSignal {
 	SignalVariant variant;  ///< Electric / semaphore.
 	bool along;             ///< Signal along the track direction of #track.
 	bool against;           ///< Signal against the track direction of #track.
+	BlueprintSpecRef spec{}; ///< Explicit NewGRF signal style, independent of the game's style slot.
+};
+
+/** One complete NewGRF object, anchored at the northern tile of its footprint. */
+struct BlueprintObject {
+	TileIndexDiffC offset;
+	BlueprintSpecRef spec;
+	uint8_t view;
+	uint8_t views; ///< Available views when copied; transformations never depend on local GRFs.
+	uint8_t w;
+	uint8_t h;
 };
 
 /** A rail depot. */
@@ -177,6 +196,7 @@ struct BlueprintStationTile {
 	Axis axis;             ///< Axis of the platform.
 	RailType railtype;     ///< Rail type of the platform.
 	StationID station;     ///< Original station; parts of one station are joined again when pasting.
+	BlueprintSpecRef spec{}; ///< NewGRF platform or waypoint style.
 };
 
 /** A road stop (bus / truck / road waypoint). */
@@ -189,6 +209,7 @@ struct BlueprintRoadStop {
 	RoadType roadtype;     ///< Road type on the stop (may be INVALID_ROADTYPE).
 	RoadType tramtype;     ///< Tram type on the stop (may be INVALID_ROADTYPE).
 	StationID station;     ///< Original station; parts of one station are joined again when pasting.
+	BlueprintSpecRef spec{}; ///< NewGRF stop or road waypoint style.
 };
 
 /** A dock (anchored at its land part). */
@@ -245,6 +266,7 @@ struct Blueprint {
 	std::vector<BlueprintDock> docks;
 	std::vector<BlueprintBuoy> buoys;
 	std::vector<BlueprintAirport> airports;
+	std::vector<BlueprintObject> objects;
 
 	/** Heights of the tile corners of the copied area, (width + 1) x (height + 1) values, index = y * (width + 1) + x. */
 	std::vector<uint8_t> corner_heights;
@@ -281,6 +303,7 @@ struct BlueprintStationRect {
 	Axis axis;             ///< Platform axis.
 	RailType railtype;     ///< Rail type.
 	StationID station;     ///< Original station; parts of one station are joined again when pasting.
+	BlueprintSpecRef spec{}; ///< All tiles in this rectangle share the same style.
 };
 
 /**
@@ -308,12 +331,13 @@ struct BlueprintUndoFilters {
 	bool road = true;  ///< Road and tram bits, road depots, road stops and waypoints, road bridges and tunnels.
 	bool water = true; ///< Canals, locks, ship depots, docks, buoys, aqueducts.
 	bool air = true;   ///< Airports.
+	bool objects = true; ///< NewGRF objects.
 
 	/** Is every kind allowed, so that an undo consumes its whole record? */
-	bool All() const { return this->rail && this->road && this->water && this->air; }
+	bool All() const { return this->rail && this->road && this->water && this->air && this->objects; }
 
 	/** Is nothing allowed, so that an undo would do nothing at all? */
-	bool None() const { return !this->rail && !this->road && !this->water && !this->air; }
+	bool None() const { return !this->rail && !this->road && !this->water && !this->air && !this->objects; }
 };
 
 /** Number of pastes that can be undone per company; older ones are dropped. */
@@ -374,6 +398,7 @@ void AbandonBlueprintUndoGroup();
 
 void RecordBlueprintUndoRailTrack(TileIndex tile, Track track, RailType railtype);
 void RecordBlueprintUndoSignal(TileIndex tile, Track track);
+void RecordBlueprintUndoObject(TileIndex tile);
 void RecordBlueprintUndoRailDepot(TileIndex tile, DiagDirection dir, RailType railtype);
 void RecordBlueprintUndoRoad(TileIndex tile, RoadBits bits, RoadType roadtype);
 void RecordBlueprintUndoRoadDepot(TileIndex tile, DiagDirection dir, RoadType roadtype);
@@ -389,6 +414,8 @@ void RecordBlueprintUndoStationTile(TileIndex tile, bool is_waypoint, Axis axis,
 void RecordBlueprintUndoRoadStop(TileIndex tile, StationType type, bool drive_through, DiagDirection dir, Axis axis);
 void RecordBlueprintUndoTerraform(TileIndex corner, uint8_t height_before);
 std::vector<BlueprintStationRect> GroupStationTiles(const Blueprint &blueprint);
+std::optional<uint8_t> ResolveBlueprintSignalStyle(const BlueprintSpecRef &spec);
+const struct ObjectSpec *ResolveBlueprintObject(const BlueprintSpecRef &spec);
 
 TileIndexDiffC TransformBlueprintPoint(TileIndexDiffC point, uint16_t bounds_x, uint16_t bounds_y, uint8_t rotation, bool reflected);
 Track TransformBlueprintTrack(Track track, uint8_t rotation, bool reflected);
