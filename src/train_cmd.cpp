@@ -1220,6 +1220,22 @@ static const uint16_t _breakdown_speeds[16] = {
 };
 
 
+static bool IsHoldingForCouple(const Train *train);
+
+/** Whether full flipping should restore a driving cab before normal travel. */
+bool Train::NeedsCabFlip() const
+{
+	const Train *consist = this;
+	if (_settings_game.difficulty.train_flip_reverse_allowed != TrainFlipReversingAllowed::All ||
+			!(consist->tcache.cached_tflags & TCF_NO_DRIVING_CAB) || !consist->GetMovingBack()->CanLeadTrain() ||
+			consist->current_order.IsType(OT_GOTO_COUPLE) || consist->current_order.IsAnyLoadingType() ||
+			IsHoldingForCouple(consist) || consist->flags.Test(VehicleRailFlag::Reversing)) return false;
+	for (const Train *u = consist->First(); u != nullptr; u = u->Next()) {
+		if (u->track & (TRACK_BIT_WORMHOLE | TRACK_BIT_DEPOT)) return false;
+	}
+	return true;
+}
+
 /**
  * Calculates the maximum speed information of the vehicle under its current conditions.
  * @return Maximum speed information of the vehicle.
@@ -1237,6 +1253,8 @@ Train::MaxSpeedInfo Train::GetCurrentMaxSpeedInfoInternal(bool update_state) con
 		constexpr int BACKWARDS_NO_CAB_SPEED_LIMIT = 32;
 		max_speed = std::min<int>(max_speed, BACKWARDS_NO_CAB_SPEED_LIMIT);
 	}
+
+	if (this->NeedsCabFlip()) max_speed = 0;
 
 	int advisory_max_speed = max_speed;
 
@@ -7774,7 +7792,7 @@ void Train::MarkDirty()
  */
 int Train::UpdateSpeed(MaxSpeedInfo max_speed_info)
 {
-	AccelStatus accel_status = this->GetAccelerationStatus();
+	AccelStatus accel_status = this->NeedsCabFlip() ? AS_BRAKE : this->GetAccelerationStatus();
 	if (this->lookahead != nullptr && this->lookahead->flags.Test(TrainReservationLookAheadFlag::ApplyAdvisory) && this->cur_speed <= max_speed_info.strict_max_speed) {
 		this->lookahead->flags.Reset(TrainReservationLookAheadFlag::ApplyAdvisory);
 	}
@@ -9940,6 +9958,24 @@ static bool TrainLocoHandler(Train *consist, bool mode)
 			consist->flags.Set(VehicleRailFlag::Reversing);
 			return true;
 		}
+	}
+
+	/* Keep the requested travel direction, but place a driving cab at the leading
+	 * end when full flipping is allowed. This also recovers already-running saves. */
+	if (consist->NeedsCabFlip() && consist->cur_speed == 0) {
+		FreeTrainTrackReservation(consist);
+		Train *front = consist->GetMovingFront();
+		AdvanceWagonsBeforeSwap(front);
+		ReverseTrainSwapVehicles(consist->First());
+		for (Train *u = consist->First(); u != nullptr; u = u->Next()) {
+			u->vehicle_flags.Flip(VehicleFlag::DrivingBackwards);
+		}
+		AdvanceWagonsAfterSwap(consist->GetMovingFront());
+		consist->First()->ConsistChanged(CCF_TRACK);
+		consist->subspeed = 0;
+		consist->progress = 0;
+		TryPathReserve(consist, true, true);
+		return true;
 	}
 
 	/* The beyond-body release is redone from scratch whenever the train stops

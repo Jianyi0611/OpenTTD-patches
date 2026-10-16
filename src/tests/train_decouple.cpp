@@ -440,3 +440,32 @@ TEST_CASE("Coupling wait - station target is explicit and old orders still wait 
 	wait.SetWaitCoupleStation(StationID::Invalid());
 	CHECK_FALSE(wait.HasWaitCoupleStation());
 }
+
+TEST_CASE_METHOD(TrainDecoupleFixture, "Train - restore driving cab without overriding shunting policy")
+{
+	Backup<TrainFlipReversingAllowed> setting(_settings_game.difficulty.train_flip_reverse_allowed, TrainFlipReversingAllowed::All, FILE_LINE);
+	Train *engine = MakeTrain();
+	Train *wagon = MakeTrain();
+	wagon->ClearEngine();
+	engine->SetNext(wagon);
+	engine->vehicle_flags.Set(VehicleFlag::DrivingBackwards);
+	wagon->vehicle_flags.Set(VehicleFlag::DrivingBackwards);
+	engine->tcache.cached_tflags |= TCF_NO_DRIVING_CAB;
+	GameRandomSeedChecker random_checker;
+	CHECK(engine->NeedsCabFlip());
+	_settings_game.difficulty.train_flip_reverse_allowed = TrainFlipReversingAllowed::None;
+	CHECK_FALSE(engine->NeedsCabFlip());
+	_settings_game.difficulty.train_flip_reverse_allowed = TrainFlipReversingAllowed::EndOfLineOnly;
+	CHECK_FALSE(engine->NeedsCabFlip());
+	_settings_game.difficulty.train_flip_reverse_allowed = TrainFlipReversingAllowed::All;
+	engine->current_order.MakeDummy();
+	engine->current_order.MakeGoToCouple();
+	CHECK_FALSE(engine->NeedsCabFlip());
+	engine->current_order.MakeDummy();
+	wagon->track = TRACK_BIT_WORMHOLE;
+	CHECK_FALSE(engine->NeedsCabFlip());
+	wagon->track = TRACK_BIT_X;
+	CHECK(engine->NeedsCabFlip());
+	CHECK(random_checker.Check());
+	setting.Restore();
+}

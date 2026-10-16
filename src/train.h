@@ -658,6 +658,7 @@ public:
 	bool StopFoundAtVehiclePosition() const;
 
 	bool CanLeadTrain() const;
+	bool NeedsCabFlip() const;
 
 	/**
 	 * Set the movement direction of this vehicle chain.
