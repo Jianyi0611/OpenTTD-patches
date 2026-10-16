@@ -2051,6 +2051,7 @@ STR_ERROR_CAN_T_RENAME_ORDER_LIST                               :{WHITE}无法�
 STR_ERROR_CAN_T_DELETE_ORDER_LIST                               :{WHITE}无法删除调度表...
 STR_ERROR_ORDER_LIST_IN_USE                                     :{WHITE}正在其它载具中使用
 STR_ORDER_LIST_ORDERS_CAPTION                                  :{WHITE}{STRING}（调度计划）
+STR_ORDER_LIST_ORDERS_OTHER_CAPTION                            :{WHITE}{COMPANY}：{STRING}
 
 # Order list timetable window
 STR_ORDER_LIST_TIMETABLE_CAPTION                                :{WHITE}时刻表

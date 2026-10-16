@@ -4184,12 +4184,15 @@ public:
 			this->decouple_scroll = this->GetScrollbar(WID_O_DECOUPLE_SCROLLBAR);
 		}
 		/* No occupancy data without executing vehicles. */
-		this->GetWidget<NWidgetStacked>(WID_O_SEL_OCCUPANCY)->SetDisplayedPlane(SZSP_NONE);
+		if (auto *occupancy = this->GetWidget<NWidgetStacked>(WID_O_SEL_OCCUPANCY); occupancy != nullptr) occupancy->SetDisplayedPlane(SZSP_NONE);
 		this->current_aux_planes.fill(SZSP_NONE);
 		this->current_value_plane = DP_COND_VALUE_NUMBER;
 		{
+			/* The read-only layout for another company's schedule has none of the editing
+			 * selectors, so they are set up only when they are part of this tree. */
 			auto setup_plane = [&](WidgetID wid, int current, bool independent) {
 				NWidgetStacked *sel = this->GetWidget<NWidgetStacked>(wid);
+				if (sel == nullptr) return;
 				sel->independent_planes = independent;
 				sel->SetDisplayedPlane(current);
 			};
@@ -4386,7 +4389,10 @@ public:
 	void UpdateButtonState()
 	{
 		if (!IsLocalTarget()) {
-			this->GetWidget<NWidgetStacked>(WID_O_SEL_OCCUPANCY)->SetDisplayedPlane(IsWidgetLowered(WID_O_OCCUPANCY_TOGGLE) ? 0 : SZSP_NONE);
+			/* The read-only layout for another company's schedule has no occupancy pane at all. */
+			if (auto *occupancy = this->GetWidget<NWidgetStacked>(WID_O_SEL_OCCUPANCY); occupancy != nullptr) {
+				occupancy->SetDisplayedPlane(IsWidgetLowered(WID_O_OCCUPANCY_TOGGLE) ? 0 : SZSP_NONE);
+			}
 			return; // No buttons are displayed with competitor order windows.
 		}
 
@@ -5171,8 +5177,10 @@ public:
 			case WID_O_CAPTION:
 				if (!this->HasVehicle()) {
 					const OrderList *ol = this->order_list;
-					if (ol->GetName().empty()) return GetString(STR_JUST_RAW_STRING, GetString(STR_ORDER_LIST_DEFAULT_NAME, ol->index.base() + 1));
-					return GetString(STR_JUST_RAW_STRING, ol->GetName());
+					const std::string name = ol->GetName().empty() ? GetString(STR_ORDER_LIST_DEFAULT_NAME, ol->index.base() + 1) : ol->GetName();
+					/* A schedule of another company is only ever previewed, so name its owner. */
+					if (ol->GetCompany() != _local_company) return GetString(STR_ORDER_LIST_ORDERS_OTHER_CAPTION, ol->GetCompany(), name);
+					return GetString(STR_JUST_RAW_STRING, name);
 				}
 				return GetString(STR_ORDERS_CAPTION, this->vehicle->index);
 
@@ -7560,6 +7568,37 @@ static WindowDesc _other_orders_desc(__FILE__, __LINE__,
 	&OrdersWindow::hotkeys
 );
 
+/**
+ * Nested widget definition for another company's standalone schedule. Like the competitor vehicle
+ * layout it carries no editing rows, so the orders can only be looked at. Occupancy is left out
+ * entirely: it is a property of vehicles running the schedule, not of the schedule itself.
+ */
+static constexpr std::initializer_list<NWidgetPart> _nested_other_orderlist_widgets = {
+	NWidget(NWID_HORIZONTAL),
+		NWidget(WWT_CLOSEBOX, Colours::Grey),
+		NWidget(WWT_CAPTION, Colours::Grey, WID_O_CAPTION),
+		NWidget(WWT_PUSHBTN, Colours::Grey, WID_O_TIMETABLE_VIEW), SetMinimalSize(61, 14), SetToolTip(STR_ORDERS_TIMETABLE_VIEW_TOOLTIP),
+		NWidget(WWT_SHADEBOX, Colours::Grey),
+		NWidget(WWT_DEFSIZEBOX, Colours::Grey),
+		NWidget(WWT_STICKYBOX, Colours::Grey),
+	EndContainer(),
+	NWidget(NWID_HORIZONTAL),
+		NWidget(WWT_PANEL, Colours::Grey, WID_O_ORDER_LIST), SetMinimalSize(372, 72), SetToolTip(STR_ORDERS_LIST_TOOLTIP), SetResize(1, 1), SetScrollbar(WID_O_SCROLLBAR), EndContainer(),
+		NWidget(NWID_VERTICAL),
+			NWidget(NWID_VSCROLLBAR, Colours::Grey, WID_O_SCROLLBAR),
+			NWidget(WWT_RESIZEBOX, Colours::Grey),
+		EndContainer(),
+	EndContainer(),
+};
+
+static WindowDesc _orderlist_other_desc(__FILE__, __LINE__,
+	WindowPosition::Automatic, "view_order_list_competitor", 384, 86,
+	WindowClass::OrderListEditor, WindowClass::None,
+	WindowDefaultFlag::Construction,
+	_nested_other_orderlist_widgets,
+	&OrdersWindow::hotkeys
+);
+
 void ShowOrdersWindow(const Vehicle *v)
 {
 	CloseWindowById(WindowClass::VehicleDetails, v->index, false);
@@ -7614,15 +7653,19 @@ void CcInsertOrdersFromVehicle(const CommandCost &result, VehicleID veh_dst, Veh
 }
 
 /**
- * Show the order editor window for a standalone player-created order list.
- * @param id the id of the order list; only lists owned by the local company can be edited.
+ * Show the window for a standalone player-created order list: the editor for the local company's
+ * own schedules, a read-only preview for another company's public ones. Folders have no orders, so
+ * they have no window at all.
+ * @param id the id of the order list.
  */
 void ShowOrderListEditor(OrderListID id)
 {
 	const OrderList *ol = OrderList::GetIfValid(id);
 	if (ol == nullptr || !ol->IsPlayerCreated() || ol->IsScheduleGroup()) return;
-	if (ol->GetCompany() != _local_company) return;
+
+	const bool local = ol->GetCompany() == _local_company;
+	if (!local && !ol->IsVisibleToCompany(_local_company)) return;
 
 	if (BringWindowToFrontById(WindowClass::OrderListEditor, id.base()) != nullptr) return;
-	new OrdersWindow(_orderlist_editor_desc, id);
+	new OrdersWindow(local ? _orderlist_editor_desc : _orderlist_other_desc, id);
 }

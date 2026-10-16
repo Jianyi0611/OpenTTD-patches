@@ -1478,14 +1478,16 @@ void ShowTimetableWindow(const Vehicle *v)
 }
 
 /**
- * Show the timetable window for a standalone player-created order list.
- * @param id the id of the order list; only lists owned by the local company can be edited.
+ * Show the timetable window for a standalone player-created order list. Another company's public
+ * schedule opens the same window; it takes its owner from the list and disables every editing
+ * control for a company that does not own it.
+ * @param id the id of the order list.
  */
 void ShowOrderListTimetable(OrderListID id)
 {
 	const OrderList *ol = OrderList::GetIfValid(id);
 	if (ol == nullptr || !ol->IsPlayerCreated()) return;
-	if (ol->GetCompany() != _local_company) return;
+	if (ol->GetCompany() != _local_company && !ol->IsVisibleToCompany(_local_company)) return;
 
 	if (BringWindowToFrontById(WindowClass::OrderListTimetable, id.base()) != nullptr) return;
 	new TimetableWindow(_orderlist_timetable_desc, id);

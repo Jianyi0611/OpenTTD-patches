@@ -2129,6 +2129,7 @@ STR_ERROR_CAN_T_RENAME_ORDER_LIST                               :{WHITE}Can't re
 STR_ERROR_CAN_T_DELETE_ORDER_LIST                               :{WHITE}Can't delete order list...
 STR_ERROR_ORDER_LIST_IN_USE                                     :{WHITE}It is used by other vehicles
 STR_ORDER_LIST_ORDERS_CAPTION                                  :{WHITE}{RAW_STRING} (Orders)
+STR_ORDER_LIST_ORDERS_OTHER_CAPTION                            :{WHITE}{COMPANY}: {RAW_STRING}
 
 # Order list timetable window
 STR_ORDER_LIST_TIMETABLE_CAPTION                                :{WHITE}Timetable
