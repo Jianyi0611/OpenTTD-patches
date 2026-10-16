@@ -115,6 +115,7 @@ void DeleteVisibleTrain(Train *v);
 void CheckBreakdownFlags(Train *v);
 void GetTrainSpriteSize(EngineID engine, uint &width, uint &height, int &xoffs, int &yoffs, EngineImageType image_type);
 bool TrainFitStation(const Train *v);
+StationID GetTrainCouplingStation(const Train *v);
 void TrainMoveToPosition(Train *v, int x, int y);
 bool IsCoupleArrangementValid(Train *v_phys, Train *u_phys);
 

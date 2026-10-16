@@ -711,9 +711,11 @@ void OrderList::RecalculateDerivedCounters()
 static void DetachHomeReferences(OrderList *going_away)
 {
 	for (Vehicle *u : Vehicle::Iterate()) {
+		std::erase_if(u->execute_schedule_stack, [&](uint32_t frame) { return OrderListID{uint16_t(frame)} == going_away->index; });
 		if (u->primary_order != going_away->index || u->orders == going_away) continue;
 		u->primary_order = (u->orders != nullptr) ? u->orders->index : OrderListID::Invalid();
 		u->primary_order_index = INVALID_VEH_ORDER_ID;
+		u->execute_schedule_stack.clear();
 	}
 }
 
@@ -734,6 +736,7 @@ bool OrderListIsSomeonesHome(const OrderList *ol)
 {
 	for (const Vehicle *u : Vehicle::Iterate()) {
 		if (u->primary_order == ol->index && u->orders != ol) return true;
+		for (uint32_t frame : u->execute_schedule_stack) if (OrderListID{uint16_t(frame)} == ol->index) return true;
 	}
 	return false;
 }
@@ -1482,8 +1485,15 @@ template <typename F>
 static void AdjustExecutingResumeIndices(OrderListID home, F &&adjust)
 {
 	for (Vehicle *u : Vehicle::Iterate()) {
-		if (u->orders == nullptr || !u->IsExecutingSchedule() || u->primary_order != home) continue;
-		adjust(u->primary_order_index);
+		if (u->orders == nullptr || !u->IsExecutingSchedule()) continue;
+		if (u->primary_order == home) adjust(u->primary_order_index);
+		for (uint32_t &frame : u->execute_schedule_stack) {
+			if (OrderListID{uint16_t(frame)} != home) continue;
+			VehicleOrderID resume = frame >> 16;
+			if (resume == INVALID_VEH_ORDER_ID) continue;
+			adjust(resume);
+			frame = uint16_t(frame) | (uint32_t(resume) << 16);
+		}
 	}
 }
 
@@ -4943,6 +4953,7 @@ void SetDecoupleWaitOrderList(Vehicle *v, OrderList *orders)
 
 void DeleteVehicleOrders(Vehicle *v, bool keep_orderlist, bool reset_order_indices)
 {
+	v->execute_schedule_stack.clear();
 	DeleteOrderWarnings(v);
 	InvalidateWindowClassesData(WindowClass::DepartureBoard);
 
@@ -5632,14 +5643,26 @@ void FlushAdvanceOrderIndexDeferred(const Vehicle *v, bool apply)
 
 /**
  * A vehicle executing another order list finished one full pass of it: return
- * the vehicle to its primary (home) order list and resume at the position
- * remembered when the detour started.
+ * to its immediate caller, or its primary list for the outermost call.
+ * Completed or deleted callers are skipped while unwinding the return stack.
  * @note called from the order index wrap-around handling, so the caller must
  *       cope with the vehicle's order list having changed on return.
  */
 void Vehicle::ReturnFromExecuteSchedule()
 {
 	OrderList *home = OrderList::GetIfValid(this->primary_order);
+	VehicleOrderID resume = this->primary_order_index;
+	bool nested = false;
+	while (!this->execute_schedule_stack.empty()) {
+		const uint32_t frame = this->execute_schedule_stack.back();
+		this->execute_schedule_stack.pop_back();
+		OrderList *parent = OrderList::GetIfValid(OrderListID{uint16_t(frame)});
+		if (parent == nullptr || (frame >> 16) >= parent->GetNumOrders()) continue;
+		home = parent;
+		resume = frame >> 16;
+		nested = true;
+		break;
+	}
 	OrderList *target = this->orders;
 	if (home == nullptr || home == target) {
 		/* The home list is gone (its deletion should have handled this):
@@ -5671,10 +5694,11 @@ void Vehicle::ReturnFromExecuteSchedule()
 	this->vehicle_flags.Set(VehicleFlag::TimetableSeparation, home->IsSeparationEnabled());
 
 	/* Resume where we left the home list when we jumped away. */
-	VehicleOrderID resume = this->primary_order_index;
 	if (resume == INVALID_VEH_ORDER_ID || resume >= home->GetNumOrders()) resume = 0;
-	this->primary_order_index = INVALID_VEH_ORDER_ID;
-	this->primary_order = home->index;
+	if (!nested) {
+		this->primary_order_index = INVALID_VEH_ORDER_ID;
+		this->primary_order = home->index;
+	}
 	this->cur_implicit_order_index = resume;
 	this->cur_real_order_index = resume;
 	this->cur_timetable_order_index = INVALID_VEH_ORDER_ID;
@@ -5713,7 +5737,7 @@ bool UpdateOrderDest(Vehicle *v, const Order *order, int conditional_depth, bool
 		case OT_WAIT_COUPLE:
 			if (order->HasWaitCoupleStation() && Station::IsValidID(order->GetWaitCoupleStation())) {
 				if (v->last_station_visited == order->GetWaitCoupleStation() && v->type == VehicleType::Train &&
-						v->cur_speed == 0 && IsRailStationTile(v->tile) && GetStationIndex(v->tile) == order->GetWaitCoupleStation()) {
+						v->cur_speed == 0 && GetTrainCouplingStation(Train::From(v)) == order->GetWaitCoupleStation()) {
 					v->SetDestTile(INVALID_TILE);
 					return false;
 				}
@@ -5852,12 +5876,13 @@ bool UpdateOrderDest(Vehicle *v, const Order *order, int conditional_depth, bool
 			assert(!pbs_look_ahead);
 			{
 				OrderList *target = OrderList::GetIfValid(order->GetDestination().ToOrderListID());
-				if (target != nullptr && target != v->orders && target->IsPlayerCreated() && target->IsVisibleToCompany(v->owner)) {
+				bool recursive = target != nullptr && v->IsExecutingSchedule() && target->index == v->primary_order;
+				for (uint32_t frame : v->execute_schedule_stack) if (target != nullptr && OrderListID{uint16_t(frame)} == target->index) recursive = true;
+				if (target != nullptr && target != v->orders && !recursive && v->execute_schedule_stack.size() < 64 && target->IsPlayerCreated() && target->IsVisibleToCompany(v->owner)) {
 					/* Execute the target order list: switch this vehicle to it (shared list).
 					 * The primary order list is kept as-is; after one full pass of the
 					 * target list the vehicle returns to it and resumes where it left.
-					 * Nested execute-schedule orders jump the same way without touching
-					 * the primary list. */
+					 * Nested calls preserve their immediate parent in a separate stack. */
 					OrderList *home = v->orders;
 					if (!v->IsExecutingSchedule()) {
 						/* Step past this execute-schedule order; the resulting position
@@ -5871,6 +5896,8 @@ bool UpdateOrderDest(Vehicle *v, const Order *order, int conditional_depth, bool
 						v->primary_order = home->index;
 						v->primary_order_index = v->cur_real_order_index;
 					} else {
+						const VehicleOrderID resume = v->cur_real_order_index + 1 < home->GetNumOrders() ? v->cur_real_order_index + 1 : INVALID_VEH_ORDER_ID;
+						v->execute_schedule_stack.push_back(home->index.base() | (uint32_t(resume) << 16));
 					}
 
 					/* Remember the home list's dispatch/separation state if it is not

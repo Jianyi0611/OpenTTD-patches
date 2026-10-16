@@ -1149,6 +1149,7 @@ NamedSaveLoadTable GetVehicleDescription(VehicleType vt)
 
 		NSL("primary_order",            SLE_CONDVAR_X(Vehicle, primary_order,              SLE_UINT16,                 SL_MIN_VERSION, SL_MAX_VERSION, SlXvFeatureTest(XSLFTO_OR, XSLFI_VEHICLE_PRIMARY_ORDER))),
 		NSL("primary_order_index",      SLE_CONDVAR_X(Vehicle, primary_order_index,        SLE_UINT16,                 SL_MIN_VERSION, SL_MAX_VERSION, SlXvFeatureTest(XSLFTO_OR, XSLFI_VEHICLE_PRIMARY_ORDER))),
+		NSL("execute_schedule_stack", SLE_CONDVARVEC_X(Vehicle, execute_schedule_stack, SLE_UINT32, SL_MIN_VERSION, SL_MAX_VERSION, SlXvFeatureTest(XSLFTO_AND, XSLFI_VEHICLE_PRIMARY_ORDER, 2))),
 
 		NSL("age",                        SLE_CONDVAR(Vehicle, age,                       SLE_FILE_U16 | SLE_VAR_I32, SL_MIN_VERSION, SLV_31)),
 		NSL("age",                        SLE_CONDVAR(Vehicle, age,                       SLE_INT32,                  SLV_31, SL_MAX_VERSION)),

@@ -393,6 +393,8 @@ public:
 	OrderListID primary_order = OrderListID::Invalid();        ///< The order list this vehicle belongs to; equals #orders->index unless it is currently away on an execute-schedule detour
 	VehicleOrderID primary_order_index = INVALID_VEH_ORDER_ID; ///< While executing another order list: position in #primary_order to resume at; #INVALID_VEH_ORDER_ID otherwise
 
+	std::vector<uint32_t> execute_schedule_stack; ///< Nested return frames: list ID in low 16 bits, next order in high 16 bits.
+
 	NO_UNIQUE_ADDRESS NewGRFCache grf_cache{};   ///< Cache of often used calculated NewGRF values
 	Direction cur_image_valid_dir = Direction::Invalid; ///< NOSAVE: direction for which cur_image does not need to be regenerated on the next tick
 

@@ -18,6 +18,7 @@
 #include "../core/backup_type.hpp"
 #include "../map_func.h"
 #include "../station_map.h"
+#include "../rail_map.h"
 #include "../scope.h"
 #include "../gfx_type.h"
 #include "../sl/saveload.h"
@@ -236,12 +237,15 @@ TEST_CASE_METHOD(TrainDecoupleFixture, "Couple - network snapshot preserves wide
 	a->engine_type = b->engine_type = engine->index;
 	a->couple_target = b->index;
 	a->couple_claim_cost = 123;
+	a->execute_schedule_stack = {0x00120034, 0x00560078};
 	b->couple_claimant = a->index;
 	b->couple_body_hold = true;
 	auto snapshot = std::make_shared<CoupleSnapshotCapture>();
 	const SaveLoadResult result = SaveWithFilter(snapshot, false, SMF_NET_SERVER);
 	DeallocateMap();
 	REQUIRE(result == SaveLoadResult::Ok);
+	const std::array<uint8_t, 8> frames{0, 0x12, 0, 0x34, 0, 0x56, 0, 0x78};
+	CHECK(std::search(snapshot->bytes.begin(), snapshot->bytes.end(), frames.begin(), frames.end()) != snapshot->bytes.end());
 	const std::array<uint8_t, 4> marker{'C', 'P', 'L', 'M'};
 	/* SLXI also mentions CPLM by name; the actual state chunk is the last occurrence. */
 	auto chunk = std::find_end(snapshot->bytes.begin(), snapshot->bytes.end(), marker.begin(), marker.end());
@@ -468,4 +472,98 @@ TEST_CASE_METHOD(TrainDecoupleFixture, "Train - restore driving cab without over
 	CHECK(engine->NeedsCabFlip());
 	CHECK(random_checker.Check());
 	setting.Restore();
+}
+
+TEST_CASE_METHOD(TrainDecoupleFixture, "Couple - allow only an adjacent engine overhang")
+{
+	AllocateMap(64, 64);
+	Train *front = MakeTrain();
+	Train *rear = MakeTrain();
+	front->SetNext(rear);
+	front->tile = TileXY(10, 10);
+	rear->tile = TileXY(11, 10);
+	front->last_station_visited = StationID{7};
+	MakeRailNormal(front->tile, OWNER_NONE, TRACK_BIT_X, RAILTYPE_RAIL);
+	MakeRailStation(rear->tile, OWNER_NONE, StationID{7}, Axis::X, 0, RAILTYPE_RAIL);
+	CHECK_FALSE(TrainFitStation(front));
+	CHECK(GetTrainCouplingStation(front) == StationID{7});
+	front->last_station_visited = StationID{8};
+	CHECK(GetTrainCouplingStation(front) == StationID::Invalid());
+	front->last_station_visited = StationID{7};
+	front->tile = TileXY(9, 10);
+	MakeRailNormal(front->tile, OWNER_NONE, TRACK_BIT_X, RAILTYPE_RAIL);
+	CHECK(GetTrainCouplingStation(front) == StationID::Invalid());
+	DeallocateMap();
+}
+
+TEST_CASE_METHOD(TrainDecoupleFixture, "Schedule - nested returns resume each caller")
+{
+	Train *v = MakeTrain();
+	auto make_list = []() {
+		OrderList *list = OrderList::Create();
+		list->SetCompany(CompanyID{0});
+		list->InitializePlayerCreated();
+		for (int i = 0; i < 3; ++i) { Order order; order.MakeDummy(); list->InsertOrderAt(std::move(order), i); }
+		return list;
+	};
+	OrderList *root = make_list();
+	OrderList *parent = make_list();
+	OrderList *child = make_list();
+	v->orders = child;
+	child->AssignVehicle(v);
+	v->primary_order = root->index;
+	v->primary_order_index = 2;
+	v->execute_schedule_stack.push_back(parent->index.base() | (1U << 16));
+	SECTION("ordinary return") {}
+	SECTION("nested call at the end of another list") {
+		OrderList *completed = make_list();
+		v->execute_schedule_stack.push_back(completed->index.base() | (3U << 16));
+	}
+	v->ReturnFromExecuteSchedule();
+	CHECK(v->orders == parent);
+	CHECK(v->cur_real_order_index == 1);
+	CHECK(v->primary_order == root->index);
+	CHECK(v->IsExecutingSchedule());
+	v->ReturnFromExecuteSchedule();
+	CHECK(v->orders == root);
+	CHECK(v->cur_real_order_index == 2);
+	CHECK_FALSE(v->IsExecutingSchedule());
+	_vehicle_pool.CleanPool();
+	_orderlist_pool.CleanPool();
+}
+
+TEST_CASE_METHOD(TrainDecoupleFixture, "Couple - a nested detour preserves its caller's claim")
+{
+	AllocateMap(64, 64);
+	Train *moving = MakeTrain();
+	Train *waiting = MakeTrain();
+	OrderList *root = OrderList::Create();
+	OrderList *parent = OrderList::Create();
+	OrderList *child = OrderList::Create();
+	for (OrderList *list : {root, parent, child}) list->SetCompany(CompanyID{0});
+	Order checkpoint;
+	checkpoint.MakeGoToStation(StationID{0});
+	parent->GetOrderVector().push_back(std::move(checkpoint));
+	Order couple;
+	couple.MakeGoToCouple();
+	couple.SetCoupleSlot(TraceRestrictSlotID::Invalid());
+	couple.SetCoupleCheckPoint(StationID{0});
+	parent->GetOrderVector().push_back(std::move(couple));
+	parent->RecalculateDerivedCounters();
+	moving->orders = child;
+	child->AssignVehicle(moving);
+	moving->primary_order = root->index;
+	moving->primary_order_index = 0;
+	moving->execute_schedule_stack.push_back(parent->index.base() | (1U << 16));
+	moving->couple_target = waiting->index;
+	waiting->couple_claimant = moving->index;
+	waiting->current_order.MakeWaitCouple();
+	waiting->tile = TileXY(1, 1);
+	MakeRailStation(waiting->tile, OWNER_NONE, StationID{0}, Axis::X, 0, RAILTYPE_RAIL);
+	CHECK(GetCoupleClaimant(waiting) == moving);
+	moving->execute_schedule_stack.clear();
+	CHECK(GetCoupleClaimant(waiting) == nullptr);
+	_vehicle_pool.CleanPool();
+	_orderlist_pool.CleanPool();
+	DeallocateMap();
 }
