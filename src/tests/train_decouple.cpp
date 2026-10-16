@@ -25,6 +25,7 @@
 #include "../sl/saveload_filter.h"
 
 extern std::string _savegame_format;
+extern bool ValidateVehicleTileHash(const Vehicle *v);
 
 /** Capture a real savegame to verify the network snapshot's binary representation. */
 struct CoupleSnapshotCapture : SaveFilter {
@@ -487,6 +488,20 @@ TEST_CASE_METHOD(TrainDecoupleFixture, "Couple - allow only an adjacent engine o
 	MakeRailStation(rear->tile, OWNER_NONE, StationID{7}, Axis::X, 0, RAILTYPE_RAIL);
 	CHECK_FALSE(TrainFitStation(front));
 	CHECK(GetTrainCouplingStation(front) == StationID{7});
+	Train *articulated = MakeTrain();
+	articulated->ClearEngine();
+	articulated->SetArticulatedPart();
+	front->SetNext(nullptr);
+	front->SetNext(articulated);
+	articulated->SetNext(rear);
+	articulated->tile = front->tile;
+	CHECK(GetTrainCouplingStation(front) == StationID{7});
+	articulated->SetWagon();
+	articulated->ClearArticulatedPart();
+	CHECK(GetTrainCouplingStation(front) == StationID::Invalid());
+	articulated->ClearWagon();
+	articulated->SetArticulatedPart();
+
 	front->last_station_visited = StationID{8};
 	CHECK(GetTrainCouplingStation(front) == StationID::Invalid());
 	front->last_station_visited = StationID{7};
@@ -565,5 +580,36 @@ TEST_CASE_METHOD(TrainDecoupleFixture, "Couple - a nested detour preserves its c
 	CHECK(GetCoupleClaimant(waiting) == nullptr);
 	_vehicle_pool.CleanPool();
 	_orderlist_pool.CleanPool();
+	DeallocateMap();
+}
+
+TEST_CASE_METHOD(TrainDecoupleFixture, "Couple - station inspection preserves hashes and claims")
+{
+	AllocateMap(64, 64);
+	Train *front = MakeTrain();
+	Train *part = MakeTrain();
+	Train *rear = MakeTrain();
+	part->ClearEngine();
+	part->SetArticulatedPart();
+	front->SetNext(part);
+	part->SetNext(rear);
+	front->tile = part->tile = TileXY(10, 10);
+	rear->tile = TileXY(11, 10);
+	front->last_station_visited = StationID{7};
+	MakeRailNormal(front->tile, OWNER_NONE, TRACK_BIT_X, RAILTYPE_RAIL);
+	MakeRailStation(rear->tile, OWNER_NONE, StationID{7}, Axis::X, 0, RAILTYPE_RAIL);
+	for (Train *v : {front, part, rear}) v->UpdatePosition();
+	front->couple_target = rear->index;
+	rear->couple_claimant = front->index;
+	const auto flags = front->flags;
+	GameRandomSeedChecker random_checker;
+	for (int attempt = 0; attempt < 2; ++attempt) {
+		CHECK(GetTrainCouplingStation(part) == StationID{7});
+		for (const Train *v : {front, part, rear}) CHECK(ValidateVehicleTileHash(v));
+		CHECK(front->couple_target == rear->index);
+		CHECK(rear->couple_claimant == front->index);
+		CHECK(front->flags == flags);
+		CHECK(random_checker.Check());
+	}
 	DeallocateMap();
 }

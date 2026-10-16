@@ -6176,6 +6176,9 @@ StationID GetTrainCouplingStation(const Train *v)
 	 * every remaining part on one station, with the engine on the adjacent
 	 * rail tile. Do not accept an unrelated train standing outside a station. */
 	const Train *next = v->Next();
+	/* An engine may have several articulated parts on the same overhang tile.
+	 * Treat those as one unit, without allowing an outside wagon or second tile. */
+	while (next != nullptr && next->IsArticulatedPart() && next->tile == v->tile) next = next->Next();
 	if (!v->IsEngine() || next == nullptr || !IsPlainRailTile(v->tile) ||
 			!IsRailStationTile(next->tile) || DistanceManhattan(v->tile, next->tile) != 1) return StationID::Invalid();
 	const StationID station = GetStationIndex(next->tile);
