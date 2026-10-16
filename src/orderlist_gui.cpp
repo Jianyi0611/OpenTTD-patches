@@ -305,7 +305,12 @@ public:
 				bool opened_editor = false;
 				if (new_selected >= 0 && new_selected < (int)this->list.size()) {
 					const OrderList *ol = OrderList::Get(this->list[new_selected]);
-					const int fold_left = this->edit_btn_left + SETTING_BUTTON_WIDTH + 4 + std::min<uint>(this->depths[new_selected] * ScaleGUITrad(12), 100);
+					const Rect inner = this->GetWidget<NWidgetBase>(WID_OL_LIST)->GetCurrentRect().Shrink(WidgetDimensions::scaled.framerect);
+					const bool rtl = _current_text_dir == TD_RTL;
+					const int text_left = rtl ? inner.left : this->edit_btn_left + SETTING_BUTTON_WIDTH + 4;
+					const int text_right = rtl ? this->edit_btn_left - 4 : inner.right;
+					const int indent = std::min<uint>(this->depths[new_selected] * ScaleGUITrad(12), (text_right - text_left) / 2);
+					const int fold_left = rtl ? text_right - indent - GetSpriteSize(SPR_CIRCLE_FOLDED).width : text_left + indent;
 					if (ol->IsScheduleGroup() && (click_count > 1 || (pt.x >= fold_left && pt.x < fold_left + ScaleGUITrad(14)))) {
 						this->selected = new_selected;
 						if (!this->collapsed.erase(ol->index)) this->collapsed.insert(ol->index);
@@ -315,7 +320,7 @@ public:
 					}
 					const int btn_left = this->edit_btn_left;
 					const int btn_right = btn_left + SETTING_BUTTON_WIDTH;
-					if (pt.x >= btn_left && pt.x < btn_right) {
+					if (!ol->IsScheduleGroup() && pt.x >= btn_left && pt.x < btn_right) {
 						ShowOrderListEditor(this->list[new_selected]);
 						opened_editor = true;
 					}
@@ -483,13 +488,19 @@ public:
 						Rect br{(int) btn_left, (int) y + ((int) this->resize.step_height - SETTING_BUTTON_HEIGHT) / 2,
 								(int) btn_left + SETTING_BUTTON_WIDTH - 1, (int) y + ((int) this->resize.step_height + SETTING_BUTTON_HEIGHT) / 2 - 1};
 						if (!ol->IsScheduleGroup()) {
-							DrawFrameRect(br, Colours::Grey, {});
+							DrawFrameRect(br, Company::IsValidID(ol->GetCompany()) ? _company_colours[ol->GetCompany()] : Colours::Grey, {});
 							DrawSprite(SPR_RENAME, PAL_NONE, CentreBounds(br.left, br.right, this->edit_btn_spr_dim.width), CentreBounds(br.top, br.bottom, this->edit_btn_spr_dim.height));
 						}
 
 						std::string base_name = ol->GetName().empty() ? GetString(STR_ORDER_LIST_DEFAULT_NAME, ol->index.base() + 1) : ol->GetName();
-						std::string str = ol->IsScheduleGroup() ? (this->collapsed.contains(id) && this->string_filter.IsEmpty() ? "+ " : "- ") + base_name : (ol->IsPublic() ? base_name : GetString(STR_PLANS_LIST_ITEM_PLAN_PRIVATE) + base_name);
+						std::string str = ol->IsScheduleGroup() || ol->IsPublic() ? base_name : GetString(STR_PLANS_LIST_ITEM_PLAN_PRIVATE) + base_name;
 						int indent = std::min<uint>(this->depths[i] * ScaleGUITrad(12), (text_right - text_left) / 2);
+						if (ol->IsScheduleGroup()) {
+							SpriteID sprite = this->collapsed.contains(id) && this->string_filter.IsEmpty() ? SPR_CIRCLE_FOLDED : SPR_CIRCLE_UNFOLDED;
+							Dimension dim = GetSpriteSize(sprite);
+							DrawSprite(sprite, PAL_NONE, rtl ? text_right - indent - dim.width : text_left + indent, y + (this->resize.step_height - dim.height) / 2);
+							indent += std::max<uint>(ScaleGUITrad(14), dim.width + WidgetDimensions::scaled.hsep_normal);
+						}
 						DrawString(text_left + (rtl ? 0 : indent), text_right - (rtl ? indent : 0), y + (this->resize.step_height - GetCharacterHeight(FontSize::Normal)) / 2, str, TextColour::White);
 					}
 					y += this->resize.step_height;

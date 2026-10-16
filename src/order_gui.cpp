@@ -5418,13 +5418,14 @@ public:
 					list.push_back(MakeDropDownListDividerItem());
 					list.push_back(MakeDropDownListCheckedItem(order->GetCoupleUseWaitingSchedule(), STR_ORDER_COUPLE_USE_WAITING_SCHEDULE, 0x600, false));
 					list.push_back(MakeDropDownListDividerItem());
-					list.push_back(MakeDropDownListCheckedItem(!order->HasCoupleCheckPoint(), STR_ORDER_COUPLE_CHECK_NONE, 0x700, false));
-					for (VehicleOrderID i = 0; i < this->OrderGetSel(); ++i) {
-						const Order *point = OrderAt(i);
-						if (point == nullptr || (!point->IsType(OT_GOTO_STATION) && !point->IsType(OT_GOTO_WAYPOINT))) continue;
-						std::string name = GetString(point->IsType(OT_GOTO_WAYPOINT) ? STR_WAYPOINT_NAME : STR_STATION_NAME, point->GetDestination().ToStationID());
-						list.push_back(MakeDropDownListCheckedItem(order->HasCoupleCheckPoint() && order->GetCoupleCheckPoint() == point->GetDestination().ToStationID(), GetString(STR_ORDER_COUPLE_CHECK_MENU, name), 0x701 + i, false));
+					std::string current = GetString(STR_ORDER_COUPLE_CHECK_NONE);
+					if (order->HasCoupleCheckPoint()) {
+						const StationID station = order->GetCoupleCheckPoint();
+						current = GetString(Waypoint::IsValidID(station) ? STR_WAYPOINT_NAME : STR_STATION_NAME, station);
 					}
+					auto check_item = MakeDropDownListStringItem(GetString(STR_ORDER_COUPLE_CHECK_SELECT, current), 0x800, false);
+					check_item->colour_flags.Set(ExtendedTextColourFlag::Forced);
+					list.push_back(std::move(check_item));
 				}
 
 				/* Standalone lists act like trains here: every per-order option is available,
@@ -6559,9 +6560,42 @@ public:
 					this->ModifyOrder(this->OrderGetSel(), MOF_RV_TRAVEL_DIR, index & 0xFF);
 					break;
 				}
-				if (index == 0x700 || (index >= 0x701 && index < 0x701 + this->OrderGetSel())) {
-					const Order *point = index == 0x700 ? nullptr : OrderAt(index - 0x701);
-					this->ModifyOrder(this->OrderGetSel(), MOF_COUPLE_CHECK_POINT, point == nullptr ? 0 : point->GetDestination().base() + 1);
+				if (index == 0x800) {
+					const Order *order = OrderAt(this->OrderGetSel());
+					if (order == nullptr || !order->IsType(OT_GOTO_COUPLE)) break;
+					DropDownList list;
+					int selected = 0x10000;
+					auto none_item = MakeDropDownListCheckedItem(!order->HasCoupleCheckPoint(), STR_ORDER_COUPLE_CHECK_NONE, 0x10000, false);
+					none_item->colour_flags.Set(ExtendedTextColourFlag::Forced);
+					list.push_back(std::move(none_item));
+					for (VehicleOrderID i = 0; i < this->OrderGetSel(); ++i) {
+						const Order *point = OrderAt(i);
+						if (point == nullptr || (!point->IsType(OT_GOTO_STATION) && !point->IsType(OT_GOTO_WAYPOINT))) continue;
+						const StationID station = point->GetDestination().ToStationID();
+						const int result = 0x10001 + station.base();
+						const bool checked = order->HasCoupleCheckPoint() && order->GetCoupleCheckPoint() == station;
+						if (checked) selected = result;
+						std::string name = GetString(point->IsType(OT_GOTO_WAYPOINT) ? STR_WAYPOINT_NAME : STR_STATION_NAME, station);
+						auto item = MakeDropDownListCheckedItem(checked, GetString(STR_ORDER_COUPLE_CHECK_ITEM, GetString(STR_ORDER_INDEX, i + 1), name), result, false);
+						/* Embedded station/string colours must not hide text on the selected background. */
+						item->colour_flags.Set(ExtendedTextColourFlag::Forced);
+						list.push_back(std::move(item));
+					}
+					ShowDropDownList(this, std::move(list), selected, widget, 0, {DropDownOption::Filterable, DropDownOption::ClickOnly}, DDSF_SHARED);
+					break;
+				}
+				if (index >= 0x10000 && index < 0x20000) {
+					const Order *order = OrderAt(this->OrderGetSel());
+					if (order == nullptr || !order->IsType(OT_GOTO_COUPLE)) break;
+					/* Keep stable destination IDs while the list is open, and recheck eligibility
+					 * after edits from another window or a network client. */
+					const uint32_t value = index - 0x10000;
+					bool valid = value == 0;
+					for (VehicleOrderID i = 0; !valid && i < this->OrderGetSel(); ++i) {
+						const Order *point = OrderAt(i);
+						valid = point != nullptr && (point->IsType(OT_GOTO_STATION) || point->IsType(OT_GOTO_WAYPOINT)) && point->GetDestination().base() + 1 == value;
+					}
+					if (valid) this->ModifyOrder(this->OrderGetSel(), MOF_COUPLE_CHECK_POINT, value);
 					break;
 				}
 				if (index == RVDD_RV_WAIT || index == RVDD_RV_UNLOAD) {
@@ -7584,7 +7618,7 @@ void CcInsertOrdersFromVehicle(const CommandCost &result, VehicleID veh_dst, Veh
 void ShowOrderListEditor(OrderListID id)
 {
 	const OrderList *ol = OrderList::GetIfValid(id);
-	if (ol == nullptr || !ol->IsPlayerCreated()) return;
+	if (ol == nullptr || !ol->IsPlayerCreated() || ol->IsScheduleGroup()) return;
 	if (ol->GetCompany() != _local_company) return;
 
 	if (BringWindowToFrontById(WindowClass::OrderListEditor, id.base()) != nullptr) return;

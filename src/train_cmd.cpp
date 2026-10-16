@@ -5526,6 +5526,16 @@ static ChooseTrainTrackResult ChooseTrainTrack(Train *consist, const TileIndex t
 		if (temporary_slot_state.IsActive()) temporary_slot_state.PopFromChangeStackRevertTemporaryChanges(consist->index);
 	});
 
+	/* A split consist can lose its occupied tile reservation when the other part leaves.
+	 * Restore the origin before extending: otherwise the pathfinder cannot follow the
+	 * extension and attempts to reserve the same tracks a second time. */
+	if (do_track_reservation) {
+		const Train *front = consist->GetMovingFront();
+		if (IsPlainRailTile(front->tile) && !HasReservedTracks(front->tile, front->track)) {
+			TryReserveRailTrack(front->tile, TrackdirToTrack(front->GetVehicleTrackdir()));
+		}
+	}
+
 	PBSTileInfo   origin = FollowTrainReservation(consist, nullptr, FollowTrainReservationFlag::OkayUnused);
 	PBSTileInfo   res_dest(tile, INVALID_TRACKDIR, false);
 	DiagDirection dest_enterdir = enterdir;
@@ -7474,6 +7484,14 @@ static void Couple(Train *v, Train *u)
 	u = u->Primary();
 	if (!IsTrainCouplingAllowed(v->owner, u->owner)) return;
 
+	/* Stop the order/speed carrier before processing successor orders. The
+	 * moving endpoint can be a wagon, especially after a previous coupling.
+	 * A wait-at-station successor must see a stopped train; otherwise it
+	 * clears last_station_visited and sends the consist out to re-enter. */
+	v->cur_speed = 0;
+	v->subspeed = 0;
+	v->progress = 0;
+
 	/* The couple order may instruct the consist to adopt the waiting
 	 * consist's schedule; current_order is still that order here. */
 	bool adopt_waiting_schedule = v->current_order.IsType(OT_GOTO_COUPLE) && v->current_order.GetCoupleUseWaitingSchedule();
@@ -7673,6 +7691,14 @@ static void Couple(Train *v, Train *u)
 	 * ahead until this decision is made: ReverseTrainDirection will reserve in
 	 * the new direction when the turnaround completes. */
 	Train *consist = v->Primary();
+	consist->cur_speed = 0;
+	consist->subspeed = 0;
+	consist->progress = 0;
+	if (IsHoldingForCouple(consist)) {
+		FreeTrainTrackReservation(consist);
+		HoldWaitingTrainBody(consist);
+		return;
+	}
 	if (CheckReverseTrain(consist)) {
 		consist->flags.Set(VehicleRailFlag::Reversing);
 	} else {
@@ -8241,8 +8267,11 @@ static uint CheckTrainCollision(Train *v, Train *moving_front)
 		 * through to the normal crash check below - just like any other train
 		 * that happens to be in the way. */
 		Couple(moving_front, carrier);
-		moving_front->cur_speed = 0;
-		moving_front->progress = 0;
+		/* Coupling may change the physical front; motion belongs to the primary. */
+		Train *consist = moving_front->Primary();
+		consist->cur_speed = 0;
+		consist->subspeed = 0;
+		consist->progress = 0;
 		return 0;
 	}
 
