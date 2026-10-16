@@ -571,6 +571,7 @@ enum class Commands : uint8_t {
 	RenameOrderList,                        ///< rename a player-created order list
 	DeleteOrderList,                        ///< delete a player-created order list
 	SetOrderListPublic,                     ///< change the visibility of a player-created order list
+	MoveOrderListToGroup,                   ///< move a standalone schedule or folder to another folder
 	ExitExecuteSchedule,                    ///< stop executing the assigned schedule and return to the vehicle's own orders
 
 	ChangeServiceInterval,                  ///< change the service interval of a vehicle

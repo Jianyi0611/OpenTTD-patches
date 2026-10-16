@@ -21,6 +21,11 @@
 #include "landscape_cmd.h"
 #include "newgrf_roadstop.h"
 #include "newgrf_station.h"
+#include "newgrf_newsignals.h"
+#include "newgrf_object.h"
+#include "object_base.h"
+#include "object_map.h"
+#include "object_cmd.h"
 #include "rail_cmd.h"
 #include "rail_map.h"
 #include "road_cmd.h"
@@ -45,6 +50,7 @@
 #include "window_type.h"
 #include "window_func.h"
 #include "waypoint_cmd.h"
+#include "table/strings.h"
 
 #include "safeguards.h"
 
@@ -69,7 +75,7 @@ uint Blueprint::CountItems() const
 			+ this->tunnel_bridges.size() + this->roads.size() + this->road_depots.size()
 			+ this->canals.size() + this->locks.size() + this->ship_depots.size()
 			+ this->station_tiles.size() + this->road_stops.size() + this->docks.size()
-			+ this->buoys.size() + this->airports.size());
+			+ this->buoys.size() + this->airports.size() + this->objects.size());
 }
 
 /** Remove all contents from this blueprint, keeping its name (see #CopyAreaToBlueprint). */
@@ -109,8 +115,14 @@ static void CopyRailTile(Blueprint &blueprint, TileIndex tile, TileIndexDiffC of
 
 		if (HasSignalOnTrack(tile, track)) {
 			Trackdir td = TrackToTrackdir(track);
+			BlueprintSpecRef spec{};
+			uint8_t style = GetSignalStyle(tile, track);
+			if (style != 0) {
+				const auto &mapping = _new_signal_style_mapping[style - 1];
+				spec = {mapping.grfid, mapping.grf_local_id};
+			}
 			blueprint.signals.push_back({offset, track, GetSignalType(tile, track), GetSignalVariant(tile, track),
-					HasSignalOnTrackdir(tile, td), HasSignalOnTrackdir(tile, ReverseTrackdir(td))});
+					HasSignalOnTrackdir(tile, td), HasSignalOnTrackdir(tile, ReverseTrackdir(td)), spec});
 		}
 	}
 }
@@ -225,12 +237,12 @@ static void CopyStationTile(Blueprint &blueprint, TileIndex tile, TileIndexDiffC
 
 	switch (GetStationType(tile)) {
 		case StationType::Rail:
-			blueprint.station_tiles.push_back({offset, false, GetRailStationAxis(tile), GetRailType(tile), GetStationIndex(tile)});
+		case StationType::RailWaypoint: {
+			BlueprintStationTile st{offset, IsRailWaypointTile(tile), GetRailStationAxis(tile), GetRailType(tile), GetStationIndex(tile)};
+			if (const StationSpec *spec = GetStationSpec(tile); spec != nullptr) st.spec = {spec->grf_prop.grfid, spec->grf_prop.local_id};
+			blueprint.station_tiles.push_back(st);
 			break;
-
-		case StationType::RailWaypoint:
-			blueprint.station_tiles.push_back({offset, true, GetRailStationAxis(tile), GetRailType(tile), GetStationIndex(tile)});
-			break;
+		}
 
 		case StationType::Bus:
 		case StationType::Truck:
@@ -244,6 +256,7 @@ static void CopyStationTile(Blueprint &blueprint, TileIndex tile, TileIndexDiffC
 			stop.roadtype = GetRoadTypeRoad(tile);
 			stop.tramtype = GetRoadTypeTram(tile);
 			stop.station = GetStationIndex(tile);
+			if (const RoadStopSpec *spec = GetRoadStopSpec(tile); spec != nullptr) stop.spec = {spec->grf_prop.grfid, spec->grf_prop.local_id};
 			blueprint.road_stops.push_back(stop);
 			break;
 		}
@@ -311,6 +324,10 @@ static TileIndexDiffC ShrinkBlueprintToContents(Blueprint &blueprint)
 		max_y = std::max(max_y, y);
 	};
 
+	for (const BlueprintObject &v : blueprint.objects) {
+		include(v.offset.x, v.offset.y);
+		include(v.offset.x + v.w - 1, v.offset.y + v.h - 1);
+	}
 	for (const BlueprintRailTrack &v : blueprint.rail_tracks) include(v.offset.x, v.offset.y);
 	for (const BlueprintSignal &v : blueprint.signals) include(v.offset.x, v.offset.y);
 	for (const BlueprintRailDepot &v : blueprint.rail_depots) include(v.offset.x, v.offset.y);
@@ -349,6 +366,7 @@ static TileIndexDiffC ShrinkBlueprintToContents(Blueprint &blueprint)
 		offset.x = static_cast<int16_t>(offset.x - min_x);
 		offset.y = static_cast<int16_t>(offset.y - min_y);
 	};
+	for (BlueprintObject &v : blueprint.objects) shift(v.offset);
 	for (BlueprintRailTrack &v : blueprint.rail_tracks) shift(v.offset);
 	for (BlueprintSignal &v : blueprint.signals) shift(v.offset);
 	for (BlueprintRailDepot &v : blueprint.rail_depots) shift(v.offset);
@@ -415,6 +433,19 @@ uint CopyAreaToBlueprint(TileArea area, Blueprint &blueprint)
 			case TileType::Station:
 				CopyStationTile(blueprint, tile, offset);
 				break;
+
+			case TileType::Object: {
+				if (GetTileOwner(tile) != _local_company && GetTileOwner(tile) != OWNER_NONE) break;
+				const Object *object = Object::GetByTile(tile);
+				const ObjectSpec *spec = ObjectSpec::Get(object->type);
+				/* Copy a complete object once; built-in HQ/statue commands have special side effects. */
+				if (object->location.tile != tile || spec->grf_prop.grfid == 0) break;
+				if (TileX(tile) + object->location.w > TileX(area.tile) + area.w ||
+						TileY(tile) + object->location.h > TileY(area.tile) + area.h) break;
+				blueprint.objects.push_back({offset, {spec->grf_prop.grfid, spec->grf_prop.local_id},
+						object->view, spec->views, static_cast<uint8_t>(object->location.w), static_cast<uint8_t>(object->location.h)});
+				break;
+			}
 
 			default: // Terrain, houses, industries, ... are not copyable.
 				break;
@@ -573,7 +604,7 @@ Blueprint TransformBlueprint(const Blueprint &blueprint, uint8_t rotation, bool 
 		Trackdir new_td = TrackExitdirToTrackdir(new_track, TransformBlueprintDiagDir(TrackdirToExitdir(td), rotation, reflected));
 		bool swapped = new_td != TrackToTrackdir(new_track);
 		result.signals.push_back({tile_offset(sig.offset), new_track, sig.type, sig.variant,
-				swapped ? sig.against : sig.along, swapped ? sig.along : sig.against});
+				swapped ? sig.against : sig.along, swapped ? sig.along : sig.against, sig.spec});
 	}
 
 	for (const BlueprintRailDepot &depot : blueprint.rail_depots) {
@@ -615,7 +646,7 @@ Blueprint TransformBlueprint(const Blueprint &blueprint, uint8_t rotation, bool 
 	}
 
 	for (const BlueprintStationTile &st : blueprint.station_tiles) {
-		result.station_tiles.push_back({tile_offset(st.offset), st.is_waypoint, TransformBlueprintAxis(st.axis, rotation), st.railtype, st.station});
+		result.station_tiles.push_back({tile_offset(st.offset), st.is_waypoint, TransformBlueprintAxis(st.axis, rotation), st.railtype, st.station, st.spec});
 	}
 
 	for (BlueprintRoadStop stop : blueprint.road_stops) {
@@ -649,7 +680,19 @@ Blueprint TransformBlueprint(const Blueprint &blueprint, uint8_t rotation, bool 
 		result.airports.push_back(airport);
 	}
 
+	for (BlueprintObject object : blueprint.objects) {
+		TileIndexDiffC a = tile_offset(object.offset);
+		TileIndexDiffC b = tile_offset({static_cast<int16_t>(object.offset.x + object.w - 1), static_cast<int16_t>(object.offset.y + object.h - 1)});
+		object.offset = {std::min(a.x, b.x), std::min(a.y, b.y)};
+		if (swap_axes) std::swap(object.w, object.h);
+		if ((object.views == 2 || object.views == 4) && object.view < object.views) {
+			object.view = to_underlying(TransformBlueprintDiagDir(static_cast<DiagDirection>(object.view), rotation, reflected)) % object.views;
+		}
+		result.objects.push_back(object);
+	}
+
 	/* Transform the corner height grid; it has one more point than tiles in each direction. */
+	if (blueprint.corner_heights.empty()) return result;
 	result.corner_heights.resize((result.width + 1) * (result.height + 1), 0);
 	for (uint y = 0; y <= blueprint.height; y++) {
 		for (uint x = 0; x <= blueprint.width; x++) {
@@ -682,10 +725,11 @@ std::vector<BlueprintStationRect> GroupStationTiles(const Blueprint &blueprint)
 		Axis axis = Axis::X;
 		RailType railtype = INVALID_RAILTYPE;
 		StationID station = StationID::Invalid();
+		BlueprintSpecRef spec{};
 
 		bool SameKind(const Cell &other) const
 		{
-			return this->present && !this->used && this->is_waypoint == other.is_waypoint && this->axis == other.axis && this->railtype == other.railtype && this->station == other.station;
+			return this->present && !this->used && this->is_waypoint == other.is_waypoint && this->axis == other.axis && this->railtype == other.railtype && this->station == other.station && this->spec == other.spec;
 		}
 	};
 	std::vector<Cell> grid(w * h);
@@ -697,6 +741,7 @@ std::vector<BlueprintStationRect> GroupStationTiles(const Blueprint &blueprint)
 		cell.axis = st.axis;
 		cell.railtype = st.railtype;
 		cell.station = st.station;
+		cell.spec = st.spec;
 	}
 
 	for (uint y = 0; y < h; y++) {
@@ -727,7 +772,7 @@ std::vector<BlueprintStationRect> GroupStationTiles(const Blueprint &blueprint)
 			}
 
 			result.push_back({{static_cast<int16_t>(x), static_cast<int16_t>(y)},
-					static_cast<uint16_t>(len_x), static_cast<uint16_t>(len_y), cell.is_waypoint, cell.axis, cell.railtype, cell.station});
+					static_cast<uint16_t>(len_x), static_cast<uint16_t>(len_y), cell.is_waypoint, cell.axis, cell.railtype, cell.station, cell.spec});
 		}
 	}
 
@@ -854,7 +899,7 @@ static bool BlueprintOffsetsValid(const Blueprint &bp)
 	for (const BlueprintLock &v : bp.locks) if (!ok(v.offset) || !IsValidDiagDirection(v.dir)) return false;
 	for (const BlueprintShipDepot &v : bp.ship_depots) if (!ok(v.offset)) return false;
 	for (const BlueprintStationTile &v : bp.station_tiles) if (!ok(v.offset) || !IsValidAxis(v.axis)) return false;
-	for (const BlueprintRoadStop &v : bp.road_stops) if (!ok(v.offset) || !IsValidAxis(v.axis)) return false;
+	for (const BlueprintRoadStop &v : bp.road_stops) if (!ok(v.offset) || (v.drive_through ? !IsValidAxis(v.axis) : !IsValidDiagDirection(v.dir))) return false;
 	for (const BlueprintDock &v : bp.docks) if (!ok(v.offset) || !IsValidDiagDirection(v.dir)) return false;
 	for (const BlueprintBuoy &v : bp.buoys) if (!ok(v.offset)) return false;
 	for (const BlueprintAirport &v : bp.airports) {
@@ -862,6 +907,11 @@ static bool BlueprintOffsetsValid(const Blueprint &bp)
 		for (const BlueprintAirportTile &apt : v.tiles) if (!ok(apt.offset)) return false;
 	}
 
+	for (const BlueprintObject &v : bp.objects) {
+		if (!ok(v.offset) || v.spec.grfid == 0 || v.w == 0 || v.h == 0 || v.w > 15 || v.h > 15 ||
+				v.offset.x + v.w > bp.width || v.offset.y + v.h > bp.height ||
+				(v.views != 1 && v.views != 2 && v.views != 4) || v.view >= v.views) return false;
+	}
 	return true;
 }
 
@@ -969,6 +1019,10 @@ void EndBlueprintUndoGroup(bool success)
 		min_y = std::min<int>(min_y, offset.y);
 		max_y = std::max<int>(max_y, offset.y);
 	};
+	for (const BlueprintObject &v : _undo_group.objects) {
+		extend(v.offset);
+		extend({static_cast<int16_t>(v.offset.x + v.w - 1), static_cast<int16_t>(v.offset.y + v.h - 1)});
+	}
 	for (const BlueprintRailTrack &v : _undo_group.rail_tracks) extend(v.offset);
 	for (const BlueprintSignal &v : _undo_group.signals) extend(v.offset);
 	for (const BlueprintRailDepot &v : _undo_group.rail_depots) extend(v.offset);
@@ -1012,6 +1066,7 @@ void EndBlueprintUndoGroup(bool success)
 		offset.x = static_cast<int16_t>(offset.x - min_x);
 		offset.y = static_cast<int16_t>(offset.y - min_y);
 	};
+	for (BlueprintObject &v : _undo_group.objects) rebase(v.offset);
 	for (BlueprintRailTrack &v : _undo_group.rail_tracks) rebase(v.offset);
 	for (BlueprintSignal &v : _undo_group.signals) rebase(v.offset);
 	for (BlueprintRailDepot &v : _undo_group.rail_depots) rebase(v.offset);
@@ -1091,6 +1146,17 @@ void RecordBlueprintUndoSignal(TileIndex tile, Track track)
 {
 	if (!_undo_group_open) return;
 	_undo_group.signals.push_back({UndoGroupPos(tile), track, SignalType::Block, SignalVariant::Electric, false, false});
+}
+
+/** Record a newly built complete NewGRF object. Never used to decide simulation state. */
+void RecordBlueprintUndoObject(TileIndex tile)
+{
+	if (!_undo_group_open) return;
+	const Object *object = Object::GetByTile(tile);
+	const ObjectSpec *spec = ObjectSpec::Get(object->type);
+	if (spec->grf_prop.grfid == 0) return;
+	_undo_group.objects.push_back({UndoGroupPos(tile), {spec->grf_prop.grfid, spec->grf_prop.local_id},
+			object->view, spec->views, static_cast<uint8_t>(object->location.w), static_cast<uint8_t>(object->location.h)});
 }
 
 /**
@@ -1348,6 +1414,11 @@ void CollectBlueprintUndoTiles(const BlueprintUndoRecord &record, const Blueprin
 		if (TileX(origin) + offset.x > Map::MaxX() || TileY(origin) + offset.y > Map::MaxY()) return;
 		tiles.push_back(TileAddXY(origin, offset.x, offset.y));
 	};
+	if (filters.objects) for (const BlueprintObject &v : bp.objects) {
+		for (uint y = 0; y < v.h; ++y) for (uint x = 0; x < v.w; ++x) {
+			add({static_cast<int16_t>(v.offset.x + x), static_cast<int16_t>(v.offset.y + y)});
+		}
+	}
 
 	/* Gated exactly as #FilterBlueprintUndoData gates the removal itself, so the
 	 * tiles marked on the map are the tiles an undo would actually touch. */
@@ -1447,6 +1518,7 @@ void FilterBlueprintUndoData(Blueprint &built, const BlueprintUndoFilters &filte
 		built.buoys.clear();
 	}
 	if (!filters.air) built.airports.clear();
+	if (!filters.objects) built.objects.clear();
 
 	/* A bridge or tunnel belongs to whatever it carries. */
 	std::erase_if(built.tunnel_bridges, [&](const BlueprintTunnelBridge &tb) {
@@ -1459,17 +1531,26 @@ void FilterBlueprintUndoData(Blueprint &built, const BlueprintUndoFilters &filte
 	});
 }
 
+/** Resolve an object by its stable GRF identity, independent of the local object index. */
+const ObjectSpec *ResolveBlueprintObject(const BlueprintSpecRef &spec)
+{
+	if (spec.grfid == 0) return nullptr;
+	return ObjectClass::GetByGrf(spec.grfid, spec.local_id);
+}
+
+/** Match the whole object before clearing it; never remove an unrelated replacement. */
+static bool BlueprintObjectMatches(TileIndex tile, const BlueprintObject &v)
+{
+	if (!IsTileType(tile, TileType::Object)) return false;
+	const Object *object = Object::GetByTile(tile);
+	const ObjectSpec *spec = ObjectSpec::Get(object->type);
+	return object->location.tile == tile && object->location.w == v.w && object->location.h == v.h &&
+			object->view == v.view && spec->grf_prop.grfid == v.spec.grfid && spec->grf_prop.local_id == v.spec.local_id;
+}
+
 /**
  * Drop from a record everything an undo has actually taken off the map.
- *
- * An undo skips what it cannot do -- a train on the track, land that cannot
- * move because something still stands on it -- and reports success as long as
- * it managed anything at all. Dropping the whole record on that would lose the
- * rest, so what is still there stays undoable and stays in the history.
- *
- * The tests mirror the ones #CmdUndoBlueprintPaste skips on: a part that is
- * still what the record says it is has not been removed yet.
- *
+ * Unremoved items stay undoable when only part of an action succeeded.
  * @param[in,out] record Record to trim.
  */
 static void TrimBlueprintUndoRecord(BlueprintUndoRecord &record)
@@ -1482,6 +1563,9 @@ static void TrimBlueprintUndoRecord(BlueprintUndoRecord &record)
 	};
 	auto target = [&](TileIndexDiffC offset) { return TileAddXY(origin, offset.x, offset.y); };
 	auto ours = [&](TileIndex tile) { return IsTileOwner(tile, _local_company); };
+	std::erase_if(bp.objects, [&](const BlueprintObject &v) {
+		return !on_map(v.offset) || !ours(target(v.offset)) || !BlueprintObjectMatches(target(v.offset), v);
+	});
 
 	std::erase_if(bp.rail_tracks, [&](const BlueprintRailTrack &v) {
 		if (!on_map(v.offset)) return true;
@@ -1594,6 +1678,7 @@ void ConsumeBlueprintUndoRecord(TileIndex origin, const BlueprintUndoFilters &fi
 			kept.road = !filters.road;
 			kept.water = !filters.water;
 			kept.air = !filters.air;
+			kept.objects = !filters.objects;
 			FilterBlueprintUndoData(forward->built, kept);
 			forward->built.corner_heights.clear();
 			if (!forward->built.IsEmpty()) return;
@@ -1662,6 +1747,18 @@ static bool BlueprintDoCommand(BlueprintCommandState &state, DoCommandFlags flag
 	return true;
 }
 
+/** Resolve a stable signal identity against the current game's style slots. */
+std::optional<uint8_t> ResolveBlueprintSignalStyle(const BlueprintSpecRef &spec)
+{
+	if (spec.grfid == 0) return 0;
+	for (uint8_t i = 0; i < _num_new_signal_styles; ++i) {
+		const auto &mapping = _new_signal_style_mapping[i];
+		if (mapping.grfid == spec.grfid && mapping.grf_local_id == spec.local_id &&
+				_new_signal_styles[i].grffile != nullptr && HasBit(_enabled_new_signal_styles_mask, i + 1)) return i + 1;
+	}
+	return std::nullopt;
+}
+
 /**
  * Paste a blueprint onto the map.
  *
@@ -1687,6 +1784,22 @@ CommandCost CmdPasteBlueprint(DoCommandFlags flags, TileIndex origin, const Blue
 	if (data.terraform_mode != BlueprintTerraformMode::None && data.terraform_mode != BlueprintTerraformMode::Minimal && data.terraform_mode != BlueprintTerraformMode::Full) return CMD_ERROR;
 	if (data.terraform_mode != BlueprintTerraformMode::None && bp.corner_heights.size() != static_cast<size_t>(bp.width + 1) * (bp.height + 1)) return CMD_ERROR;
 	if (!BlueprintOffsetsValid(bp)) return CMD_ERROR;
+	for (const BlueprintObject &object : bp.objects) {
+		const ObjectSpec *spec = ResolveBlueprintObject(object.spec);
+		if (spec == nullptr || !spec->IsEnabled()) return CommandCost(STR_BLUEPRINT_ERROR_MISSING_OBJECT);
+		if (object.view >= spec->views || object.w != GB(spec->size, (object.view & 1) ? 4 : 0, 4) ||
+				object.h != GB(spec->size, (object.view & 1) ? 0 : 4, 4)) return CommandCost(STR_BLUEPRINT_ERROR_OBJECT_ORIENTATION);
+	}
+	for (const BlueprintSignal &sig : bp.signals) {
+		if (!ResolveBlueprintSignalStyle(sig.spec).has_value()) return CommandCost(STR_BLUEPRINT_ERROR_MISSING_SIGNAL_STYLE);
+	}
+	/* Check required styles before changing any landscape or building tracks. */
+	for (const BlueprintStationTile &st : bp.station_tiles) {
+		if (st.spec.grfid != 0 && StationClass::GetByGrf(st.spec.grfid, st.spec.local_id) == nullptr) return CommandCost(STR_BLUEPRINT_ERROR_MISSING_NEWGRF);
+	}
+	for (const BlueprintRoadStop &stop : bp.road_stops) {
+		if (stop.spec.grfid != 0 && RoadStopClass::GetByGrf(stop.spec.grfid, stop.spec.local_id) == nullptr) return CommandCost(STR_BLUEPRINT_ERROR_MISSING_NEWGRF);
+	}
 
 	std::vector<BlueprintStationRect> station_rects = GroupStationTiles(bp);
 
@@ -1721,6 +1834,9 @@ CommandCost CmdPasteBlueprint(DoCommandFlags flags, TileIndex origin, const Blue
 				terraform_corner[(y + 1) * (bp.width + 1) + x + 1] = true;
 			};
 
+			for (const BlueprintObject &v : bp.objects) {
+				for (uint y = 0; y < v.h; ++y) for (uint x = 0; x < v.w; ++x) touch(v.offset.x + x, v.offset.y + y);
+			}
 			for (const BlueprintRailTrack &rt : bp.rail_tracks) touch(rt.offset.x, rt.offset.y);
 			for (const BlueprintRailDepot &depot : bp.rail_depots) touch(depot.offset.x, depot.offset.y);
 			for (const BlueprintRoad &road : bp.roads) touch(road.offset.x, road.offset.y);
@@ -1816,7 +1932,7 @@ CommandCost CmdPasteBlueprint(DoCommandFlags flags, TileIndex origin, const Blue
 		/* No Convert flag: the paste lays the track first, so there is never an
 		 * existing signal to convert and Convert would be rejected as "no signals". */
 		BlueprintDoCommand<CMD_BUILD_SINGLE_SIGNAL>(state, flags, signal_tile, sig.track, sig.type, sig.variant,
-				0, 1, BuildSignalFlags::None, SignalCycleGroups{}, 0, signals_copy);
+				*ResolveBlueprintSignalStyle(sig.spec), 1, BuildSignalFlags::None, SignalCycleGroups{}, 0, signals_copy);
 	}
 	for (const BlueprintRailDepot &depot : bp.rail_depots) {
 		if (!tile_valid(depot.offset)) continue;
@@ -1870,6 +1986,14 @@ CommandCost CmdPasteBlueprint(DoCommandFlags flags, TileIndex origin, const Blue
 
 	for (const BlueprintStationRect &rect : station_rects) {
 		if (!tile_valid(rect.offset)) continue;
+		StationClassID station_class = rect.is_waypoint ? STAT_CLASS_WAYP : STAT_CLASS_DFLT;
+		uint16_t station_type = 0;
+		if (rect.spec.grfid != 0) {
+			const StationSpec *spec = StationClass::GetByGrf(rect.spec.grfid, rect.spec.local_id);
+			if (spec == nullptr) continue; // Missing GRF: never substitute a different station.
+			station_class = spec->class_index;
+			station_type = spec->index;
+		}
 		if (rect.is_waypoint) {
 			/* Waypoints can only be placed on existing straight tracks; lay those first. */
 			Track track = AxisToTrack(rect.axis);
@@ -1892,11 +2016,11 @@ CommandCost CmdPasteBlueprint(DoCommandFlags flags, TileIndex origin, const Blue
 				if (!tile_valid(slice)) continue;
 				StationID join = join_target(rect.station);
 				bool built = BlueprintDoCommand<CMD_BUILD_RAIL_WAYPOINT>(state, flags, target_tile(slice), rect.axis, slice_w, slice_h,
-						STAT_CLASS_WAYP, 0, join, true);
+						station_class, station_type, join, true);
 				if (!built && join != NEW_STATION) {
 					/* Joining may be impossible (e.g. station spread); build separately. */
 					built = BlueprintDoCommand<CMD_BUILD_RAIL_WAYPOINT>(state, flags, target_tile(slice), rect.axis, slice_w, slice_h,
-							STAT_CLASS_WAYP, 0, NEW_STATION, true);
+							station_class, station_type, NEW_STATION, true);
 				}
 				if (built) register_new_station(rect.station, slice);
 			}
@@ -1906,11 +2030,11 @@ CommandCost CmdPasteBlueprint(DoCommandFlags flags, TileIndex origin, const Blue
 			StationID join = join_target(rect.station);
 
 			bool built = BlueprintDoCommand<CMD_BUILD_RAIL_STATION>(state, flags, target_tile(rect.offset), rect.railtype, rect.axis, numtracks, plat_len,
-					STAT_CLASS_DFLT, 0, join, true);
+					station_class, station_type, join, true);
 			if (!built && join != NEW_STATION) {
 				/* Joining may be impossible (e.g. distant join disabled); build separately. */
 				built = BlueprintDoCommand<CMD_BUILD_RAIL_STATION>(state, flags, target_tile(rect.offset), rect.railtype, rect.axis, numtracks, plat_len,
-						STAT_CLASS_DFLT, 0, NEW_STATION, true);
+						station_class, station_type, NEW_STATION, true);
 			}
 			if (built) register_new_station(rect.station, rect.offset);
 		}
@@ -1918,6 +2042,14 @@ CommandCost CmdPasteBlueprint(DoCommandFlags flags, TileIndex origin, const Blue
 
 	for (const BlueprintRoadStop &stop : bp.road_stops) {
 		if (!tile_valid(stop.offset)) continue;
+		RoadStopClassID stop_class = stop.type == StationType::RoadWaypoint ? ROADSTOP_CLASS_WAYP : ROADSTOP_CLASS_DFLT;
+		uint16_t stop_type_index = 0;
+		if (stop.spec.grfid != 0) {
+			const RoadStopSpec *spec = RoadStopClass::GetByGrf(stop.spec.grfid, stop.spec.local_id);
+			if (spec == nullptr) continue;
+			stop_class = spec->class_index;
+			stop_type_index = spec->index;
+		}
 		RoadType rt = stop.roadtype != INVALID_ROADTYPE ? stop.roadtype : stop.tramtype;
 		DiagDirection ddir = stop.drive_through ? AxisToDiagDir(stop.axis) : stop.dir;
 		StationID join = join_target(stop.station);
@@ -1932,20 +2064,20 @@ CommandCost CmdPasteBlueprint(DoCommandFlags flags, TileIndex origin, const Blue
 				paste_road(stop.offset, AxisToRoadBits(stop.axis), stop.tramtype);
 			}
 			built = BlueprintDoCommand<CMD_BUILD_ROAD_WAYPOINT>(state, flags, target_tile(stop.offset), stop.axis, 1, 1,
-					ROADSTOP_CLASS_WAYP, 0, join, true);
+					stop_class, stop_type_index, join, true);
 			if (!built && join != NEW_STATION) {
 				built = BlueprintDoCommand<CMD_BUILD_ROAD_WAYPOINT>(state, flags, target_tile(stop.offset), stop.axis, 1, 1,
-						ROADSTOP_CLASS_WAYP, 0, NEW_STATION, true);
+						stop_class, stop_type_index, NEW_STATION, true);
 			}
 		} else {
 			if (!IsValidDiagDirection(ddir)) continue;
 			RoadStopType stop_type = stop.type == StationType::Truck ? RoadStopType::Truck : RoadStopType::Bus;
 
 			built = BlueprintDoCommand<CMD_BUILD_ROAD_STOP>(state, flags, target_tile(stop.offset), 1, 1, stop_type, stop.drive_through,
-					ddir, rt, ROADSTOP_CLASS_DFLT, 0, join, true);
+					ddir, rt, stop_class, stop_type_index, join, true);
 			if (!built && join != NEW_STATION) {
 				built = BlueprintDoCommand<CMD_BUILD_ROAD_STOP>(state, flags, target_tile(stop.offset), 1, 1, stop_type, stop.drive_through,
-						ddir, rt, ROADSTOP_CLASS_DFLT, 0, NEW_STATION, true);
+						ddir, rt, stop_class, stop_type_index, NEW_STATION, true);
 			}
 			/* Drive-through stops carrying both road and tram: add the second type. */
 			if (built && stop.drive_through && stop.roadtype != INVALID_ROADTYPE && stop.tramtype != INVALID_ROADTYPE) {
@@ -2053,6 +2185,13 @@ CommandCost CmdPasteBlueprint(DoCommandFlags flags, TileIndex origin, const Blue
 		if (built) register_new_station(airport.station, airport.offset);
 	}
 
+	for (const BlueprintObject &v : bp.objects) {
+		if (!tile_valid(v.offset) || TileX(origin) + v.offset.x + v.w - 1 > Map::MaxX() ||
+				TileY(origin) + v.offset.y + v.h - 1 > Map::MaxY()) continue;
+		const ObjectSpec *spec = ResolveBlueprintObject(v.spec);
+		BlueprintDoCommand<Commands::BuildObject>(state, flags, target_tile(v.offset), static_cast<ObjectType>(spec->Index()), v.view);
+	}
+
 	if (!state.any_success) return CMD_ERROR;
 	return state.total;
 }
@@ -2138,6 +2277,12 @@ CommandCost CmdUndoBlueprintPaste(DoCommandFlags flags, TileIndex origin, const 
 	 * out from under something still standing on it: stations before the track
 	 * and road they sit on, road stops before their road, everything before the
 	 * water it was built into. */
+	for (const BlueprintObject &v : bp.objects) {
+		if (!tile_valid(v.offset)) continue;
+		TileIndex tile = target_tile(v.offset);
+		if (!IsTileOwner(tile, _current_company) || !BlueprintObjectMatches(tile, v)) continue;
+		BlueprintDoCommand<CMD_LANDSCAPE_CLEAR>(state, flags, tile);
+	}
 
 	for (const BlueprintAirport &airport : bp.airports) {
 		if (!tile_valid(airport.offset)) continue;

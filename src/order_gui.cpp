@@ -15,7 +15,9 @@
 #include "timetable.h"
 #include "strings_func.h"
 #include "company_func.h"
+#include "company_gui.h"
 #include "dropdown_type.h"
+#include "dropdown_common_type.h"
 #include "dropdown_func.h"
 #include "textbuf_gui.h"
 #include "string_func.h"
@@ -33,6 +35,7 @@
 #include "aircraft.h"
 #include "train.h"
 #include "vehicle_gui.h"
+#include "gui.h"
 #include "date_func.h"
 #include "engine_func.h"
 #include "vehicle_func.h"
@@ -44,6 +47,7 @@
 #include "zoom_func.h"
 #include "order_cmd.h"
 #include "orderlist_edit.h"
+#include "schedule_group_gui.h"
 #include "group_cmd.h"
 #include "group.h"
 #include "core/backup_type.hpp"
@@ -1223,7 +1227,7 @@ static constexpr NWidgetPart _nested_rv_transport_widgets[] = {
 
 /** Window description of the road vehicle transport window. */
 static WindowDesc _rv_transport_desc(__FILE__, __LINE__,
-	WindowPosition::Automatic, nullptr, 260, 130,
+	WindowPosition::Automatic, "road_vehicle_transport_criteria", 260, 130,
 	WindowClass::VehicleRVTransportCriteria, WindowClass::VehicleOrders,
 	WindowDefaultFlag::Construction,
 	_nested_rv_transport_widgets
@@ -1630,7 +1634,7 @@ static constexpr NWidgetPart _nested_couple_options_widgets[] = {
 
 /** Window description of the coupling criteria window. */
 static WindowDesc _couple_options_desc(__FILE__, __LINE__,
-	WindowPosition::Automatic, nullptr, 240, 130,
+	WindowPosition::Automatic, "couple_criteria", 240, 130,
 	WindowClass::VehicleCoupleCriteria, WindowClass::VehicleOrders,
 	WindowDefaultFlag::Construction,
 	_nested_couple_options_widgets
@@ -2831,11 +2835,13 @@ void DrawOrderString(const Vehicle *v, const Order *order, int order_index, int 
 			if (order->GetCoupleUseWaitingSchedule()) {
 				AppendStringInPlace(line, STR_ORDER_COUPLE_USE_WAITING_SCHEDULE_SUFFIX);
 			}
+			if (order->HasCoupleCheckPoint()) AppendStringInPlace(line, STR_ORDER_COUPLE_CHECK_AT, order->GetCoupleCheckPoint());
 			break;
 		}
 
 		case OT_WAIT_COUPLE:
 			AppendStringInPlace(line, STR_ORDER_WAIT_FOR_COUPLE);
+			if (order->HasWaitCoupleStation() && Station::IsValidID(order->GetWaitCoupleStation())) AppendStringInPlace(line, STR_ORDER_WAIT_COUPLE_AT, order->GetWaitCoupleStation());
 			break;
 
 		case OT_DECOUPLE: {
@@ -2858,7 +2864,7 @@ void DrawOrderString(const Vehicle *v, const Order *order, int order_index, int 
 			AppendStringInPlace(line, num_d == 0 ? STR_ORDER_DECOUPLE_DETAILS_AUTO : STR_ORDER_DECOUPLE_DETAILS, num_d,
 					decouple_orders_str(order->GetDecoupleFirstOrdersType(), order->GetDecoupleFirstScheduleID()),
 					decouple_orders_str(order->GetDecoupleSecondOrdersType(), order->GetDecoupleSecondScheduleID()));
-			/* The same-direction exit is exclusive between the parts, so at most one suffix applies. */
+			/* Each split part can independently keep the original direction. */
 			if (order->GetDecoupleFirstSameDirExit()) AppendStringInPlace(line, STR_ORDER_DECOUPLE_SAME_DIR_FIRST);
 			if (order->GetDecoupleSecondSameDirExit()) AppendStringInPlace(line, STR_ORDER_DECOUPLE_SAME_DIR_SECOND);
 			break;
@@ -3221,7 +3227,12 @@ private:
 	/* ---- target mode helpers: order-content access goes through these ---- */
 	VehicleOrderID NumOrders() const { return this->HasVehicle() ? this->vehicle->GetNumOrders() : (this->order_list != nullptr ? this->order_list->GetNumOrders() : 0); }
 	const Order *OrderAt(VehicleOrderID i) const { return this->HasVehicle() ? this->vehicle->GetOrder(i) : (this->order_list != nullptr ? this->order_list->GetOrderAt(i) : nullptr); }
-	bool IsLocalTarget() const { return this->TargetOwner() == _local_company; }
+	bool IsLocalTarget() const
+	{
+		/* Coupling may re-key a competitor's read-only window to our train.
+		 * Ownership alone does not mean this tree has editing controls. */
+		return this->TargetOwner() == _local_company && this->GetWidget<NWidgetStacked>(WID_O_SEL_BOTTOM_MIDDLE) != nullptr;
+	}
 	bool IsDispatchEnabled() const {
 		if (this->HasVehicle()) {
 			if (this->vehicle->orders != nullptr && this->vehicle->orders->IsPlayerCreated()) return this->vehicle->orders->IsDispatchEnabled();
@@ -4317,6 +4328,15 @@ public:
 
 		this->vscroll->SetCount(NumOrders() + 1);
 		if (gui_scope) {
+			if (this->HasVehicle() &&
+					(this->GetWidget<NWidgetStacked>(WID_O_SEL_BOTTOM_MIDDLE) != nullptr) != (this->vehicle->owner == _local_company)) {
+				/* The surviving primary can belong to another company. Rebuild
+				 * the window in GUI scope using that vehicle's proper layout. */
+				const Vehicle *v = this->vehicle;
+				this->Close();
+				ShowOrdersWindow(v);
+				return;
+			}
 			this->UpdateButtonState();
 			InvalidateWindowClassesData(WindowClass::VehicleCargoTypeLoadOrders, 0);
 			InvalidateWindowClassesData(WindowClass::VehicleCargoTypeUnloadOrders, 0);
@@ -4722,6 +4742,11 @@ public:
 					this->GetWidget<NWidgetCore>(WID_O_SLOT)->SetToolTip(STR_ORDER_EXECUTE_SCHEDULE_TOOLTIP);
 					break;
 				}
+
+				case OT_WAIT_COUPLE:
+					train_row_sel->SetDisplayedPlane(DP_GROUNDVEHICLE_ROW_SLOT);
+					this->GetWidget<NWidgetCore>(WID_O_SLOT)->SetToolTip(STR_ORDER_WAIT_COUPLE_TARGET_TOOLTIP);
+					break;
 
 				case OT_GOTO_COUPLE: {
 					if (this->HasVehicle()) assert(this->vehicle->type == VehicleType::Train);
@@ -5188,6 +5213,8 @@ public:
 					if (target == nullptr) return GetString(STR_TRACE_RESTRICT_VARIABLE_UNDEFINED);
 					std::string name = target->GetName().empty() ? GetString(STR_ORDER_LIST_DEFAULT_NAME, target->index.base() + 1) : target->GetName();
 					return GetString(STR_JUST_RAW_STRING, name);
+				} else if (order != nullptr && order->IsType(OT_WAIT_COUPLE)) {
+					return order->HasWaitCoupleStation() && Station::IsValidID(order->GetWaitCoupleStation()) ? GetString(STR_STATION_NAME, order->GetWaitCoupleStation()) : GetString(STR_ORDER_WAIT_COUPLE_HERE);
 				} else if (order != nullptr && order->IsType(OT_SLOT)) {
 					if (order->GetDestination() == INVALID_TRACE_RESTRICT_SLOT_ID) {
 						return GetString(STR_TRACE_RESTRICT_VARIABLE_UNDEFINED);
@@ -5390,6 +5417,15 @@ public:
 				if (order->IsType(OT_GOTO_COUPLE)) {
 					list.push_back(MakeDropDownListDividerItem());
 					list.push_back(MakeDropDownListCheckedItem(order->GetCoupleUseWaitingSchedule(), STR_ORDER_COUPLE_USE_WAITING_SCHEDULE, 0x600, false));
+					list.push_back(MakeDropDownListDividerItem());
+					std::string current = GetString(STR_ORDER_COUPLE_CHECK_NONE);
+					if (order->HasCoupleCheckPoint()) {
+						const StationID station = order->GetCoupleCheckPoint();
+						current = GetString(Waypoint::IsValidID(station) ? STR_WAYPOINT_NAME : STR_STATION_NAME, station);
+					}
+					auto check_item = MakeDropDownListStringItem(GetString(STR_ORDER_COUPLE_CHECK_SELECT, current), 0x800, false);
+					check_item->colour_flags.Set(ExtendedTextColourFlag::Forced);
+					list.push_back(std::move(check_item));
 				}
 
 				/* Standalone lists act like trains here: every per-order option is available,
@@ -5923,6 +5959,20 @@ public:
 			case WID_O_SLOT: {
 				const Order *o = OrderAt(this->OrderGetSel());
 				if (o == nullptr) return;
+				if (o->IsType(OT_WAIT_COUPLE)) {
+					DropDownList list;
+					int selected = o->HasWaitCoupleStation() ? (int)o->GetWaitCoupleStation().base() + 1 : 0;
+					list.push_back(MakeDropDownListStringItem(STR_ORDER_WAIT_COUPLE_HERE, 0, false));
+					const OrderList *schedule = this->HasVehicle() ? this->vehicle->orders : this->order_list;
+					if (schedule == nullptr) return;
+					for (const Order *candidate : schedule->Orders()) {
+						if (!candidate->IsType(OT_GOTO_STATION) || !Station::IsValidID(candidate->GetDestination().ToStationID())) continue;
+						StationID station = candidate->GetDestination().ToStationID();
+						list.push_back(MakeDropDownListStringItem(GetString(STR_STATION_NAME, station), (int)station.base() + 1, false));
+					}
+					ShowDropDownList(this, std::move(list), selected, WID_O_SLOT, 0, DropDownOption::Filterable, DDSF_SHARED);
+					break;
+				}
 				if (o->IsExecuteScheduleOrder()) {
 					DropDownList list;
 					int selected = -1;
@@ -5931,11 +5981,14 @@ public:
 					list.push_back(MakeDropDownListStringItem(STR_TRACE_RESTRICT_VARIABLE_UNDEFINED, OrderListID::Invalid().base(), false));
 					if (current == OrderListID::Invalid()) selected = item_index;
 					item_index++;
-					for (const OrderList *ol : OrderList::Iterate()) {
-						if (!ol->IsPlayerCreated()) continue;
-						if (!ol->IsVisibleToCompany(this->TargetOwner())) continue;
+					for (const ScheduleTreeEntry &entry : GetVisibleScheduleTree(this->TargetOwner())) {
+						const OrderList *ol = entry.order_list;
 						std::string name = ol->GetName().empty() ? GetString(STR_ORDER_LIST_DEFAULT_NAME, ol->index.base() + 1) : ol->GetName();
-						list.push_back(MakeDropDownListStringItem(std::move(name), ol->index.base(), false));
+						if (ol->IsScheduleGroup()) {
+							list.push_back(std::make_unique<DropDownUnselectable<DropDownIcon<DropDownListIndentStringItem>>>(SPR_COMPANY_ICON, GetCompanyPalette(ol->GetCompany()), entry.depth, std::move(name), ol->index.base(), false));
+						} else {
+							list.push_back(std::make_unique<DropDownIcon<DropDownListIndentStringItem>>(SPR_COMPANY_ICON, GetCompanyPalette(ol->GetCompany()), entry.depth, std::move(name), ol->index.base(), false));
+						}
 						if (ol->index == current) selected = item_index;
 						item_index++;
 					}
@@ -6059,13 +6112,9 @@ public:
 					list.push_back(MakeDropDownListCheckedItem(i == selected, _order_decouple_orders_drowdown[i], i, false));
 				}
 				if (order != nullptr && order->IsType(OT_DECOUPLE)) {
-					/* Same-direction exit is exclusive between the two parts: the item is
-					 * disabled while the other part holds it, so both can never wait for
-					 * each other to leave. */
-					bool enabled = first ? !order->GetDecoupleSecondSameDirExit() : !order->GetDecoupleFirstSameDirExit();
 					bool checked = first ? order->GetDecoupleFirstSameDirExit() : order->GetDecoupleSecondSameDirExit();
 					list.push_back(MakeDropDownListDividerItem());
-					list.push_back(MakeDropDownListCheckedItem(checked, STR_ORDER_DECOUPLE_SAME_DIR_EXIT, ODDI_DECOUPLE_SAME_DIR, !enabled));
+					list.push_back(MakeDropDownListCheckedItem(checked, STR_ORDER_DECOUPLE_SAME_DIR_EXIT, ODDI_DECOUPLE_SAME_DIR, false));
 				}
 				ShowDropDownList(this, std::move(list), selected, widget);
 				break;
@@ -6421,6 +6470,10 @@ public:
 			case WID_O_SLOT: {
 				const Order *o = OrderAt(this->OrderGetSel());
 				if (o == nullptr) return;
+				if (o->IsType(OT_WAIT_COUPLE)) {
+					this->ModifyOrder(this->OrderGetSel(), MOF_WAIT_COUPLE_STATION, index);
+					break;
+				}
 				if (o->IsExecuteScheduleOrder()) {
 					this->ModifyOrder(this->OrderGetSel(), MOF_EXECUTE_SCHEDULE, index);
 					break;
@@ -6505,6 +6558,44 @@ public:
 				}
 				if (index >= 0x300 && index <= 0x300 + to_underlying(DiagDirection::Invalid)) {
 					this->ModifyOrder(this->OrderGetSel(), MOF_RV_TRAVEL_DIR, index & 0xFF);
+					break;
+				}
+				if (index == 0x800) {
+					const Order *order = OrderAt(this->OrderGetSel());
+					if (order == nullptr || !order->IsType(OT_GOTO_COUPLE)) break;
+					DropDownList list;
+					int selected = 0x10000;
+					auto none_item = MakeDropDownListCheckedItem(!order->HasCoupleCheckPoint(), STR_ORDER_COUPLE_CHECK_NONE, 0x10000, false);
+					none_item->colour_flags.Set(ExtendedTextColourFlag::Forced);
+					list.push_back(std::move(none_item));
+					for (VehicleOrderID i = 0; i < this->OrderGetSel(); ++i) {
+						const Order *point = OrderAt(i);
+						if (point == nullptr || (!point->IsType(OT_GOTO_STATION) && !point->IsType(OT_GOTO_WAYPOINT))) continue;
+						const StationID station = point->GetDestination().ToStationID();
+						const int result = 0x10001 + station.base();
+						const bool checked = order->HasCoupleCheckPoint() && order->GetCoupleCheckPoint() == station;
+						if (checked) selected = result;
+						std::string name = GetString(point->IsType(OT_GOTO_WAYPOINT) ? STR_WAYPOINT_NAME : STR_STATION_NAME, station);
+						auto item = MakeDropDownListCheckedItem(checked, GetString(STR_ORDER_COUPLE_CHECK_ITEM, GetString(STR_ORDER_INDEX, i + 1), name), result, false);
+						/* Embedded station/string colours must not hide text on the selected background. */
+						item->colour_flags.Set(ExtendedTextColourFlag::Forced);
+						list.push_back(std::move(item));
+					}
+					ShowDropDownList(this, std::move(list), selected, widget, 0, {DropDownOption::Filterable, DropDownOption::ClickOnly}, DDSF_SHARED);
+					break;
+				}
+				if (index >= 0x10000 && index < 0x20000) {
+					const Order *order = OrderAt(this->OrderGetSel());
+					if (order == nullptr || !order->IsType(OT_GOTO_COUPLE)) break;
+					/* Keep stable destination IDs while the list is open, and recheck eligibility
+					 * after edits from another window or a network client. */
+					const uint32_t value = index - 0x10000;
+					bool valid = value == 0;
+					for (VehicleOrderID i = 0; !valid && i < this->OrderGetSel(); ++i) {
+						const Order *point = OrderAt(i);
+						valid = point != nullptr && (point->IsType(OT_GOTO_STATION) || point->IsType(OT_GOTO_WAYPOINT)) && point->GetDestination().base() + 1 == value;
+					}
+					if (valid) this->ModifyOrder(this->OrderGetSel(), MOF_COUPLE_CHECK_POINT, value);
 					break;
 				}
 				if (index == RVDD_RV_WAIT || index == RVDD_RV_UNLOAD) {
@@ -6905,6 +6996,8 @@ struct DecoupleSchedulePickerWindow : Window {
 	OrderDecoupleOrdersFlags orders_type = ODOF_EXECUTE_SCHEDULE; ///< Decouple orders type the picked schedule applies to.
 	Owner owner = OWNER_NONE;               ///< Owner the schedule must be visible to.
 	std::vector<OrderListID> list{};        ///< The translation table linking panel rows to their related OrderListID.
+	std::vector<uint> depths{};
+	std::set<OrderListID> collapsed{};
 	StringFilter string_filter;             ///< Filter for schedule names.
 	QueryString filter_editbox;             ///< Filter editbox.
 	Scrollbar *vscroll = nullptr;           ///< Vertical scrollbar of the list of order lists.
@@ -6940,15 +7033,28 @@ struct DecoupleSchedulePickerWindow : Window {
 	void RebuildList()
 	{
 		this->list.clear();
+		this->depths.clear();
+		std::set<OrderListID> matches;
 		for (const OrderList *ol : OrderList::Iterate()) {
-			if (!ol->IsPlayerCreated()) continue;
-			if (!ol->IsVisibleToCompany(this->owner)) continue;
+			if (!ol->IsPlayerCreated() || (ol->IsScheduleGroup() ? ol->GetCompany() != this->owner : !ol->IsVisibleToCompany(this->owner))) continue;
 			if (!this->string_filter.IsEmpty()) {
 				this->string_filter.ResetState();
 				this->string_filter.AddLine(ol->GetName());
 				if (!this->string_filter.GetState()) continue;
 			}
-			this->list.push_back(ol->index);
+			matches.insert(ol->index);
+			if (ol->GetCompany() == this->owner) {
+				for (OrderListID parent = ol->GetScheduleGroup(); parent != OrderListID::Invalid();) {
+					if (!matches.insert(parent).second) break;
+					const OrderList *group = OrderList::GetIfValid(parent);
+					if (group == nullptr) break;
+					parent = group->GetScheduleGroup();
+				}
+			}
+		}
+		for (const ScheduleTreeEntry &entry : GetVisibleScheduleTree(this->owner, &matches, this->string_filter.IsEmpty() ? &this->collapsed : nullptr)) {
+			this->list.push_back(entry.order_list->index);
+			this->depths.push_back(entry.depth);
 		}
 		this->vscroll->SetCount((uint)this->list.size());
 		this->SetDirty();
@@ -6958,7 +7064,7 @@ struct DecoupleSchedulePickerWindow : Window {
 	{
 		switch (widget) {
 			case WID_DSP_LIST:
-				resize.height = GetCharacterHeight(FontSize::Normal);
+				resize.height = std::max<uint>(GetCharacterHeight(FontSize::Normal), GetSpriteSize(SPR_COMPANY_ICON).height);
 				break;
 		}
 	}
@@ -6977,7 +7083,11 @@ struct DecoupleSchedulePickerWindow : Window {
 					const OrderList *ol = OrderList::GetIfValid(this->list[i]);
 					if (ol != nullptr) {
 						std::string name = ol->GetName().empty() ? GetString(STR_ORDER_LIST_DEFAULT_NAME, ol->index.base() + 1) : ol->GetName();
-						DrawString(ir.left, ir.right, y + (this->resize.step_height - GetCharacterHeight(FontSize::Normal)) / 2, name, TextColour::White);
+						if (ol->IsScheduleGroup()) name = (this->collapsed.contains(ol->index) && this->string_filter.IsEmpty() ? "+ " : "- ") + name;
+						int indent = std::min<uint>(this->depths[i] * ScaleGUITrad(12), (ir.right - ir.left) / 2);
+						Dimension icon = GetSpriteSize(SPR_COMPANY_ICON);
+						DrawCompanyIcon(ol->GetCompany(), ir.left + indent, y + (this->resize.step_height - icon.height) / 2);
+						DrawString(ir.left + indent + icon.width + WidgetDimensions::scaled.hsep_normal, ir.right, y + (this->resize.step_height - GetCharacterHeight(FontSize::Normal)) / 2, name, TextColour::White);
 					}
 					y += this->resize.step_height;
 				}
@@ -6999,6 +7109,11 @@ struct DecoupleSchedulePickerWindow : Window {
 				if (row < 0 || (size_t)row >= this->list.size()) break;
 				OrderListID id = this->list[row];
 				if (!OrderList::IsValidID(id)) break;
+				if (OrderList::Get(id)->IsScheduleGroup()) {
+					if (!this->collapsed.erase(id)) this->collapsed.insert(id);
+					this->RebuildList();
+					break;
+				}
 				if (this->orders_window != nullptr) this->orders_window->DecoupleSchedulePicked(this->first, this->orders_type, id);
 				this->Close();
 				break;
@@ -7503,7 +7618,7 @@ void CcInsertOrdersFromVehicle(const CommandCost &result, VehicleID veh_dst, Veh
 void ShowOrderListEditor(OrderListID id)
 {
 	const OrderList *ol = OrderList::GetIfValid(id);
-	if (ol == nullptr || !ol->IsPlayerCreated()) return;
+	if (ol == nullptr || !ol->IsPlayerCreated() || ol->IsScheduleGroup()) return;
 	if (ol->GetCompany() != _local_company) return;
 
 	if (BringWindowToFrontById(WindowClass::OrderListEditor, id.base()) != nullptr) return;
