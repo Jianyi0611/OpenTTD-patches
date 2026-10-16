@@ -3114,6 +3114,7 @@ private:
 		OPOS_CONDITIONAL_RETARGET,
 		OPOS_DEPARTURE_VIA,
 		OPOS_COUPLE_STATION,
+		OPOS_WAIT_COUPLE_STATION,
 		OPOS_END,
 	};
 
@@ -3129,6 +3130,7 @@ private:
 		DP_GROUNDVEHICLE_ROW_EMPTY       = 6, ///< Display the row for no buttons in the top row of the train/rv order window.
 		DP_GROUNDVEHICLE_ROW_COUPLE      = 7, ///< Display the row for couple orders in the top row of the train order window.
 		DP_GROUNDVEHICLE_ROW_DECOUPLE    = 8, ///< Display the row for decouple options of a decouple flagged order in the train order window.
+		DP_GROUNDVEHICLE_ROW_WAIT_COUPLE = 9, ///< Display the row for wait for couple orders in the top row of the train order window.
 
 		/* WID_O_SEL_TOP_LEFT */
 		DP_LEFT_LOAD       = 0, ///< Display 'load' in the left button of the top row of the train/rv order window.
@@ -3573,6 +3575,7 @@ private:
 			HT_NONE,              // OPOS_CONDITIONAL_RETARGET
 			HT_RECT,              // OPOS_DEPARTURE_VIA
 			HT_RECT,              // OPOS_COUPLE_STATION
+			HT_RECT,              // OPOS_WAIT_COUPLE_STATION
 		};
 		SetObjectToPlaceWnd(ANIMCURSOR_PICKSTATION, PAL_NONE, goto_place_style[type - 1], this);
 		this->goto_type = type;
@@ -3581,6 +3584,7 @@ private:
 		this->SetWidgetDirty(WID_O_COND_AUX_STATION);
 		this->SetWidgetDirty(WID_O_MGMT_BTN);
 		this->SetWidgetDirty(WID_O_COUPLE_STATION);
+		this->SetWidgetDirty(WID_O_WAIT_COUPLE_STATION);
 	}
 
 	void OrderClick_WaitForCouple()
@@ -4750,8 +4754,11 @@ public:
 				}
 
 				case OT_WAIT_COUPLE:
-					train_row_sel->SetDisplayedPlane(DP_GROUNDVEHICLE_ROW_SLOT);
-					this->GetWidget<NWidgetCore>(WID_O_SLOT)->SetToolTip(STR_ORDER_WAIT_COUPLE_TARGET_TOOLTIP);
+					train_row_sel->SetDisplayedPlane(DP_GROUNDVEHICLE_ROW_WAIT_COUPLE);
+					/* The widget only exists in the ground-vehicle window layout. */
+					if (this->widget_lookup.find(WID_O_WAIT_COUPLE_STATION) != this->widget_lookup.end()) {
+						this->SetWidgetLoweredState(WID_O_WAIT_COUPLE_STATION, order->HasWaitCoupleStation());
+					}
 					break;
 
 				case OT_GOTO_COUPLE: {
@@ -4890,15 +4897,19 @@ public:
 		} else {
 			this->SetWidgetLoweredState(WID_O_GOTO, this->goto_type != OPOS_NONE && this->goto_type != OPOS_COND_VIA
 					&& this->goto_type != OPOS_COND_STATION && this->goto_type != OPOS_CONDITIONAL_RETARGET
-					&& this->goto_type != OPOS_COUPLE_STATION);
+					&& this->goto_type != OPOS_COUPLE_STATION && this->goto_type != OPOS_WAIT_COUPLE_STATION);
 			this->SetWidgetLoweredState(WID_O_COND_AUX_VIA, this->goto_type == OPOS_COND_VIA);
 			this->SetWidgetLoweredState(WID_O_COND_AUX_STATION, this->goto_type == OPOS_COND_STATION);
 			{
 				/* The couple widgets only exist in the ground-vehicle window layout. */
+				const Order *sel_order = OrderAt(this->OrderGetSel());
 				if (this->widget_lookup.find(WID_O_COUPLE_STATION) != this->widget_lookup.end()) {
-					const Order *sel_order = OrderAt(this->OrderGetSel());
 					this->SetWidgetLoweredState(WID_O_COUPLE_STATION, this->goto_type == OPOS_COUPLE_STATION
 							|| (sel_order != nullptr && sel_order->IsType(OT_GOTO_COUPLE) && sel_order->HasCoupleStation()));
+				}
+				if (this->widget_lookup.find(WID_O_WAIT_COUPLE_STATION) != this->widget_lookup.end()) {
+					this->SetWidgetLoweredState(WID_O_WAIT_COUPLE_STATION, this->goto_type == OPOS_WAIT_COUPLE_STATION
+							|| (sel_order != nullptr && sel_order->IsType(OT_WAIT_COUPLE) && sel_order->HasWaitCoupleStation()));
 				}
 			}
 			this->SetWidgetLoweredState(WID_O_MGMT_BTN, this->goto_type == OPOS_CONDITIONAL_RETARGET);
@@ -5221,8 +5232,6 @@ public:
 					if (target == nullptr) return GetString(STR_TRACE_RESTRICT_VARIABLE_UNDEFINED);
 					std::string name = target->GetName().empty() ? GetString(STR_ORDER_LIST_DEFAULT_NAME, target->index.base() + 1) : target->GetName();
 					return GetString(STR_JUST_RAW_STRING, name);
-				} else if (order != nullptr && order->IsType(OT_WAIT_COUPLE)) {
-					return order->HasWaitCoupleStation() && Station::IsValidID(order->GetWaitCoupleStation()) ? GetString(STR_STATION_NAME, order->GetWaitCoupleStation()) : GetString(STR_ORDER_WAIT_COUPLE_HERE);
 				} else if (order != nullptr && order->IsType(OT_SLOT)) {
 					if (order->GetDestination() == INVALID_TRACE_RESTRICT_SLOT_ID) {
 						return GetString(STR_TRACE_RESTRICT_VARIABLE_UNDEFINED);
@@ -5550,6 +5559,7 @@ public:
 						case OPOS_INSERT_FROM_VEHICLE:  sel = ODDI_INSERT_FROM_VEHICLE; break;
 						case OPOS_CONDITIONAL_RETARGET: sel = -1; break;
 						case OPOS_COUPLE_STATION: sel = -1; break;
+						case OPOS_WAIT_COUPLE_STATION: sel = -1; break;
 						case OPOS_DEPARTURE_VIA:        sel = ODDI_LABEL_DEPARTURES_VIA; break;
 						default: NOT_REACHED();
 					}
@@ -5967,20 +5977,6 @@ public:
 			case WID_O_SLOT: {
 				const Order *o = OrderAt(this->OrderGetSel());
 				if (o == nullptr) return;
-				if (o->IsType(OT_WAIT_COUPLE)) {
-					DropDownList list;
-					int selected = o->HasWaitCoupleStation() ? (int)o->GetWaitCoupleStation().base() + 1 : 0;
-					list.push_back(MakeDropDownListStringItem(STR_ORDER_WAIT_COUPLE_HERE, 0, false));
-					const OrderList *schedule = this->HasVehicle() ? this->vehicle->orders : this->order_list;
-					if (schedule == nullptr) return;
-					for (const Order *candidate : schedule->Orders()) {
-						if (!candidate->IsType(OT_GOTO_STATION) || !Station::IsValidID(candidate->GetDestination().ToStationID())) continue;
-						StationID station = candidate->GetDestination().ToStationID();
-						list.push_back(MakeDropDownListStringItem(GetString(STR_STATION_NAME, station), (int)station.base() + 1, false));
-					}
-					ShowDropDownList(this, std::move(list), selected, WID_O_SLOT, 0, DropDownOption::Filterable, DDSF_SHARED);
-					break;
-				}
 				if (o->IsExecuteScheduleOrder()) {
 					DropDownList list;
 					int selected = -1;
@@ -6082,6 +6078,21 @@ public:
 				} else {
 					/* Start picking a station on the map. */
 					this->OrderClick_Goto(OPOS_COUPLE_STATION);
+				}
+				break;
+			}
+
+			case WID_O_WAIT_COUPLE_STATION: {
+				const Order *sel_order = OrderAt(this->OrderGetSel());
+				if (this->goto_type != OPOS_NONE) {
+					/* Cancel station picking. */
+					ResetObjectToPlace();
+				} else if (sel_order != nullptr && sel_order->IsType(OT_WAIT_COUPLE) && sel_order->HasWaitCoupleStation()) {
+					/* Waiting place active: second click clears it, so the train holds where it is. */
+					this->ModifyOrder(this->OrderGetSel(), MOF_WAIT_COUPLE_STATION, 0);
+				} else {
+					/* Start picking the station to travel to before holding. */
+					this->OrderClick_Goto(OPOS_WAIT_COUPLE_STATION);
 				}
 				break;
 			}
@@ -6478,10 +6489,6 @@ public:
 			case WID_O_SLOT: {
 				const Order *o = OrderAt(this->OrderGetSel());
 				if (o == nullptr) return;
-				if (o->IsType(OT_WAIT_COUPLE)) {
-					this->ModifyOrder(this->OrderGetSel(), MOF_WAIT_COUPLE_STATION, index);
-					break;
-				}
 				if (o->IsExecuteScheduleOrder()) {
 					this->ModifyOrder(this->OrderGetSel(), MOF_EXECUTE_SCHEDULE, index);
 					break;
@@ -6757,19 +6764,23 @@ public:
 					}
 				}
 			}
-		} else if (this->goto_type == OPOS_COUPLE_STATION) {
+		} else if (this->goto_type == OPOS_COUPLE_STATION || this->goto_type == OPOS_WAIT_COUPLE_STATION) {
 			if (IsTileType(tile, TileType::Station) || IsTileType(tile, TileType::Industry)) {
 				const Station *st = nullptr;
 
 				if (IsTileType(tile, TileType::Station)) {
-					st = Station::GetByTile(tile);
+					/* Waypoints and buoys are station tiles but not stations: resolving them with
+					 * Station::GetByTile would pick whatever station has the same index. */
+					if (!IsRailWaypointTile(tile) && !IsRoadWaypointTile(tile) && !IsBuoyTile(tile)) st = Station::GetByTile(tile);
 				} else {
 					const Industry *in = Industry::GetByTile(tile);
 					st = in->neutral_station;
 				}
+				/* A train can only travel to, or couple at, a station it can actually reach on rails. */
 				if (st != nullptr && st->train_station.tile != INVALID_TILE && (this->HasVehicle() ? IsInfraUsageAllowed(this->vehicle->type, this->vehicle->owner, st->owner) : true)) {
-					/* Encoded as station ID + 1; 0 clears the restriction. */
-					if (this->ModifyOrder(this->OrderGetSel(), MOF_COUPLE_STATION, st->index.base() + 1)) {
+					/* Encoded as station ID + 1; 0 clears the entry. */
+					const ModifyOrderFlags mof = this->goto_type == OPOS_WAIT_COUPLE_STATION ? MOF_WAIT_COUPLE_STATION : MOF_COUPLE_STATION;
+					if (this->ModifyOrder(this->OrderGetSel(), mof, st->index.base() + 1)) {
 						ResetObjectToPlace();
 					}
 				}
@@ -6871,6 +6882,7 @@ public:
 		this->SetWidgetDirty(WID_O_COND_AUX_STATION);
 		this->SetWidgetDirty(WID_O_MGMT_BTN);
 		this->SetWidgetDirty(WID_O_COUPLE_STATION);
+		this->SetWidgetDirty(WID_O_WAIT_COUPLE_STATION);
 
 		/* Remove drag highlighting if it exists. */
 		if (this->order_over != INVALID_VEH_ORDER_ID) {
@@ -7315,6 +7327,12 @@ static constexpr std::initializer_list<NWidgetPart> _nested_orders_train_widgets
 					NWidget(WWT_PUSHTXTBTN, Colours::Grey, WID_O_DECOUPLE_VALUE), SetMinimalSize(124, 12), SetFill(1, 0),
 															SetStringTip(STR_ORDERS_DECOUPLE_VALUE_BUTTON, STR_ORDER_DECOUPLE_VALUE_TOOLTIP), SetResize(1, 0),
 				EndContainer(),
+			EndContainer(),
+			NWidget(NWID_HORIZONTAL, NWidContainerFlag::EqualSize),
+				NWidget(WWT_PANEL, Colours::Grey), SetResize(1, 0), EndContainer(),
+				NWidget(WWT_PANEL, Colours::Grey), SetResize(1, 0), EndContainer(),
+				NWidget(WWT_PUSHTXTBTN, Colours::Grey, WID_O_WAIT_COUPLE_STATION), SetMinimalSize(124, 12), SetFill(1, 0),
+														SetStringTip(STR_ORDER_COUPLE_STATION_BUTTON, STR_ORDER_WAIT_COUPLE_STATION_TOOLTIP), SetResize(1, 0),
 			EndContainer(),
 		EndContainer(),
 		NWidget(NWID_SELECTION, Colours::Invalid, WID_O_SEL_SHARED),

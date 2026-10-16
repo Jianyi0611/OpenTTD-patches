@@ -3454,13 +3454,14 @@ CommandCost CmdModifyOrder(DoCommandFlags flags, OrderTargetType target_type, ui
 			break;
 
 		case MOF_WAIT_COUPLE_STATION:
-			if ((!is_list && v->type != VehicleType::Train) || (data != 0 && !Station::IsValidID(StationID{(uint16_t)(data - 1)}))) return CMD_ERROR;
+			/* Encoded as station ID + 1; 0 makes the train hold where it is. */
+			if (!is_list && v->type != VehicleType::Train) return CMD_ERROR;
 			if (data != 0) {
-				bool in_schedule = false;
-				for (const Order *candidate : ol->Orders()) {
-					if (candidate->IsType(OT_GOTO_STATION) && candidate->GetDestination().ToStationID().base() == data - 1) { in_schedule = true; break; }
-				}
-				if (!in_schedule) return CMD_ERROR;
+				const Station *st = Station::GetIfValid(data - 1);
+				/* The train has to be able to travel there and stop, so a station without rail
+				 * platforms is rejected: resolving such a destination would skip an order
+				 * (see Train::GetOrderStationLocation). */
+				if (st == nullptr || !st->facilities.Test(StationFacility::Train)) return CMD_ERROR;
 			}
 			break;
 

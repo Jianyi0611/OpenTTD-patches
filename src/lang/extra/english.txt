@@ -2106,8 +2106,7 @@ STR_ORDER_LIST_NEW_GROUP                                        :{BLACK}New sche
 STR_ORDER_LIST_NEW_GROUP_TOOLTIP                                :{BLACK}Create a schedule group inside the selected group. Groups can contain schedules and subgroups.
 STR_ORDER_LIST_ALL_SCHEDULES                                    :All schedules
 STR_ORDER_LIST_ALL_SCHEDULES_TOOLTIP                            :{BLACK}Drag a schedule or group here to move it out of its group
-STR_ORDER_WAIT_COUPLE_HERE                                      :{BLACK}Wait here
-STR_ORDER_WAIT_COUPLE_TARGET_TOOLTIP                            :{BLACK}Choose a station from this train's schedule. The train travels there before waiting for a coupling partner.
+STR_ORDER_WAIT_COUPLE_STATION_TOOLTIP                            :{BLACK}Select a station on the map for the train to wait at. Click again to clear, so the train holds where it is.
 STR_ORDER_WAIT_COUPLE_AT                                        : at {STATION}
 STR_ORDER_COUPLE_CHECK_SELECT                                   :{BLACK}Check location: {RAW_STRING}...
 STR_ORDER_COUPLE_CHECK_ITEM                                     :{BLACK}{RAW_STRING}{RAW_STRING}
