@@ -7035,21 +7035,23 @@ struct DecoupleSchedulePickerWindow : Window {
 		this->list.clear();
 		this->depths.clear();
 		std::set<OrderListID> matches;
+		const std::set<OrderListID> groups = GetVisibleScheduleGroups(this->owner);
 		for (const OrderList *ol : OrderList::Iterate()) {
-			if (!ol->IsPlayerCreated() || (ol->IsScheduleGroup() ? ol->GetCompany() != this->owner : !ol->IsVisibleToCompany(this->owner))) continue;
+			if (!ol->IsPlayerCreated()) continue;
+			if (ol->IsScheduleGroup() ? !groups.contains(ol->index) : !ol->IsVisibleToCompany(this->owner)) continue;
 			if (!this->string_filter.IsEmpty()) {
 				this->string_filter.ResetState();
 				this->string_filter.AddLine(ol->GetName());
 				if (!this->string_filter.GetState()) continue;
 			}
 			matches.insert(ol->index);
-			if (ol->GetCompany() == this->owner) {
-				for (OrderListID parent = ol->GetScheduleGroup(); parent != OrderListID::Invalid();) {
-					if (!matches.insert(parent).second) break;
-					const OrderList *group = OrderList::GetIfValid(parent);
-					if (group == nullptr) break;
-					parent = group->GetScheduleGroup();
-				}
+			/* Keep the folders above a match, including the folders of another company above one of
+			 * its public schedules: they are part of the tree and keep the schedule grouped. */
+			for (OrderListID parent = ol->GetScheduleGroup(); parent != OrderListID::Invalid();) {
+				if (!matches.insert(parent).second) break;
+				const OrderList *group = OrderList::GetIfValid(parent);
+				if (group == nullptr) break;
+				parent = group->GetScheduleGroup();
 			}
 		}
 		for (const ScheduleTreeEntry &entry : GetVisibleScheduleTree(this->owner, &matches, this->string_filter.IsEmpty() ? &this->collapsed : nullptr)) {

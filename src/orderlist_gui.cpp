@@ -12,6 +12,7 @@
 #include "order_cmd.h"
 #include "orderlist_edit.h"
 #include "orderlist_gui.h"
+#include "schedule_group_gui.h"
 #include "tilehighlight_func.h"
 #include "command_func.h"
 #include "company_func.h"
@@ -129,8 +130,9 @@ private:
 			this->orders.clear();
 			this->orders.reserve(OrderList::GetNumItems());
 
+			const std::set<OrderListID> groups = GetVisibleScheduleGroups(_local_company);
 			for (const OrderList *ol : OrderList::Iterate()) {
-				if (ol->IsVisibleToCompany(_local_company) || (ol->IsScheduleGroup() && ol->GetCompany() == _local_company)) this->orders.push_back(ol);
+				if (ol->IsScheduleGroup() ? groups.contains(ol->index) : ol->IsVisibleToCompany(_local_company)) this->orders.push_back(ol);
 			}
 
 			this->orders.RebuildDone();
@@ -154,9 +156,12 @@ private:
 		this->depths.clear();
 		std::map<OrderListID, std::vector<const OrderList *>> children;
 		std::set<OrderListID> matches;
+		const std::set<OrderListID> groups = GetVisibleScheduleGroups(_local_company);
 		for (const OrderList *ol : this->orders) {
-			/* Other companies' public schedules are visible at the root. */
-			OrderListID parent = ol->GetCompany() == _local_company ? ol->GetScheduleGroup() : OrderListID::Invalid();
+			/* A schedule of another company keeps its folders, which are part of the list as soon as
+			 * one schedule below them is visible; anything else is shown at the root. */
+			OrderListID parent = ol->GetScheduleGroup();
+			if (parent != OrderListID::Invalid() && !groups.contains(parent)) parent = OrderListID::Invalid();
 			children[parent].push_back(ol);
 			if (!this->string_filter.IsEmpty()) {
 				this->string_filter.ResetState();
