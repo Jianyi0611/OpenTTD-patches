@@ -52,7 +52,10 @@ static constexpr NWidgetPart _nested_orderlist_widgets[] = {
 		NWidget(WWT_DROPDOWN, Colours::Grey, WID_OL_SORT_CRITERIA), SetToolTip(STR_TOOLTIP_SORT_CRITERIA),
 		NWidget(WWT_EDITBOX, Colours::Grey, WID_OL_FILTER), SetFill(1, 0), SetResize(1, 0), SetStringTip(STR_LIST_FILTER_OSKTITLE, STR_LIST_FILTER_TOOLTIP),
 	EndContainer(),
-	NWidget(WWT_TEXTBTN, Colours::Grey, WID_OL_UNGROUPED), SetFill(1, 0), SetStringTip(STR_ORDER_LIST_UNGROUPED, STR_ORDER_LIST_MOVE_GROUP_TOOLTIP),
+	/* The bar needs its own horizontal resize step: a top-level row without one
+	 * zeroes the window's resize_x (it is the lcm of the rows), which locks the
+	 * whole window out of horizontal resizing. */
+	NWidget(WWT_PANEL, Colours::Grey, WID_OL_ALL), SetFill(1, 0), SetResize(1, 0), SetToolTip(STR_ORDER_LIST_ALL_SCHEDULES_TOOLTIP), EndContainer(),
 
 	NWidget(NWID_HORIZONTAL),
 		NWidget(WWT_PANEL, Colours::Grey),
@@ -64,14 +67,11 @@ static constexpr NWidgetPart _nested_orderlist_widgets[] = {
 		NWidget(NWID_VSCROLLBAR, Colours::Grey, WID_OL_SCROLLBAR),
 	EndContainer(),
 
-	NWidget(NWID_HORIZONTAL),
-		NWidget(WWT_PUSHTXTBTN, Colours::Grey, WID_OL_NEW_GROUP), SetResize(1, 0), SetFill(1, 0), SetStringTip(STR_ORDER_LIST_NEW_GROUP, STR_ORDER_LIST_NEW_GROUP_TOOLTIP),
-		NWidget(WWT_DROPDOWN, Colours::Grey, WID_OL_MOVE_GROUP), SetResize(1, 0), SetFill(1, 0), SetStringTip(STR_ORDER_LIST_MOVE_GROUP, STR_ORDER_LIST_MOVE_GROUP_TOOLTIP),
-	EndContainer(),
 	NWidget(WWT_PANEL, Colours::Grey),
 		NWidget(NWID_HORIZONTAL),
 			NWidget(NWID_HORIZONTAL, NWidContainerFlag::EqualSize),
 				NWidget(WWT_PUSHTXTBTN, Colours::Grey, WID_OL_NEW), SetResize(1, 0), SetFill(1, 0), SetStringTip(STR_ORDER_LIST_NEW, STR_ORDER_LIST_NEW_TOOLTIP),
+				NWidget(WWT_PUSHTXTBTN, Colours::Grey, WID_OL_NEW_GROUP), SetResize(1, 0), SetFill(1, 0), SetStringTip(STR_ORDER_LIST_NEW_GROUP, STR_ORDER_LIST_NEW_GROUP_TOOLTIP),
 				NWidget(WWT_PUSHTXTBTN, Colours::Grey, WID_OL_RENAME), SetResize(1, 0), SetFill(1, 0), SetStringTip(STR_BUTTON_RENAME, STR_NULL),
 				NWidget(WWT_TEXTBTN, Colours::Grey, WID_OL_PUBLIC), SetResize(1, 0), SetFill(1, 0), SetToolTip(STR_ORDER_LIST_PUBLIC_TOOLTIP),
 				NWidget(WWT_PUSHTXTBTN, Colours::Grey, WID_OL_DELETE), SetResize(1, 0), SetFill(1, 0), SetStringTip(STR_ORDER_LIST_DELETE, STR_ORDER_LIST_DELETE_TOOLTIP),
@@ -82,7 +82,7 @@ static constexpr NWidgetPart _nested_orderlist_widgets[] = {
 };
 
 static WindowDesc _orderlist_desc(__FILE__, __LINE__,
-	WindowPosition::Automatic, "order_list_manager", 350, 100,
+	WindowPosition::Automatic, "order_list_manager", 420, 200,
 	WindowClass::OrderList, WindowClass::None,
 	WindowDefaultFlag::Construction,
 	_nested_orderlist_widgets
@@ -100,10 +100,8 @@ struct OrderListWindow : Window {
 	Dimension edit_btn_spr_dim{};                   ///< dimensions of the edit button sprite
 	std::vector<uint> depths;                       ///< Indentation of each displayed row.
 	std::set<OrderListID> collapsed;                ///< Local folder expansion state, never simulation state.
-	std::vector<OrderListID> move_targets;
 	OrderListID query_target = OrderListID::Invalid();
 	OrderListID query_parent = OrderListID::Invalid();
-	OrderListID move_source = OrderListID::Invalid();
 	OrderListID drag_source = OrderListID::Invalid();
 	OrderListID drag_target = OrderListID::Invalid();
 	bool drag_root = false;
@@ -251,29 +249,8 @@ public:
 				this->query_parent = this->SelectedParent();
 				ShowQueryString(std::string{}, STR_ORDER_LIST_NEW_GROUP, MAX_LENGTH_ORDERLIST_NAME_CHARS, this, CS_ALPHANUMERAL, QueryStringFlag::LengthIsInChars);
 				break;
-			case WID_OL_MOVE_GROUP:
-				if (const OrderList *ol = this->GetSelectedOrderList(); ol != nullptr && ol->GetCompany() == _local_company) {
-					this->move_source = ol->index;
-					this->move_targets = {OrderListID::Invalid()};
-					DropDownList items;
-					items.push_back(MakeDropDownListStringItem(GetString(STR_ORDER_LIST_UNGROUPED), 0, false));
-					int selected_parent = 0;
-					for (const OrderList *group : this->orders) {
-						if (!group->IsScheduleGroup()) continue;
-						bool descendant = false;
-						for (const OrderList *ancestor = group; ancestor != nullptr; ancestor = OrderList::GetIfValid(ancestor->GetScheduleGroup())) {
-							if (ancestor == ol) { descendant = true; break; }
-						}
-						if (descendant) continue;
-						int index = (int)this->move_targets.size();
-						if (group->index == ol->GetScheduleGroup()) selected_parent = index;
-						this->move_targets.push_back(group->index);
-						items.push_back(MakeDropDownListStringItem(this->GroupPath(group), index, false));
-					}
-					ShowDropDownList(this, std::move(items), selected_parent, widget);
-				}
-				break;
-			case WID_OL_UNGROUPED:
+			case WID_OL_ALL:
+				/* Selection only; the bar itself is a drop target for ungrouping. */
 				this->selected = INT_MAX;
 				this->SetDirty();
 				break;
@@ -352,7 +329,7 @@ public:
 	void OnMouseDrag(Point pt, WidgetID widget) override
 	{
 		OrderListID target = OrderListID::Invalid();
-		bool root = widget == WID_OL_UNGROUPED && this->CanDropOn(OrderListID::Invalid());
+		bool root = widget == WID_OL_ALL && this->CanDropOn(OrderListID::Invalid());
 		if (widget == WID_OL_LIST) {
 			int row = this->vscroll->GetScrolledRowFromWidget(pt.y, this, WID_OL_LIST, WidgetDimensions::scaled.framerect.top);
 			if (row >= 0 && row < (int)this->list.size() && this->CanDropOn(this->list[row])) target = this->list[row];
@@ -361,7 +338,7 @@ public:
 			this->drag_target = target;
 			this->drag_root = root;
 			this->SetWidgetDirty(WID_OL_LIST);
-			this->SetWidgetDirty(WID_OL_UNGROUPED);
+			this->SetWidgetDirty(WID_OL_ALL);
 		}
 	}
 
@@ -372,7 +349,7 @@ public:
 			if (row >= 0 && row < (int)this->list.size() && this->CanDropOn(this->list[row])) {
 				Command<Commands::MoveOrderListToGroup>::Post(this->drag_source, this->list[row]);
 			}
-		} else if (widget == WID_OL_UNGROUPED && this->CanDropOn(OrderListID::Invalid())) {
+		} else if (widget == WID_OL_ALL && this->CanDropOn(OrderListID::Invalid())) {
 			Command<Commands::MoveOrderListToGroup>::Post(this->drag_source, OrderListID::Invalid());
 		}
 		this->drag_source = OrderListID::Invalid();
@@ -384,9 +361,6 @@ public:
 	virtual void OnDropdownSelect(WidgetID widget, int index, int) override
 	{
 		switch (widget) {
-			case WID_OL_MOVE_GROUP:
-				if (index >= 0 && index < (int)this->move_targets.size()) Command<Commands::MoveOrderListToGroup>::Post(this->move_source, this->move_targets[index]);
-				break;
 			case WID_OL_SORT_CRITERIA:
 				if (this->orders.SortType() != index) {
 					this->orders.SetSortType(index);
@@ -416,13 +390,6 @@ public:
 		return ol->IsScheduleGroup() ? ol->index : ol->GetScheduleGroup();
 	}
 
-	std::string GroupPath(const OrderList *group) const
-	{
-		std::string path = group->GetName();
-		for (const OrderList *parent = OrderList::GetIfValid(group->GetScheduleGroup()); parent != nullptr; parent = OrderList::GetIfValid(parent->GetScheduleGroup())) path = parent->GetName() + " / " + path;
-		return path;
-	}
-
 	const OrderList *GetSelectedOrderList() const
 	{
 		if (this->selected < 0 || this->selected >= (int) this->list.size()) return nullptr;
@@ -435,17 +402,16 @@ public:
 		bool no_company = _game_mode != GameMode::Editor && !Company::IsValidID(_local_company);
 		this->SetWidgetDisabledState(WID_OL_NEW, no_company);
 		this->SetWidgetDisabledState(WID_OL_NEW_GROUP, no_company);
-		this->SetWidgetLoweredState(WID_OL_UNGROUPED, this->drag_root);
 
 		const OrderList *ol = this->GetSelectedOrderList();
 		if (ol != nullptr && ol->GetCompany() == _local_company) {
-			this->SetWidgetsDisabledState(false, WID_OL_RENAME, WID_OL_MOVE_GROUP, WID_OL_PUBLIC, WID_OL_DELETE);
+			this->SetWidgetsDisabledState(false, WID_OL_RENAME, WID_OL_PUBLIC, WID_OL_DELETE);
 			this->GetWidget<NWidgetCore>(WID_OL_PUBLIC)->SetString(ol->IsPublic() ? STR_ORDER_LIST_MAKE_PRIVATE : STR_ORDER_LIST_MAKE_PUBLIC);
 			/* A public list may already be used by other companies; making it
 			 * private again has no effect. Keep the button as a placeholder, but disabled. */
 			this->SetWidgetDisabledState(WID_OL_PUBLIC, ol->IsPublic() || ol->IsScheduleGroup());
 		} else {
-			this->SetWidgetsDisabledState(true, WID_OL_RENAME, WID_OL_MOVE_GROUP, WID_OL_PUBLIC, WID_OL_DELETE);
+			this->SetWidgetsDisabledState(true, WID_OL_RENAME, WID_OL_PUBLIC, WID_OL_DELETE);
 			this->GetWidget<NWidgetCore>(WID_OL_PUBLIC)->SetString(STR_ORDER_LIST_MAKE_PUBLIC);
 		}
 		this->DrawWidgets();
@@ -457,6 +423,14 @@ public:
 			case WID_OL_SORT_ORDER:
 				this->DrawSortButton(widget, this->orders.IsDescSortOrder());
 				break;
+
+			case WID_OL_ALL: {
+				/* Highlighted like a list row while it is the drop target. */
+				if (this->drag_root) GfxFillRect(r.left + 1, r.top, r.right, r.bottom, PC_LIGHT_BLUE);
+				const Rect ir = r.Shrink(WidgetDimensions::scaled.framerect);
+				DrawString(ir.left, ir.right, ir.top + (r.Height() - GetCharacterHeight(FontSize::Normal)) / 2, STR_ORDER_LIST_ALL_SCHEDULES, TextColour::White);
+				break;
+			}
 
 			case WID_OL_LIST: {
 				Rect ir = r.Shrink(WidgetDimensions::scaled.framerect);
@@ -541,6 +515,15 @@ public:
 				Dimension d = GetStringListBoundingBox(OrderListWindow::sorter_names);
 				d.width += padding.width;
 				d.height += padding.height;
+				size = maxdim(size, d);
+				break;
+			}
+
+			case WID_OL_ALL: {
+				/* Same height as a list row, so the bar reads as part of the sidebar. */
+				Dimension d = GetStringBoundingBox(STR_ORDER_LIST_ALL_SCHEDULES);
+				d.width += padding.width + 2 * WidgetDimensions::scaled.framerect.Horizontal();
+				d.height = std::max<int>(GetCharacterHeight(FontSize::Normal), SETTING_BUTTON_HEIGHT) + WidgetDimensions::scaled.framerect.Vertical();
 				size = maxdim(size, d);
 				break;
 			}

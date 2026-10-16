@@ -2032,6 +2032,10 @@ STR_SORT_BY_DATE                                                :日期
 STR_ORDER_LIST_CAPTION                                          :{WHITE}调度表列表
 STR_ORDER_LIST_NEW                                              :{BLACK}新建
 STR_ORDER_LIST_NEW_TOOLTIP                                      :{BLACK}创建新的调度表
+STR_ORDER_LIST_NEW_GROUP                                        :{BLACK}新建分组
+STR_ORDER_LIST_NEW_GROUP_TOOLTIP                                :{BLACK}在选中项所在的分组内新建一个分组。分组可以包含调度表和子分组。
+STR_ORDER_LIST_ALL_SCHEDULES                                    :全部调度
+STR_ORDER_LIST_ALL_SCHEDULES_TOOLTIP                            :{BLACK}把调度表或分组拖到此处，可将其移出所在的分组
 STR_ORDER_LIST_EDIT                                             :{BLACK}编辑
 STR_ORDER_LIST_DELETE                                           :{BLACK}删除
 STR_ORDER_LIST_DELETE_TOOLTIP                                   :{BLACK}删除选中的调度表
@@ -2039,7 +2043,7 @@ STR_ORDER_LIST_PUBLIC                                           :{BLACK}公开
 STR_ORDER_LIST_PUBLIC_TOOLTIP                                   :{BLACK}切换调度表的可见性。公开的调度表会对其他公司显示。
 STR_ORDER_LIST_MAKE_PUBLIC                                      :{BLACK}设为公开
 STR_ORDER_LIST_MAKE_PRIVATE                                     :{BLACK}设为私有
-STR_ORDER_LIST_LIST_TOOLTIP                                     :{BLACK}点击编辑按钮在订单窗口打开该调度表
+STR_ORDER_LIST_LIST_TOOLTIP                                     :{BLACK}点击编辑按钮在订单窗口打开该调度表。把调度表或分组拖到分组上，可将其移入该分组。
 STR_ORDER_LIST_QUERY_RENAME                                     :{WHITE}重命名调度表
 STR_ORDER_LIST_DEFAULT_NAME                                     :调度表 {NUM}
 STR_SORT_BY_ORDER_LIST_ID                                      :调度表编号
