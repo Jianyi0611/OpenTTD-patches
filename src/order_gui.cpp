@@ -7035,21 +7035,19 @@ struct DecoupleSchedulePickerWindow : Window {
 		this->list.clear();
 		this->depths.clear();
 		std::set<OrderListID> matches;
-		for (const OrderList *ol : OrderList::Iterate()) {
-			if (!ol->IsPlayerCreated() || (ol->IsScheduleGroup() ? ol->GetCompany() != this->owner : !ol->IsVisibleToCompany(this->owner))) continue;
+		for (OrderListID id : GetVisibleScheduleEntries(this->owner)) {
+			const OrderList *ol = OrderList::Get(id);
 			if (!this->string_filter.IsEmpty()) {
 				this->string_filter.ResetState();
 				this->string_filter.AddLine(ol->GetName());
 				if (!this->string_filter.GetState()) continue;
 			}
 			matches.insert(ol->index);
-			if (ol->GetCompany() == this->owner) {
-				for (OrderListID parent = ol->GetScheduleGroup(); parent != OrderListID::Invalid();) {
-					if (!matches.insert(parent).second) break;
-					const OrderList *group = OrderList::GetIfValid(parent);
-					if (group == nullptr) break;
-					parent = group->GetScheduleGroup();
-				}
+			for (OrderListID parent = ol->GetScheduleGroup(); parent != OrderListID::Invalid();) {
+				if (!matches.insert(parent).second) break;
+				const OrderList *group = OrderList::GetIfValid(parent);
+				if (group == nullptr) break;
+				parent = group->GetScheduleGroup();
 			}
 		}
 		for (const ScheduleTreeEntry &entry : GetVisibleScheduleTree(this->owner, &matches, this->string_filter.IsEmpty() ? &this->collapsed : nullptr)) {

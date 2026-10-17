@@ -16,6 +16,7 @@
 #include "../core/pool_func.hpp"
 #include "../core/backup_type.hpp"
 #include "../train.h"
+#include "../schedule_group_gui.h"
 
 class ScheduleGroupFixture {
 protected:
@@ -158,4 +159,35 @@ TEST_CASE_METHOD(ScheduleGroupFixture, "Schedule groups - ownership and malforme
 	CHECK_FALSE(AreScheduleGroupsValid());
 	child->SetScheduleGroup(OrderListID(63999));
 	CHECK_FALSE(AreScheduleGroupsValid());
+}
+
+TEST_CASE_METHOD(ScheduleGroupFixture, "Schedule groups - public schedules keep foreign ancestors")
+{
+	OrderList *root = Create("Root");
+	OrderList *child = Create("Child", root->index);
+	OrderList *public_schedule = Create("Public", child->index, false);
+	OrderList *private_schedule = Create("Private", child->index, false);
+	OrderList *private_group = Create("Private group");
+	public_schedule->SetPublic(true);
+	CompanyID other = Company::Create()->index;
+	const auto tree = GetVisibleScheduleTree(other);
+	REQUIRE(tree.size() == 3);
+	CHECK(tree[0].order_list == root);
+	CHECK(tree[0].depth == 0);
+	CHECK(tree[1].order_list == child);
+	CHECK(tree[1].depth == 1);
+	CHECK(tree[2].order_list == public_schedule);
+	CHECK(tree[2].depth == 2);
+	const auto own = GetVisibleScheduleEntries(owner);
+	CHECK(own.contains(private_schedule->index));
+	CHECK(own.contains(private_group->index));
+	CHECK_FALSE(root->IsVisibleToCompany(other));
+	CHECK_FALSE(private_schedule->IsVisibleToCompany(other));
+	CHECK(CmdMoveOrderListToGroup({}, public_schedule->index, root->index).Succeeded());
+	std::set<OrderListID> collapsed{root->index};
+	CHECK(GetVisibleScheduleTree(other, nullptr, &collapsed).size() == 1);
+	std::set<OrderListID> matches{root->index, child->index, public_schedule->index};
+	CHECK(GetVisibleScheduleTree(other, &matches).size() == 3);
+	public_schedule->SetPublic(false);
+	CHECK(GetVisibleScheduleTree(other).empty());
 }

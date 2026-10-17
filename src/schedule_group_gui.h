@@ -21,6 +21,22 @@ struct ScheduleTreeEntry {
 	uint depth; ///< Indentation depth in the schedule hierarchy.
 };
 
+/** Visible schedules, own groups, and the ancestors of other companies' public schedules. */
+inline std::set<OrderListID> GetVisibleScheduleEntries(Owner owner)
+{
+	std::set<OrderListID> visible;
+	for (const OrderList *ol : OrderList::Iterate()) {
+		if (!ol->IsVisibleToCompany(owner) && !(ol->IsScheduleGroup() && ol->GetCompany() == owner)) continue;
+		visible.insert(ol->index);
+		for (OrderListID parent = ol->GetScheduleGroup(); parent != OrderListID::Invalid();) {
+			const OrderList *group = OrderList::GetIfValid(parent);
+			if (group == nullptr || !group->IsScheduleGroup() || group->GetCompany() != ol->GetCompany() || !visible.insert(parent).second) break;
+			parent = group->GetScheduleGroup();
+		}
+	}
+	return visible;
+}
+
 /**
  * Build the visible schedule tree, grouping siblings before sorting them by name.
  * @param owner Company viewing the schedules.
@@ -31,10 +47,10 @@ struct ScheduleTreeEntry {
 inline std::vector<ScheduleTreeEntry> GetVisibleScheduleTree(Owner owner, const std::set<OrderListID> *matches = nullptr, const std::set<OrderListID> *collapsed = nullptr)
 {
 	std::map<OrderListID, std::vector<const OrderList *>> children;
-	for (const OrderList *ol : OrderList::Iterate()) {
-		if (ol->IsScheduleGroup() ? ol->GetCompany() != owner : !ol->IsPlayerCreated() || !ol->IsVisibleToCompany(owner)) continue;
+	for (OrderListID id : GetVisibleScheduleEntries(owner)) {
+		const OrderList *ol = OrderList::Get(id);
 		if (matches != nullptr && !matches->contains(ol->index)) continue;
-		OrderListID parent = ol->GetCompany() == owner ? ol->GetScheduleGroup() : OrderListID::Invalid();
+		OrderListID parent = ol->GetScheduleGroup();
 		children[parent].push_back(ol);
 	}
 	std::vector<ScheduleTreeEntry> result;
