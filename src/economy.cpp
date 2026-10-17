@@ -2507,6 +2507,59 @@ static void LoadUnloadVehicle(Vehicle *front)
 }
 
 /**
+ * Drop the loading-queue entries which cannot describe a vehicle loading here.
+ *
+ * An entry refers to its vehicle by pointer and to the station through the
+ * vehicle's last_station_visited at the time PrepareUnload() registered it.
+ * Neither stays put for the lifetime of the entry: the station field is cleared
+ * when the next order is for the same station, a couple or a decouple can move
+ * it, the consist's primary vehicle can change, and a deleted vehicle hands its
+ * pool slot to the next vehicle built. The removal paths erase by
+ * last_station_visited, so an entry whose vehicle has moved on that way is
+ * stranded and is never removed again. Left alone it does not merely leak: the
+ * station keeps decrementing the load_unload_ticks of whatever vehicle now owns
+ * the pointer, and a newly built vehicle still has the zero such a vehicle is
+ * constructed with, which is the state the loading loop asserts on.
+ *
+ * Entries are dropped rather than repaired because they hold no state of their
+ * own; the vehicle is the authority on whether it is loading, and dropping a
+ * stranded entry simply stops the station from processing a vehicle it has no
+ * business processing.
+ * @param st The station whose loading list to clean up.
+ */
+static void DropStrandedLoadingVehicles(Station *st)
+{
+	auto &vehicles = st->loading_vehicles;
+	for (auto it = vehicles.begin(); it != vehicles.end(); ) {
+		Vehicle *v = *it;
+
+		/* A dangling pointer is readable here only because the pool never hands
+		 * the memory back to the allocator while the slot is unused, so the
+		 * index still describes whatever object the slot refers to now. */
+		const VehicleID index = v->index;
+		const bool stranded =
+				/* The slot was freed, or has been reused by another vehicle. */
+				Vehicle::GetIfValid(index) != v ||
+				/* Registered here through a last_station_visited it no longer has. */
+				v->last_station_visited != st->index ||
+				/* The consist has another primary vehicle; the order state this
+				 * list drives belongs to that one. */
+				!v->IsPrimaryVehicle() ||
+				/* The station stop this entry was created for is over. */
+				!v->current_order.IsAnyLoadingType();
+
+		if (!stranded) {
+			++it;
+			continue;
+		}
+
+		Debug(misc, 1, "station {}: dropping stranded loading vehicle entry {} ({})",
+				st->index, index, v->name.c_str());
+		it = vehicles.erase(it);
+	}
+}
+
+/**
  * Load/unload the vehicles in this station according to the order
  * they entered.
  * @param st the station to do the loading/unloading for
@@ -2516,14 +2569,15 @@ void LoadUnloadStation(Station *st)
 	/* No vehicle is here... */
 	if (st->loading_vehicles.empty()) return;
 
+	DropStrandedLoadingVehicles(st);
+	if (st->loading_vehicles.empty()) return;
+
 	Vehicle *last_loading = nullptr;
 
 	/* Check if anything will be loaded at all. Otherwise we don't need to reserve either. */
 	for (Vehicle *v : st->loading_vehicles) {
 		if (v->vehstatus.Any({VehState::Stopped, VehState::Crashed}) || v->current_order.IsType(OT_LOADING_ADVANCE)) continue;
 
-		if (v->load_unload_ticks == 0) {
-		}
 		assert(v->load_unload_ticks != 0);
 		if (--v->load_unload_ticks == 0) last_loading = v;
 	}

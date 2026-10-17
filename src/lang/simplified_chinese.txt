@@ -939,7 +939,6 @@ STR_NEWS_VEHICLE_HAS_TOO_FEW_ORDERS                             :{WHITE}{VEHICLE
 STR_NEWS_VEHICLE_HAS_VOID_ORDER                                 :{WHITE}{VEHICLE}的调度计划中有无效调度命令
 STR_NEWS_VEHICLE_HAS_DUPLICATE_ENTRY                            :{WHITE}{VEHICLE} 有重复调度命令
 STR_NEWS_VEHICLE_HAS_INVALID_ENTRY                              :{WHITE}{VEHICLE}的调度计划有无效的车站
-STR_NEWS_PLANE_USES_TOO_SHORT_RUNWAY                            :{WHITE}{VEHICLE} 的计划列表中有一个机场的跑道太短而不能起降
 
 STR_NEWS_VEHICLE_IS_GETTING_OLD                                 :{WHITE}{VEHICLE} 即将达到报废年限
 STR_NEWS_VEHICLE_IS_GETTING_VERY_OLD                            :{WHITE}{VEHICLE} 已经达到报废年限
@@ -5077,6 +5076,7 @@ STR_DECOUPLE_DIAGNOSTIC_PLATFORM                              :列车未完整�
 STR_DECOUPLE_DIAGNOSTIC_TOO_SHORT                             :列车不足两个可拆分车辆单位
 STR_DECOUPLE_DIAGNOSTIC_CUT                                   :所选切点会拆开铰接或多头车辆单位
 STR_DECOUPLE_DIAGNOSTIC_ARRANGEMENT                           :编组或 NewGRF 兼容性检查失败
+STR_DECOUPLE_DIAGNOSTIC_ORDER                                 :解挂订单已不在调度计划的预期位置
 
 STR_INVALID_ORDER                                               :{RED}（无效命令）
 

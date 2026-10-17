@@ -349,7 +349,7 @@ enum ModifyOrderFlags : uint8_t {
 	MOF_COUPLE_VALUE,    ///< Change number of coupled units.
 	MOF_COUPLE_SLOT,    ///< Change trace restrict slot to couple with.
 	MOF_COUPLE_STATION, ///< Change the station to couple at.
-	MOF_WAIT_COUPLE_STATION, ///< Send a waiting train to a selected schedule station before holding.
+	MOF_WAIT_COUPLE_STATION, ///< Send a waiting train to a selected station before holding.
 	MOF_COUPLE_CHECK_POINT, ///< Check for a matching partner at a selected earlier station or waypoint.
 	MOF_COUPLE_USE_WAITING_SCHEDULE, ///< Take over the waiting consist's schedule at coupling.
 	MOF_COUPLE_SLOT_GROUP,           ///< Change the trace restrict slot group to couple with.

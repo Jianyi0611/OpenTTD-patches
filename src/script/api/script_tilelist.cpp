@@ -205,14 +205,22 @@ ScriptTileList_StationType::ScriptTileList_StationType(StationID station_id, Scr
 	if ((station_type & ScriptStation::STATION_TRAIN) != 0)      station_types.Set(::StationType::Rail);
 	if ((station_type & ScriptStation::STATION_TRUCK_STOP) != 0) station_types.Set(::StationType::Truck);
 	if ((station_type & ScriptStation::STATION_BUS_STOP) != 0)   station_types.Set(::StationType::Bus);
-	if ((station_type & ScriptStation::STATION_AIRPORT) != 0)    station_types.Set({::StationType::Airport, ::StationType::Oilrig});
-	if ((station_type & ScriptStation::STATION_DOCK) != 0)       station_types.Set({::StationType::Dock, ::StationType::Oilrig});
+	if ((station_type & ScriptStation::STATION_AIRPORT) != 0)    station_types.Set(::StationType::Airport);
+	if ((station_type & ScriptStation::STATION_DOCK) != 0)       station_types.Set(::StationType::Dock);
+	if ((station_type & (ScriptStation::STATION_AIRPORT | ScriptStation::STATION_DOCK)) != 0) {
+		/* Oil rigs are both an airport (heliport) and a dock at the same time,
+		 * and their platform tile may be encoded as either type. */
+		station_types.Set(::StationType::Oilrig);
+	}
 
 	TileArea ta(::TileXY(rect->left, rect->top), rect->Width(), rect->Height());
 	for (TileIndex cur_tile : ta) {
 		if (!::IsTileType(cur_tile, TileType::Station)) continue;
 		if (::GetStationIndex(cur_tile) != station_id) continue;
-		if (!station_types.Test(::GetStationType(cur_tile))) continue;
+		bool is_oilrig = station_types.Test(::StationType::Oilrig) &&
+				(::IsOilRig(cur_tile) || ::IsBuiltInHeliportTile(cur_tile));
+		bool accepted = is_oilrig || station_types.Test(::GetStationType(cur_tile));
+		if (!accepted) continue;
 		this->AddTile(cur_tile);
 	}
 }

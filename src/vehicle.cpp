@@ -1208,9 +1208,14 @@ void Vehicle::PreDestructor()
 	 * crashed train, so that they do not keep pointing at a vehicle which is being destroyed. */
 	RVTransportDestroyCarriedVehicles(this);
 
+	/* The queue entry is removed from wherever it actually lives, not only from
+	 * the station last_station_visited names: a stranded pointer here outlives
+	 * this object, and the pool slot is reused for the next vehicle built, which
+	 * the station would then process as if it were loading. */
+	this->RemoveFromLoadingQueues();
+
 	if (Station::IsValidID(this->last_station_visited)) {
 		Station *st = Station::Get(this->last_station_visited);
-		st->loading_vehicles.erase(std::remove(st->loading_vehicles.begin(), st->loading_vehicles.end(), this), st->loading_vehicles.end());
 
 		HideFillingPercent(&this->fill_percent_te_id);
 		this->CancelReservation(StationID::Invalid(), st);
@@ -3677,6 +3682,36 @@ CargoTypes Vehicle::GetLastLoadingStationValidCargoMask() const
 }
 
 /**
+ * Remove this vehicle from the loading queue it is registered in.
+ *
+ * PrepareUnload() registers the vehicle in the station named by its
+ * last_station_visited, but that field is not stable for the lifetime of the
+ * entry: Train::GetOrderStationLocation() clears it when the next order is for
+ * the same station, and a couple, a decouple or a depot rearrangement can move
+ * it elsewhere or replace the vehicle as the consist's primary. Removing only
+ * the station which last_station_visited names at removal time therefore leaves
+ * the entry behind. Such an entry outlives the vehicle, and because the pool
+ * reuses the slot, the station then processes whatever vehicle is built there
+ * next - which is not loading anywhere and still has the zero
+ * load_unload_ticks of a constructed vehicle (see LoadUnloadStation).
+ *
+ * The station named by last_station_visited is tried first because that is
+ * where the entry is in the ordinary case, so the scan only runs when an entry
+ * has actually been stranded.
+ */
+void Vehicle::RemoveFromLoadingQueues()
+{
+	if (Station::IsValidID(this->last_station_visited) &&
+			Station::Get(this->last_station_visited)->RemoveLoadingVehicle(this)) {
+		return;
+	}
+
+	for (Station *st : Station::Iterate()) {
+		st->RemoveLoadingVehicle(this);
+	}
+}
+
+/**
  * Perform all actions when leaving a station.
  * @pre this->current_order.IsType(OT_LOADING)
  */
@@ -3766,7 +3801,7 @@ void Vehicle::LeaveStation()
 	this->current_order.MakeLeaveStation();
 	Station *st = Station::Get(this->last_station_visited);
 	this->CancelReservation(StationID::Invalid(), st);
-	st->loading_vehicles.erase(std::remove(st->loading_vehicles.begin(), st->loading_vehicles.end(), this), st->loading_vehicles.end());
+	this->RemoveFromLoadingQueues();
 
 	HideFillingPercent(&this->fill_percent_te_id);
 	trip_occupancy = CalcPercentVehicleFilled(this, nullptr);

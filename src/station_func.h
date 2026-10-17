@@ -39,6 +39,9 @@ void StationPickerDrawSprite(int x, int y, StationType st, RailType railtype, Ro
 bool HasStationInUse(StationID station, bool include_company, CompanyID company);
 
 void DeleteOilRig(TileIndex t);
+void BuildBuiltInHeliport(TileIndex t);
+void DeleteBuiltInHeliport(TileIndex t);
+void DeleteOldBuiltInHeliport(TileIndex t);
 void UpdateStationDockingTiles(Station *st);
 void RemoveDockingTile(TileIndex t);
 void ClearDockingTilesCheckingNeighbours(TileIndex tile);

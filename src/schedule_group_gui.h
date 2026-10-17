@@ -38,6 +38,26 @@ inline std::set<OrderListID> GetVisibleScheduleEntries(Owner owner)
 }
 
 /**
+ * Collect the schedule folders belonging to the tree @p owner may see.
+ *
+ * Folders have no public flag of their own (see #AreScheduleGroupsValid), so a folder of another
+ * company is part of the tree exactly when a schedule below it is visible to @p owner. Marking the
+ * folders this way keeps the grouping of a public schedule visible to the other companies instead
+ * of dropping the schedule at the root.
+ *
+ * @param owner Company viewing the schedules.
+ * @return Ids of the folders to show.
+ */
+inline std::set<OrderListID> GetVisibleScheduleGroups(Owner owner)
+{
+	std::set<OrderListID> groups;
+	for (OrderListID id : GetVisibleScheduleEntries(owner)) {
+		if (OrderList::Get(id)->IsScheduleGroup()) groups.insert(id);
+	}
+	return groups;
+}
+
+/**
  * Build the visible schedule tree, grouping siblings before sorting them by name.
  * @param owner Company viewing the schedules.
  * @param matches Optional set of matching entries, including their ancestors.

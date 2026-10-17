@@ -16,12 +16,11 @@ enum OrderListWidgets : WidgetID {
 	WID_OL_SORT_ORDER,      ///< Direction of sort dropdown.
 	WID_OL_SORT_CRITERIA,   ///< Criteria of sort dropdown.
 	WID_OL_FILTER,          ///< Filter of name.
-	WID_OL_UNGROUPED,       ///< Root drop target for schedules and groups.
+	WID_OL_ALL,             ///< All schedules bar; dropping a schedule or group here ungroups it.
 	WID_OL_LIST,            ///< List of order lists.
 	WID_OL_SCROLLBAR,       ///< Scrollbar of the list.
 	WID_OL_NEW,             ///< Create a new order list.
 	WID_OL_NEW_GROUP,       ///< Create a schedule folder.
-	WID_OL_MOVE_GROUP,      ///< Move the selected schedule/folder.
 	WID_OL_RENAME,          ///< Rename the selected order list.
 	WID_OL_PUBLIC,          ///< Make the selected order list public/private.
 	WID_OL_DELETE,          ///< Delete the selected order list.

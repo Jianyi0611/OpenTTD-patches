@@ -85,6 +85,7 @@ enum OrderWidgets : WidgetID {
 	WID_O_COUPLE_DIAGNOSTICS,        ///< Show coupling target and candidate diagnostics.
 	WID_O_ORDERS_FIRST,              ///< Select orders for first part of decoupled train.
 	WID_O_ORDERS_SECOND,             ///< Select orders for second part of decoupled train.
+	WID_O_WAIT_COUPLE_STATION,       ///< Select the station a waiting train travels to before holding.
 };
 
 /** Widgets of the #CargoTypeOrdersWindow class. */

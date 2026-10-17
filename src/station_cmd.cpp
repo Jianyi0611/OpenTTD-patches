@@ -3593,7 +3593,7 @@ static void DrawTile_Station(TileInfo *ti, DrawTileProcParams params)
 		DrawWaterClassGround(ti);
 		SpriteID sprite = GetCanalSprite(CanalFeature::Buoy, ti->tile);
 		if (sprite != 0) total_offset = sprite - SPR_IMG_BUOY;
-	} else if (IsDock(ti->tile) || (IsOilRig(ti->tile) && IsTileOnWater(ti->tile))) {
+	} else if (IsDock(ti->tile) || ((IsOilRig(ti->tile) || IsBuiltInHeliportTile(ti->tile)) && IsTileOnWater(ti->tile))) {
 		if (ti->tileh == SLOPE_FLAT) {
 			DrawWaterClassGround(ti);
 		} else {
@@ -3885,9 +3885,21 @@ static void GetTileDesc_Station(TileIndex tile, TileDesc &td)
 	switch (GetStationType(tile)) {
 		default: NOT_REACHED();
 		case StationType::Rail:     str = STR_LAI_STATION_DESCRIPTION_RAILROAD_STATION; break;
-		case StationType::Airport:
+		case StationType::Airport: {
+			if (IsBuiltInHeliportTile(tile)) {
+				/* Built-in heliport of an oil rig: report the owning industry. */
+				const Industry *i = Station::GetByTile(tile)->industry;
+				if (i != nullptr) {
+					const IndustrySpec *is = GetIndustrySpec(i->type);
+					td.owner[0] = i->owner;
+					str = is->name;
+					if (is->grf_prop.HasGrfFile()) td.grf = GetGRFConfig(is->grf_prop.grfid)->GetName();
+					break;
+				}
+			}
 			str = (IsHangar(tile) ? STR_LAI_STATION_DESCRIPTION_AIRCRAFT_HANGAR : STR_LAI_STATION_DESCRIPTION_AIRPORT);
 			break;
+		}
 		case StationType::Truck:    str = STR_LAI_STATION_DESCRIPTION_TRUCK_LOADING_AREA; break;
 		case StationType::Bus:      str = STR_LAI_STATION_DESCRIPTION_BUS_STATION; break;
 		case StationType::Oilrig: {
@@ -3964,6 +3976,11 @@ static void TileLoop_Station(TileIndex tile)
 	auto *st = BaseStation::GetByTile(tile);
 	switch (GetStationType(tile)) {
 		case StationType::Airport:
+			if (IsBuiltInHeliportTile(tile)) {
+				/* Oil rig heliports behave like water tiles for the tile loop. */
+				TileLoop_Water(tile);
+				break;
+			}
 			TriggerAirportTileAnimation(Station::From(st), tile, AirportAnimationTrigger::TileLoop);
 			break;
 
@@ -5439,7 +5456,12 @@ CommandCost ClearTile_Station(TileIndex tile, DoCommandFlags flags)
 			case StationType::Rail:         return CommandCost(STR_ERROR_MUST_DEMOLISH_RAILROAD);
 			case StationType::RailWaypoint: return CommandCost(STR_ERROR_BUILDING_MUST_BE_DEMOLISHED);
 			case StationType::RoadWaypoint: return CommandCost(STR_ERROR_BUILDING_MUST_BE_DEMOLISHED);
-			case StationType::Airport:      return CommandCost(STR_ERROR_MUST_DEMOLISH_AIRPORT_FIRST);
+			case StationType::Airport:
+			if (IsBuiltInHeliportTile(tile)) {
+				/* The built-in heliport of an oil rig can not be demolished. */
+				return CommandCostWithParam(STR_ERROR_GENERIC_OBJECT_IN_THE_WAY, STR_INDUSTRY_NAME_OIL_RIG);
+			}
+			return CommandCost(STR_ERROR_MUST_DEMOLISH_AIRPORT_FIRST);
 			case StationType::Truck:        return CommandCost(HasTileRoadType(tile, RoadTramType::Tram) ? STR_ERROR_MUST_DEMOLISH_CARGO_TRAM_STATION_FIRST : STR_ERROR_MUST_DEMOLISH_TRUCK_STATION_FIRST);
 			case StationType::Bus:          return CommandCost(HasTileRoadType(tile, RoadTramType::Tram) ? STR_ERROR_MUST_DEMOLISH_PASSENGER_TRAM_STATION_FIRST : STR_ERROR_MUST_DEMOLISH_BUS_STATION_FIRST);
 			case StationType::Buoy:         return CommandCost(STR_ERROR_BUOY_IN_THE_WAY);
@@ -5453,7 +5475,12 @@ CommandCost ClearTile_Station(TileIndex tile, DoCommandFlags flags)
 	switch (GetStationType(tile)) {
 		case StationType::Rail:         return RemoveRailStation(tile, flags);
 		case StationType::RailWaypoint: return RemoveRailWaypoint(tile, flags);
-		case StationType::Airport:      return RemoveAirport(tile, flags);
+		case StationType::Airport:
+			if (IsBuiltInHeliportTile(tile)) {
+				/* The built-in heliport of an oil rig can not be demolished. */
+				return CMD_ERROR;
+			}
+			return RemoveAirport(tile, flags);
 
 		case StationType::Truck:
 		case StationType::Bus:

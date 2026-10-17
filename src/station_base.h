@@ -846,6 +846,8 @@ public:
 
 	void AddFacility(StationFacility new_facility_bit, TileIndex facil_xy);
 
+	bool RemoveLoadingVehicle(const Vehicle *v);
+
 	void MarkTilesDirty(bool cargo_change) const;
 
 	void UpdateVirtCoord() override;

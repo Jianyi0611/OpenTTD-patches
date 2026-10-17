@@ -3464,13 +3464,14 @@ CommandCost CmdModifyOrder(DoCommandFlags flags, OrderTargetType target_type, ui
 			break;
 
 		case MOF_WAIT_COUPLE_STATION:
-			if ((!is_list && v->type != VehicleType::Train) || (data != 0 && !Station::IsValidID(StationID{(uint16_t)(data - 1)}))) return CMD_ERROR;
+			/* Encoded as station ID + 1; 0 makes the train hold where it is. */
+			if (!is_list && v->type != VehicleType::Train) return CMD_ERROR;
 			if (data != 0) {
-				bool in_schedule = false;
-				for (const Order *candidate : ol->Orders()) {
-					if (candidate->IsType(OT_GOTO_STATION) && candidate->GetDestination().ToStationID().base() == data - 1) { in_schedule = true; break; }
-				}
-				if (!in_schedule) return CMD_ERROR;
+				const Station *st = Station::GetIfValid(data - 1);
+				/* The train has to be able to travel there and stop, so a station without rail
+				 * platforms is rejected: resolving such a destination would skip an order
+				 * (see Train::GetOrderStationLocation). */
+				if (st == nullptr || !st->facilities.Test(StationFacility::Train)) return CMD_ERROR;
 			}
 			break;
 
@@ -4736,12 +4737,6 @@ void CheckOrders(const Vehicle *v)
 				n_st++;
 				if (!CanVehicleUseStation(v, st)) {
 					message = STR_NEWS_VEHICLE_HAS_INVALID_ENTRY;
-				} else if (v->type == VehicleType::Aircraft &&
-							(AircraftVehInfo(v->engine_type)->subtype & AIR_FAST) &&
-							st->airport.GetSpec()->min_runway_length < 6 &&
-							!_cheats.no_jetcrash.value &&
-							message == INVALID_STRING_ID) {
-					message = STR_NEWS_PLANE_USES_TOO_SHORT_RUNWAY;
 				}
 			}
 			if (order->IsType(OT_GOTO_DEPOT)) {
@@ -5878,7 +5873,7 @@ bool UpdateOrderDest(Vehicle *v, const Order *order, int conditional_depth, bool
 				OrderList *target = OrderList::GetIfValid(order->GetDestination().ToOrderListID());
 				bool recursive = target != nullptr && v->IsExecutingSchedule() && target->index == v->primary_order;
 				for (uint32_t frame : v->execute_schedule_stack) if (target != nullptr && OrderListID{uint16_t(frame)} == target->index) recursive = true;
-				if (target != nullptr && target != v->orders && !recursive && v->execute_schedule_stack.size() < 64 && target->IsPlayerCreated() && target->IsVisibleToCompany(v->owner)) {
+				if (target != nullptr && target != v->orders && target->GetNumOrders() > 0 && !recursive && v->execute_schedule_stack.size() < 64 && target->IsPlayerCreated() && target->IsVisibleToCompany(v->owner)) {
 					/* Execute the target order list: switch this vehicle to it (shared list).
 					 * The primary order list is kept as-is; after one full pass of the
 					 * target list the vehicle returns to it and resumes where it left.

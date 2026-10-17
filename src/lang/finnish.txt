@@ -928,7 +928,6 @@ STR_NEWS_VEHICLE_HAS_TOO_FEW_ORDERS                             :{WHITE}Kulkuneu
 STR_NEWS_VEHICLE_HAS_VOID_ORDER                                 :{WHITE}Kulkuneuvolla {VEHICLE} on virheellinen käsky
 STR_NEWS_VEHICLE_HAS_DUPLICATE_ENTRY                            :{WHITE}Kulkuneuvolla {VEHICLE} on toistuvia käskyjä
 STR_NEWS_VEHICLE_HAS_INVALID_ENTRY                              :{WHITE}Kulkuneuvon {VEHICLE} käskyissä on virheellinen asema
-STR_NEWS_PLANE_USES_TOO_SHORT_RUNWAY                            :{WHITE}Kulkuneuvon {VEHICLE} käskyissä on lentokenttä, jonka kiitorata on liian lyhyt
 
 STR_NEWS_VEHICLE_IS_GETTING_OLD                                 :{WHITE}{VEHICLE} on tulossa vanhaksi
 STR_NEWS_VEHICLE_IS_GETTING_VERY_OLD                            :{WHITE}{VEHICLE} on tulossa hyvin vanhaksi

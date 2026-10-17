@@ -3310,7 +3310,7 @@ bool AfterLoadGame()
 	if (IsSavegameVersionBefore(SLV_149)) {
 		for (TileIndex t(0); t < map_size; t++) {
 			if (!IsTileType(t, TileType::Station)) continue;
-			if (!IsBuoy(t) && !IsOilRig(t) && !(IsDock(t) && IsTileFlat(t))) {
+			if (!IsBuoy(t) && !IsOilRig(t) && !IsBuiltInHeliportTile(t) && !(IsDock(t) && IsTileFlat(t))) {
 				SetWaterClass(t, WaterClass::Invalid);
 			}
 		}
@@ -4271,7 +4271,7 @@ bool AfterLoadGame()
 
 		/* Link oil rigs to their industry and back. */
 		for (Station *st : Station::Iterate()) {
-			if (IsTileType(st->xy, TileType::Station) && IsOilRig(st->xy)) {
+			if (IsTileType(st->xy, TileType::Station) && (IsOilRig(st->xy) || IsBuiltInHeliportTile(st->xy))) {
 				/* Industry tile is always adjacent during construction by TileDiffXY(0, 1) */
 				st->industry = Industry::GetByTile(st->xy + TileDiffXY(0, 1));
 				st->industry->neutral_station = st;
@@ -4299,7 +4299,7 @@ bool AfterLoadGame()
 			}
 			/* Add docks and oilrigs to Station::ship_station. */
 			if (IsTileType(t, TileType::Station)) {
-				if (IsDock(t) || IsOilRig(t)) Station::GetByTile(t)->ship_station.Add(t);
+				if (IsDock(t) || IsOilRig(t) || IsBuiltInHeliportTile(t)) Station::GetByTile(t)->ship_station.Add(t);
 			}
 		}
 	}

@@ -27,10 +27,12 @@ DEF_CMD_TUPLE_LT (Commands::ForceTrainProceed,        CmdForceTrainProceed,     
 DEF_CMD_TUPLE_LT (Commands::ReverseTrainDirection,    CmdReverseTrainDirection,     {}, CommandType::VehicleManagement,   CmdDataT<VehicleID, bool>)
 DEF_CMD_TUPLE_LT (Commands::SetTrainSpeedRestriction, CmdSetTrainSpeedRestriction,  {}, CommandType::VehicleManagement,   CmdDataT<VehicleID, uint16_t>)
 
-/** Tick of the last failed couple target search, per train (see DoTrainCouplePathfind).
+/** Vehicle-tick stamp (_scaled_tick_counter) of the last failed couple target
+ *  search, per train (see DoTrainCouplePathfind).
  *  Persisted in the savegame (chunk CSFC, feature XSLFI_COUPLE_SEARCH_FAIL_CACHE):
  *  it gates couple target searches, so it must not differ between a long-running
- *  server and a freshly loading client. */
+ *  server and a freshly loading client. Saves written before the switch to
+ *  vehicle ticks hold date ticks; those are simply treated as long expired. */
 extern btree::btree_map<VehicleID, uint64_t> _couple_search_last_fail;
 
 void ClearCoupleSearchLastFail();

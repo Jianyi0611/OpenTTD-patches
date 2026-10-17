@@ -104,8 +104,22 @@ Station::~Station()
 		return;
 	}
 
-	while (!this->loading_vehicles.empty()) {
-		this->loading_vehicles.front()->LeaveStation();
+	/* End the station stops of the vehicles still listed here. The list is
+	 * detached first: LeaveStation() removes the vehicle from the station named
+	 * by last_station_visited, which need not be this one (it is cleared when
+	 * the next order is for the same station), so it would neither remove the
+	 * entry being processed nor terminate the loop. */
+	{
+		std::vector<Vehicle *> loading = std::move(this->loading_vehicles);
+		this->loading_vehicles.clear();
+		for (Vehicle *v : loading) {
+			if (v->last_station_visited != this->index) continue;
+			/* An entry can outlive the loading order it was created for; there is
+			 * no station stop left to end for it, its cargo payment is already
+			 * settled by the LeaveStation() call which changed the order. */
+			if (!v->current_order.IsAnyLoadingType()) continue;
+			v->LeaveStation();
+		}
 	}
 
 	for (Aircraft *a : Aircraft::Iterate()) {
@@ -258,6 +272,25 @@ void Station::AddFacility(StationFacility new_facility_bit, TileIndex facil_xy)
 	this->build_date = CalTime::CurDate();
 	SetWindowClassesDirty(WindowClass::VehicleOrders);
 	SetWindowClassesDirty(WindowClass::OrderListEditor);
+}
+
+/**
+ * Remove a vehicle from this station's list of vehicles loading here.
+ *
+ * The list is the authority on where the entry lives, which is why callers must
+ * not infer the station from the vehicle's last_station_visited: that field can
+ * change while the entry exists (see Vehicle::RemoveFromLoadingQueues()).
+ * @param v The vehicle to remove.
+ * @return True if the vehicle was listed here, false otherwise.
+ */
+bool Station::RemoveLoadingVehicle(const Vehicle *v)
+{
+	auto &vehicles = this->loading_vehicles;
+	const size_t before = vehicles.size();
+	/* PrepareUnload() never registers a vehicle twice, but removing every match
+	 * keeps a duplicate from surviving one removal. */
+	vehicles.erase(std::remove(vehicles.begin(), vehicles.end(), v), vehicles.end());
+	return vehicles.size() != before;
 }
 
 /**

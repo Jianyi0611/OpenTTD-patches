@@ -3114,6 +3114,7 @@ private:
 		OPOS_CONDITIONAL_RETARGET,
 		OPOS_DEPARTURE_VIA,
 		OPOS_COUPLE_STATION,
+		OPOS_WAIT_COUPLE_STATION,
 		OPOS_END,
 	};
 
@@ -3129,6 +3130,7 @@ private:
 		DP_GROUNDVEHICLE_ROW_EMPTY       = 6, ///< Display the row for no buttons in the top row of the train/rv order window.
 		DP_GROUNDVEHICLE_ROW_COUPLE      = 7, ///< Display the row for couple orders in the top row of the train order window.
 		DP_GROUNDVEHICLE_ROW_DECOUPLE    = 8, ///< Display the row for decouple options of a decouple flagged order in the train order window.
+		DP_GROUNDVEHICLE_ROW_WAIT_COUPLE = 9, ///< Display the row for wait for couple orders in the top row of the train order window.
 
 		/* WID_O_SEL_TOP_LEFT */
 		DP_LEFT_LOAD       = 0, ///< Display 'load' in the left button of the top row of the train/rv order window.
@@ -3573,6 +3575,7 @@ private:
 			HT_NONE,              // OPOS_CONDITIONAL_RETARGET
 			HT_RECT,              // OPOS_DEPARTURE_VIA
 			HT_RECT,              // OPOS_COUPLE_STATION
+			HT_RECT,              // OPOS_WAIT_COUPLE_STATION
 		};
 		SetObjectToPlaceWnd(ANIMCURSOR_PICKSTATION, PAL_NONE, goto_place_style[type - 1], this);
 		this->goto_type = type;
@@ -3581,6 +3584,7 @@ private:
 		this->SetWidgetDirty(WID_O_COND_AUX_STATION);
 		this->SetWidgetDirty(WID_O_MGMT_BTN);
 		this->SetWidgetDirty(WID_O_COUPLE_STATION);
+		this->SetWidgetDirty(WID_O_WAIT_COUPLE_STATION);
 	}
 
 	void OrderClick_WaitForCouple()
@@ -4184,12 +4188,15 @@ public:
 			this->decouple_scroll = this->GetScrollbar(WID_O_DECOUPLE_SCROLLBAR);
 		}
 		/* No occupancy data without executing vehicles. */
-		this->GetWidget<NWidgetStacked>(WID_O_SEL_OCCUPANCY)->SetDisplayedPlane(SZSP_NONE);
+		if (auto *occupancy = this->GetWidget<NWidgetStacked>(WID_O_SEL_OCCUPANCY); occupancy != nullptr) occupancy->SetDisplayedPlane(SZSP_NONE);
 		this->current_aux_planes.fill(SZSP_NONE);
 		this->current_value_plane = DP_COND_VALUE_NUMBER;
 		{
+			/* The read-only layout for another company's schedule has none of the editing
+			 * selectors, so they are set up only when they are part of this tree. */
 			auto setup_plane = [&](WidgetID wid, int current, bool independent) {
 				NWidgetStacked *sel = this->GetWidget<NWidgetStacked>(wid);
+				if (sel == nullptr) return;
 				sel->independent_planes = independent;
 				sel->SetDisplayedPlane(current);
 			};
@@ -4386,7 +4393,10 @@ public:
 	void UpdateButtonState()
 	{
 		if (!IsLocalTarget()) {
-			this->GetWidget<NWidgetStacked>(WID_O_SEL_OCCUPANCY)->SetDisplayedPlane(IsWidgetLowered(WID_O_OCCUPANCY_TOGGLE) ? 0 : SZSP_NONE);
+			/* The read-only layout for another company's schedule has no occupancy pane at all. */
+			if (auto *occupancy = this->GetWidget<NWidgetStacked>(WID_O_SEL_OCCUPANCY); occupancy != nullptr) {
+				occupancy->SetDisplayedPlane(IsWidgetLowered(WID_O_OCCUPANCY_TOGGLE) ? 0 : SZSP_NONE);
+			}
 			return; // No buttons are displayed with competitor order windows.
 		}
 
@@ -4744,8 +4754,11 @@ public:
 				}
 
 				case OT_WAIT_COUPLE:
-					train_row_sel->SetDisplayedPlane(DP_GROUNDVEHICLE_ROW_SLOT);
-					this->GetWidget<NWidgetCore>(WID_O_SLOT)->SetToolTip(STR_ORDER_WAIT_COUPLE_TARGET_TOOLTIP);
+					train_row_sel->SetDisplayedPlane(DP_GROUNDVEHICLE_ROW_WAIT_COUPLE);
+					/* The widget only exists in the ground-vehicle window layout. */
+					if (this->widget_lookup.find(WID_O_WAIT_COUPLE_STATION) != this->widget_lookup.end()) {
+						this->SetWidgetLoweredState(WID_O_WAIT_COUPLE_STATION, order->HasWaitCoupleStation());
+					}
 					break;
 
 				case OT_GOTO_COUPLE: {
@@ -4884,15 +4897,19 @@ public:
 		} else {
 			this->SetWidgetLoweredState(WID_O_GOTO, this->goto_type != OPOS_NONE && this->goto_type != OPOS_COND_VIA
 					&& this->goto_type != OPOS_COND_STATION && this->goto_type != OPOS_CONDITIONAL_RETARGET
-					&& this->goto_type != OPOS_COUPLE_STATION);
+					&& this->goto_type != OPOS_COUPLE_STATION && this->goto_type != OPOS_WAIT_COUPLE_STATION);
 			this->SetWidgetLoweredState(WID_O_COND_AUX_VIA, this->goto_type == OPOS_COND_VIA);
 			this->SetWidgetLoweredState(WID_O_COND_AUX_STATION, this->goto_type == OPOS_COND_STATION);
 			{
 				/* The couple widgets only exist in the ground-vehicle window layout. */
+				const Order *sel_order = OrderAt(this->OrderGetSel());
 				if (this->widget_lookup.find(WID_O_COUPLE_STATION) != this->widget_lookup.end()) {
-					const Order *sel_order = OrderAt(this->OrderGetSel());
 					this->SetWidgetLoweredState(WID_O_COUPLE_STATION, this->goto_type == OPOS_COUPLE_STATION
 							|| (sel_order != nullptr && sel_order->IsType(OT_GOTO_COUPLE) && sel_order->HasCoupleStation()));
+				}
+				if (this->widget_lookup.find(WID_O_WAIT_COUPLE_STATION) != this->widget_lookup.end()) {
+					this->SetWidgetLoweredState(WID_O_WAIT_COUPLE_STATION, this->goto_type == OPOS_WAIT_COUPLE_STATION
+							|| (sel_order != nullptr && sel_order->IsType(OT_WAIT_COUPLE) && sel_order->HasWaitCoupleStation()));
 				}
 			}
 			this->SetWidgetLoweredState(WID_O_MGMT_BTN, this->goto_type == OPOS_CONDITIONAL_RETARGET);
@@ -5171,8 +5188,10 @@ public:
 			case WID_O_CAPTION:
 				if (!this->HasVehicle()) {
 					const OrderList *ol = this->order_list;
-					if (ol->GetName().empty()) return GetString(STR_JUST_RAW_STRING, GetString(STR_ORDER_LIST_DEFAULT_NAME, ol->index.base() + 1));
-					return GetString(STR_JUST_RAW_STRING, ol->GetName());
+					const std::string name = ol->GetName().empty() ? GetString(STR_ORDER_LIST_DEFAULT_NAME, ol->index.base() + 1) : ol->GetName();
+					/* A schedule of another company is only ever previewed, so name its owner. */
+					if (ol->GetCompany() != _local_company) return GetString(STR_ORDER_LIST_ORDERS_OTHER_CAPTION, ol->GetCompany(), name);
+					return GetString(STR_JUST_RAW_STRING, name);
 				}
 				return GetString(STR_ORDERS_CAPTION, this->vehicle->index);
 
@@ -5213,8 +5232,6 @@ public:
 					if (target == nullptr) return GetString(STR_TRACE_RESTRICT_VARIABLE_UNDEFINED);
 					std::string name = target->GetName().empty() ? GetString(STR_ORDER_LIST_DEFAULT_NAME, target->index.base() + 1) : target->GetName();
 					return GetString(STR_JUST_RAW_STRING, name);
-				} else if (order != nullptr && order->IsType(OT_WAIT_COUPLE)) {
-					return order->HasWaitCoupleStation() && Station::IsValidID(order->GetWaitCoupleStation()) ? GetString(STR_STATION_NAME, order->GetWaitCoupleStation()) : GetString(STR_ORDER_WAIT_COUPLE_HERE);
 				} else if (order != nullptr && order->IsType(OT_SLOT)) {
 					if (order->GetDestination() == INVALID_TRACE_RESTRICT_SLOT_ID) {
 						return GetString(STR_TRACE_RESTRICT_VARIABLE_UNDEFINED);
@@ -5542,6 +5559,7 @@ public:
 						case OPOS_INSERT_FROM_VEHICLE:  sel = ODDI_INSERT_FROM_VEHICLE; break;
 						case OPOS_CONDITIONAL_RETARGET: sel = -1; break;
 						case OPOS_COUPLE_STATION: sel = -1; break;
+						case OPOS_WAIT_COUPLE_STATION: sel = -1; break;
 						case OPOS_DEPARTURE_VIA:        sel = ODDI_LABEL_DEPARTURES_VIA; break;
 						default: NOT_REACHED();
 					}
@@ -5959,20 +5977,6 @@ public:
 			case WID_O_SLOT: {
 				const Order *o = OrderAt(this->OrderGetSel());
 				if (o == nullptr) return;
-				if (o->IsType(OT_WAIT_COUPLE)) {
-					DropDownList list;
-					int selected = o->HasWaitCoupleStation() ? (int)o->GetWaitCoupleStation().base() + 1 : 0;
-					list.push_back(MakeDropDownListStringItem(STR_ORDER_WAIT_COUPLE_HERE, 0, false));
-					const OrderList *schedule = this->HasVehicle() ? this->vehicle->orders : this->order_list;
-					if (schedule == nullptr) return;
-					for (const Order *candidate : schedule->Orders()) {
-						if (!candidate->IsType(OT_GOTO_STATION) || !Station::IsValidID(candidate->GetDestination().ToStationID())) continue;
-						StationID station = candidate->GetDestination().ToStationID();
-						list.push_back(MakeDropDownListStringItem(GetString(STR_STATION_NAME, station), (int)station.base() + 1, false));
-					}
-					ShowDropDownList(this, std::move(list), selected, WID_O_SLOT, 0, DropDownOption::Filterable, DDSF_SHARED);
-					break;
-				}
 				if (o->IsExecuteScheduleOrder()) {
 					DropDownList list;
 					int selected = -1;
@@ -6074,6 +6078,21 @@ public:
 				} else {
 					/* Start picking a station on the map. */
 					this->OrderClick_Goto(OPOS_COUPLE_STATION);
+				}
+				break;
+			}
+
+			case WID_O_WAIT_COUPLE_STATION: {
+				const Order *sel_order = OrderAt(this->OrderGetSel());
+				if (this->goto_type != OPOS_NONE) {
+					/* Cancel station picking. */
+					ResetObjectToPlace();
+				} else if (sel_order != nullptr && sel_order->IsType(OT_WAIT_COUPLE) && sel_order->HasWaitCoupleStation()) {
+					/* Waiting place active: second click clears it, so the train holds where it is. */
+					this->ModifyOrder(this->OrderGetSel(), MOF_WAIT_COUPLE_STATION, 0);
+				} else {
+					/* Start picking the station to travel to before holding. */
+					this->OrderClick_Goto(OPOS_WAIT_COUPLE_STATION);
 				}
 				break;
 			}
@@ -6470,10 +6489,6 @@ public:
 			case WID_O_SLOT: {
 				const Order *o = OrderAt(this->OrderGetSel());
 				if (o == nullptr) return;
-				if (o->IsType(OT_WAIT_COUPLE)) {
-					this->ModifyOrder(this->OrderGetSel(), MOF_WAIT_COUPLE_STATION, index);
-					break;
-				}
 				if (o->IsExecuteScheduleOrder()) {
 					this->ModifyOrder(this->OrderGetSel(), MOF_EXECUTE_SCHEDULE, index);
 					break;
@@ -6749,19 +6764,23 @@ public:
 					}
 				}
 			}
-		} else if (this->goto_type == OPOS_COUPLE_STATION) {
+		} else if (this->goto_type == OPOS_COUPLE_STATION || this->goto_type == OPOS_WAIT_COUPLE_STATION) {
 			if (IsTileType(tile, TileType::Station) || IsTileType(tile, TileType::Industry)) {
 				const Station *st = nullptr;
 
 				if (IsTileType(tile, TileType::Station)) {
-					st = Station::GetByTile(tile);
+					/* Waypoints and buoys are station tiles but not stations: resolving them with
+					 * Station::GetByTile would pick whatever station has the same index. */
+					if (!IsRailWaypointTile(tile) && !IsRoadWaypointTile(tile) && !IsBuoyTile(tile)) st = Station::GetByTile(tile);
 				} else {
 					const Industry *in = Industry::GetByTile(tile);
 					st = in->neutral_station;
 				}
+				/* A train can only travel to, or couple at, a station it can actually reach on rails. */
 				if (st != nullptr && st->train_station.tile != INVALID_TILE && (this->HasVehicle() ? IsInfraUsageAllowed(this->vehicle->type, this->vehicle->owner, st->owner) : true)) {
-					/* Encoded as station ID + 1; 0 clears the restriction. */
-					if (this->ModifyOrder(this->OrderGetSel(), MOF_COUPLE_STATION, st->index.base() + 1)) {
+					/* Encoded as station ID + 1; 0 clears the entry. */
+					const ModifyOrderFlags mof = this->goto_type == OPOS_WAIT_COUPLE_STATION ? MOF_WAIT_COUPLE_STATION : MOF_COUPLE_STATION;
+					if (this->ModifyOrder(this->OrderGetSel(), mof, st->index.base() + 1)) {
 						ResetObjectToPlace();
 					}
 				}
@@ -6863,6 +6882,7 @@ public:
 		this->SetWidgetDirty(WID_O_COND_AUX_STATION);
 		this->SetWidgetDirty(WID_O_MGMT_BTN);
 		this->SetWidgetDirty(WID_O_COUPLE_STATION);
+		this->SetWidgetDirty(WID_O_WAIT_COUPLE_STATION);
 
 		/* Remove drag highlighting if it exists. */
 		if (this->order_over != INVALID_VEH_ORDER_ID) {
@@ -7043,6 +7063,8 @@ struct DecoupleSchedulePickerWindow : Window {
 				if (!this->string_filter.GetState()) continue;
 			}
 			matches.insert(ol->index);
+			/* Keep the folders above a match, including the folders of another company above one of
+			 * its public schedules: they are part of the tree and keep the schedule grouped. */
 			for (OrderListID parent = ol->GetScheduleGroup(); parent != OrderListID::Invalid();) {
 				if (!matches.insert(parent).second) break;
 				const OrderList *group = OrderList::GetIfValid(parent);
@@ -7304,6 +7326,12 @@ static constexpr std::initializer_list<NWidgetPart> _nested_orders_train_widgets
 															SetStringTip(STR_ORDERS_DECOUPLE_VALUE_BUTTON, STR_ORDER_DECOUPLE_VALUE_TOOLTIP), SetResize(1, 0),
 				EndContainer(),
 			EndContainer(),
+			NWidget(NWID_HORIZONTAL, NWidContainerFlag::EqualSize),
+				NWidget(WWT_PANEL, Colours::Grey), SetResize(1, 0), EndContainer(),
+				NWidget(WWT_PANEL, Colours::Grey), SetResize(1, 0), EndContainer(),
+				NWidget(WWT_PUSHTXTBTN, Colours::Grey, WID_O_WAIT_COUPLE_STATION), SetMinimalSize(124, 12), SetFill(1, 0),
+														SetStringTip(STR_ORDER_COUPLE_STATION_BUTTON, STR_ORDER_WAIT_COUPLE_STATION_TOOLTIP), SetResize(1, 0),
+			EndContainer(),
 		EndContainer(),
 		NWidget(NWID_SELECTION, Colours::Invalid, WID_O_SEL_SHARED),
 			NWidget(WWT_PUSHIMGBTN, Colours::Grey, WID_O_SHARED_ORDER_LIST), SetAspect(1), SetSpriteTip(SPR_SHARED_ORDERS_ICON, STR_ORDERS_VEH_WITH_SHARED_ORDERS_LIST_TOOLTIP),
@@ -7556,6 +7584,37 @@ static WindowDesc _other_orders_desc(__FILE__, __LINE__,
 	&OrdersWindow::hotkeys
 );
 
+/**
+ * Nested widget definition for another company's standalone schedule. Like the competitor vehicle
+ * layout it carries no editing rows, so the orders can only be looked at. Occupancy is left out
+ * entirely: it is a property of vehicles running the schedule, not of the schedule itself.
+ */
+static constexpr std::initializer_list<NWidgetPart> _nested_other_orderlist_widgets = {
+	NWidget(NWID_HORIZONTAL),
+		NWidget(WWT_CLOSEBOX, Colours::Grey),
+		NWidget(WWT_CAPTION, Colours::Grey, WID_O_CAPTION),
+		NWidget(WWT_PUSHBTN, Colours::Grey, WID_O_TIMETABLE_VIEW), SetMinimalSize(61, 14), SetToolTip(STR_ORDERS_TIMETABLE_VIEW_TOOLTIP),
+		NWidget(WWT_SHADEBOX, Colours::Grey),
+		NWidget(WWT_DEFSIZEBOX, Colours::Grey),
+		NWidget(WWT_STICKYBOX, Colours::Grey),
+	EndContainer(),
+	NWidget(NWID_HORIZONTAL),
+		NWidget(WWT_PANEL, Colours::Grey, WID_O_ORDER_LIST), SetMinimalSize(372, 72), SetToolTip(STR_ORDERS_LIST_TOOLTIP), SetResize(1, 1), SetScrollbar(WID_O_SCROLLBAR), EndContainer(),
+		NWidget(NWID_VERTICAL),
+			NWidget(NWID_VSCROLLBAR, Colours::Grey, WID_O_SCROLLBAR),
+			NWidget(WWT_RESIZEBOX, Colours::Grey),
+		EndContainer(),
+	EndContainer(),
+};
+
+static WindowDesc _orderlist_other_desc(__FILE__, __LINE__,
+	WindowPosition::Automatic, "view_order_list_competitor", 384, 86,
+	WindowClass::OrderListEditor, WindowClass::None,
+	WindowDefaultFlag::Construction,
+	_nested_other_orderlist_widgets,
+	&OrdersWindow::hotkeys
+);
+
 void ShowOrdersWindow(const Vehicle *v)
 {
 	CloseWindowById(WindowClass::VehicleDetails, v->index, false);
@@ -7610,15 +7669,19 @@ void CcInsertOrdersFromVehicle(const CommandCost &result, VehicleID veh_dst, Veh
 }
 
 /**
- * Show the order editor window for a standalone player-created order list.
- * @param id the id of the order list; only lists owned by the local company can be edited.
+ * Show the window for a standalone player-created order list: the editor for the local company's
+ * own schedules, a read-only preview for another company's public ones. Folders have no orders, so
+ * they have no window at all.
+ * @param id the id of the order list.
  */
 void ShowOrderListEditor(OrderListID id)
 {
 	const OrderList *ol = OrderList::GetIfValid(id);
 	if (ol == nullptr || !ol->IsPlayerCreated() || ol->IsScheduleGroup()) return;
-	if (ol->GetCompany() != _local_company) return;
+
+	const bool local = ol->GetCompany() == _local_company;
+	if (!local && !ol->IsVisibleToCompany(_local_company)) return;
 
 	if (BringWindowToFrontById(WindowClass::OrderListEditor, id.base()) != nullptr) return;
-	new OrdersWindow(_orderlist_editor_desc, id);
+	new OrdersWindow(local ? _orderlist_editor_desc : _orderlist_other_desc, id);
 }

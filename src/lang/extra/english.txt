@@ -2104,11 +2104,9 @@ STR_ORDER_LIST_NEW                                              :{BLACK}New
 STR_ORDER_LIST_NEW_TOOLTIP                                      :{BLACK}Create a new order list
 STR_ORDER_LIST_NEW_GROUP                                        :{BLACK}New schedule group
 STR_ORDER_LIST_NEW_GROUP_TOOLTIP                                :{BLACK}Create a schedule group inside the selected group. Groups can contain schedules and subgroups.
-STR_ORDER_LIST_MOVE_GROUP                                       :{BLACK}Move to group
-STR_ORDER_LIST_MOVE_GROUP_TOOLTIP                               :{BLACK}Move the selected schedule or group. Deleting a group keeps its contents in the parent group.
-STR_ORDER_LIST_UNGROUPED                                        :Ungrouped
-STR_ORDER_WAIT_COUPLE_HERE                                      :{BLACK}Wait here
-STR_ORDER_WAIT_COUPLE_TARGET_TOOLTIP                            :{BLACK}Choose a station from this train's schedule. The train travels there before waiting for a coupling partner.
+STR_ORDER_LIST_ALL_SCHEDULES                                    :All schedules
+STR_ORDER_LIST_ALL_SCHEDULES_TOOLTIP                            :{BLACK}Drag a schedule or group here to move it out of its group
+STR_ORDER_WAIT_COUPLE_STATION_TOOLTIP                            :{BLACK}Select a station on the map for the train to wait at. Click again to clear, so the train holds where it is.
 STR_ORDER_WAIT_COUPLE_AT                                        : at {STATION}
 STR_ORDER_COUPLE_CHECK_SELECT                                   :{BLACK}Check location: {RAW_STRING}...
 STR_ORDER_COUPLE_CHECK_ITEM                                     :{BLACK}{RAW_STRING}{RAW_STRING}
@@ -2122,7 +2120,7 @@ STR_ORDER_LIST_PUBLIC                                           :{BLACK}Public
 STR_ORDER_LIST_PUBLIC_TOOLTIP                                   :{BLACK}Toggle the visibility of an order list. A public order list will be shown to the other companies.
 STR_ORDER_LIST_MAKE_PUBLIC                                      :{BLACK}Make public
 STR_ORDER_LIST_MAKE_PRIVATE                                     :{BLACK}Make private
-STR_ORDER_LIST_LIST_TOOLTIP                                     :{BLACK}Click the edit button to open the order list in the order window
+STR_ORDER_LIST_LIST_TOOLTIP                                     :{BLACK}Click the edit button to open the order list in the order window. Drag a schedule or group onto a group to move it there.
 STR_ORDER_LIST_QUERY_RENAME                                     :{WHITE}Rename order list
 STR_ORDER_LIST_DEFAULT_NAME                                     :Order list {NUM}
 STR_SORT_BY_ORDER_LIST_ID                                      :Order list ID
@@ -2130,6 +2128,7 @@ STR_ERROR_CAN_T_RENAME_ORDER_LIST                               :{WHITE}Can't re
 STR_ERROR_CAN_T_DELETE_ORDER_LIST                               :{WHITE}Can't delete order list...
 STR_ERROR_ORDER_LIST_IN_USE                                     :{WHITE}It is used by other vehicles
 STR_ORDER_LIST_ORDERS_CAPTION                                  :{WHITE}{RAW_STRING} (Orders)
+STR_ORDER_LIST_ORDERS_OTHER_CAPTION                            :{WHITE}{COMPANY}: {RAW_STRING}
 
 # Order list timetable window
 STR_ORDER_LIST_TIMETABLE_CAPTION                                :{WHITE}Timetable

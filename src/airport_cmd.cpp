@@ -32,6 +32,7 @@
 #include "order_backup.h"
 #include "pathfinder/yapf/yapf_cache.h"
 #include "sound_func.h"
+#include "zoning.h"
 #include "station_func.h"
 #include "station_base.h"
 #include "station_kdtree.h"
@@ -1925,10 +1926,10 @@ CommandCost RemoveAirport(TileIndex tile, DoCommandFlags flags)
 	return cost;
 }
 
-void BuildBuiltInHeliport(Tile tile)
+void BuildBuiltInHeliport(TileIndex tile)
 {
 	if (!Station::CanAllocateItem()) {
-		Debug(misc, 0, "Can't allocate built in station for industry at 0x{}. Built in station won't be built.", static_cast<uint32_t>(tile));
+		Debug(misc, 0, "Can't allocate built in station for industry at 0x{}. Built in station won't be built.", tile.base());
 		return;
 	}
 
@@ -1943,22 +1944,11 @@ void BuildBuiltInHeliport(Tile tile)
 	st->industry = Industry::GetByTile(tile);
 	st->industry->neutral_station = st;
 	DeleteAnimatedTile(tile);
-	MakeStation(tile, OWNER_NONE, st->index, StationType::Airport, 0, GetWaterClass(tile));
-
-	const AirportSpec *as = AirportSpec::Get(AT_OILRIG);
-	const AirportTileTable *tile_desc = &as->layouts[0].tiles[0];
-	tile.m4() = 0;
-	tile.m5() = 0;
-	SetAirType(tile, as->airtype);
-	SetAirportTileType(tile, tile_desc->type);
-	SetAirportTileTracks(tile, tile_desc->trackbits);
-	SetApronType(tile, tile_desc->apron_type);
-	st->airport.flags = AF_NONE;
+	WaterClass wc = GetWaterClass(tile);
+	MakeBuiltInHeliportTile(tile, st->index, wc);
 
 	st->owner = OWNER_NONE;
 	st->airport.type = AT_OILRIG;
-	st->airport.air_type = as->airtype;
-	st->airport.Add(tile);
 	st->ship_station.Add(tile);
 	st->facilities = {StationFacility::Airport, StationFacility::Dock};
 	st->build_date = CalTime::CurDate();
@@ -1966,6 +1956,7 @@ void BuildBuiltInHeliport(Tile tile)
 
 	st->rect.BeforeAddTile(tile, StationRect::ADD_FORCE);
 
+	/* Derive the airport data structure (area, air type, heliports) from the tile. */
 	st->UpdateAirportDataStructure();
 	st->UpdateVirtCoord();
 
@@ -1983,6 +1974,7 @@ void BuildBuiltInHeliport(Tile tile)
 
 	st->RecomputeCatchment();
 	UpdateStationAcceptance(st, false);
+	ZoningMarkDirtyStationCoverageArea(st);
 }
 
 void DeleteOldBuiltInHeliport(TileIndex tile)

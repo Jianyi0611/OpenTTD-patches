@@ -1026,7 +1026,7 @@ static inline CommandCost CanBuildChunnel(TileIndex tile, DiagDirection directio
 					if (direction == DiagDirection::NW && (end_tileh & SLOPE_NW) == SLOPE_NW) break;
 
 					/* No drilling under oil rigs.*/
-					if ((IsTileType(tile, TileType::Station) && IsOilRig(tile)) ||
+					if ((IsTileType(tile, TileType::Station) && (IsOilRig(tile) || IsBuiltInHeliportTile(tile))) ||
 							(IsTileType(tile, TileType::Industry)               &&
 							GetIndustryGfx(tile) >= GFX_OILRIG_1         &&
 							GetIndustryGfx(tile) <= GFX_OILRIG_5)) return CommandCost(STR_ERROR_NO_DRILLING_ABOVE_CHUNNEL);

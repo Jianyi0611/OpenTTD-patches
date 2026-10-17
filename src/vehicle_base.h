@@ -422,6 +422,7 @@ public:
 	void BeginLoading();
 	void CancelReservation(StationID next, Station *st);
 	void LeaveStation();
+	void RemoveFromLoadingQueues();
 	void AdvanceLoadingInStation();
 
 	inline GroundVehicleCache *GetGroundVehicleCache();

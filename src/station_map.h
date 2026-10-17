@@ -173,14 +173,19 @@ inline bool IsAirportTile(TileIndex t)
 /**
  * Is a given tile a hangar?
  * @param t Tile to check.
- * @return True if it is a hangar.
- * @pre IsAirportTile
+ * @return True if it is a hangar, false for any other tile.
+ * @pre IsTileType(t, TileType::Station)
  */
 static inline bool IsHangar(Tile t)
 {
 	assert(IsValidTile(t));
 	assert(IsTileType(t, TileType::Station));
-	assert(IsAirport(t));
+
+	/* A station tile which is not an airport cannot have a hangar. Generic
+	 * callers ask this about any station tile (e.g. the script order API
+	 * deciding between OT_GOTO_STATION and OT_GOTO_DEPOT), so being an airport
+	 * must not be a precondition here. */
+	if (!IsAirport(t)) return false;
 
 	return GB(t.m5(), 8 - ATT_HANGAR_LAYOUT_NUM_BITS, ATT_HANGAR_LAYOUT_NUM_BITS) == ATT_HANGAR_LAYOUT_BITS;
 }

@@ -4712,7 +4712,10 @@ void ClearCoupleSearchLastFail()
 	_couple_search_last_fail.clear();
 }
 
-/** A failed couple target search is retried only after this many ticks. */
+/** A failed couple target search is retried only after this many vehicle ticks.
+ *  This must be a vehicle-tick clock, not the date-tick counter: with a day
+ *  length factor the date tick advances only once per DayLengthFactor vehicle
+ *  ticks, which would stretch the retry interval by that factor. */
 constexpr uint64_t COUPLE_FAIL_RETRY_INTERVAL = 60;
 
 /**
@@ -4750,7 +4753,9 @@ static bool HasWaitingCoupleTrain()
 static Track DoTrainCouplePathfind(const Train *v, bool do_track_reservation, Train **couple_target, uint32_t *couple_cost)
 {
 	const VehicleID id = v->Primary()->index;
-	const uint64_t now = _tick_counter;
+	/* Vehicle ticks, not date ticks: _scaled_tick_counter advances once per
+	 * simulation iteration and is restored from the savegame (see afterload). */
+	const uint64_t now = _scaled_tick_counter;
 
 	/* Nobody is waiting for a couple anywhere: no target can be found, so do
 	 * not walk the whole network to prove it. */
@@ -6292,7 +6297,11 @@ static Train *GetDecoupleVehicle(Train *v)
 	 * physical chain head, which may be a different vehicle when the primary
 	 * sits mid-chain after a couple. */
 	Train *prim = v->Primary();
-	Order *decouple_order = prim->orders->GetOrderAt(prim->cur_implicit_order_index + 1);
+	/* The split count lives on the decouple marker behind the current order.
+	 * A stale or misaligned index leaves no marker there (the arrival then
+	 * counts as a plain stop); report "no cut" instead of dereferencing it. */
+	const Order *decouple_order = (prim->orders != nullptr) ? prim->orders->GetOrderAt(prim->cur_implicit_order_index + 1) : nullptr;
+	if (decouple_order == nullptr || !decouple_order->IsType(OT_DECOUPLE)) return nullptr;
 	return GetDecoupleVehicleForCount(v, decouple_order->GetNumDecouple());
 }
 
@@ -6478,6 +6487,7 @@ static bool IsDecoupleWaitMode(OrderDecoupleOrdersFlags mode)
 static StringID PrepareDecoupleWaitOrders(const Train *v, std::unique_ptr<OrderList> (&copies)[2])
 {
 	const Order *decouple = v->GetOrder(v->cur_implicit_order_index + 1);
+	if (decouple == nullptr || !decouple->IsType(OT_DECOUPLE)) return STR_DECOUPLE_DIAGNOSTIC_ORDER;
 	const OrderDecoupleOrdersFlags modes[] = {decouple->GetDecoupleFirstOrdersType(), decouple->GetDecoupleSecondOrdersType()};
 	if (!IsDecoupleWaitMode(modes[0]) && !IsDecoupleWaitMode(modes[1])) return STR_NULL;
 	if (v->GetNumOrders() >= MAX_VEH_ORDER_ID) return STR_ERROR_TOO_MANY_ORDERS;
@@ -6605,8 +6615,16 @@ static bool AdoptDecoupleSchedule(Train *part, OrderListID schedule_id, StationI
 
 static void SplitOrders(Train *v, Train *u, uint8_t &load_trains, std::unique_ptr<OrderList> (&wait_orders)[2])
 {
-	const Order after_decouple_flags = *v->orders->GetOrderAt(v->cur_implicit_order_index + 1);
-	assert(after_decouple_flags.GetType() == OT_DECOUPLE);
+	/* The decouple marker has to sit behind the implicit index, which every
+	 * caller guarantees (see #TrainEnterStation). Re-check it instead of
+	 * dereferencing a possibly stale index: without the marker the two parts'
+	 * order modes cannot be determined at all. */
+	const Order *decouple_marker = (v->orders != nullptr) ? v->orders->GetOrderAt(v->cur_implicit_order_index + 1) : nullptr;
+	if (decouple_marker == nullptr || !decouple_marker->IsType(OT_DECOUPLE)) {
+		Debug(desync, 1, "SplitOrders: veh={} has no decouple marker behind order {}", v->index, v->cur_implicit_order_index);
+		return;
+	}
+	const Order after_decouple_flags = *decouple_marker;
 	const VehicleOrderID wait_index = v->cur_implicit_order_index + 2;
 	const BaseConsist order_state = *v;
 
@@ -7008,8 +7026,7 @@ void CancelTrainCoupleCheckpoint(Train *train)
 }
 
 /**
- * Check a waiting consist's exclusive claim, including while its claimant is
- * still completing orders between the checkpoint and the couple order.
+ * Check a waiting consist's exclusive claim.
  * Changing the target or any volatile order condition invalidates the claim.
  */
 static Train *GetValidCoupleClaimant(const Train *carrier)
@@ -7694,7 +7711,6 @@ static void Couple(Train *v, Train *u)
 		return;
 	}
 
-
 	/* The absorbed consist's primary pointers must follow the surviving
 	 * primary, otherwise vehicles of the absorbed part resolve their consist
 	 * info (orders, name, group) from a stale mid-chain vehicle. */
@@ -7754,21 +7770,23 @@ static void Couple(Train *v, Train *u)
 	 * tick), so any manual override (e.g. forcing u->direction to a quantized
 	 * travel axis) desyncs direction from the vehicle's pixels and produces the
 	 * 45-degree visual skew seen before. Only clear stale flags that would make
-	 * the next tick trigger an unrequested auto-reversal. */
-	for (Train *w = v; w != nullptr; w = w->Next()) {
+	 * the next tick trigger an unrequested auto-reversal.
+	 *
+	 * Iterate from the physical chain head: the primary may sit mid-chain, so
+	 * starting the walk at it would leave the vehicles ahead of it - which this
+	 * cleanup is meant to cover just as much - carrying a stale flag. */
+	for (Train *w = v->First(); w != nullptr; w = w->Next()) {
 		w->flags.Reset(VehicleRailFlag::Reversed);
 	}
+	/* Reversing is a property of the consist as a whole: it is set on and read
+	 * from the primary (see the CheckReverseTrain calls and the movement
+	 * handler), so it is cleared there instead of on every vehicle. */
 	v->flags.Reset(VehicleRailFlag::Reversing);
 
 	/* If the absorbed consist was queued for loading/unloading at a station,
 	 * drop the stale entry: it can never leave the queue by itself anymore
 	 * and its load_unload_ticks would eventually hit zero and assert. */
-	Station *couple_station = Station::GetIfValid(u->last_station_visited);
-	if (couple_station != nullptr) {
-		auto &loading = couple_station->loading_vehicles;
-		auto it = std::find(loading.begin(), loading.end(), u);
-		if (it != loading.end()) loading.erase(it);
-	}
+	u->RemoveFromLoadingQueues();
 	AdvanceWagonsAfterCouple(v_last);
 
 	/* Stale look-ahead/reservations from before the flip: rebuild them for
@@ -7970,13 +7988,6 @@ static void TrainEnterStation(Train *consist, StationID station)
 	const Order *after_current = (consist->orders != nullptr) ? consist->orders->GetOrderAt(consist->cur_implicit_order_index + 1) : nullptr;
 	bool want_decouple = after_current != nullptr && after_current->IsType(OT_DECOUPLE) &&
 			consist->current_order.GetDestination() == station && consist->current_order.GetDecouple() == ODF_DECOUPLE;
-	/* When both parts request the original direction, the physical trailer
-	 * waits for the leading part to clear the platform. Neither part reverses
-	 * while still in the station. */
-	const Order *decouple_flags_order = want_decouple ? consist->GetOrder(consist->cur_implicit_order_index + 1) : nullptr;
-	bool first_same_dir = decouple_flags_order != nullptr && decouple_flags_order->IsType(OT_DECOUPLE) && decouple_flags_order->GetDecoupleFirstSameDirExit();
-	bool second_same_dir = decouple_flags_order != nullptr && decouple_flags_order->IsType(OT_DECOUPLE) && decouple_flags_order->GetDecoupleSecondSameDirExit();
-	bool both_same_dir = first_same_dir && second_same_dir;
 	if (want_decouple) {
 		/* Stopping at a via station leaves an OT_IMPLICIT marker at the implicit index (see the
 		 * implicit-order handling in #HandleLoading), so that index can point at the marker while
@@ -7995,6 +8006,27 @@ static void TrainEnterStation(Train *consist, StationID station)
 			consist->cur_timetable_order_index = INVALID_VEH_ORDER_ID;
 		}
 	}
+	/* The decouple marker must sit right behind the (possibly just realigned)
+	 * implicit index: every step below reads it relative to that index, and the
+	 * realignment can move the index onto an order whose successor is not a
+	 * marker (or has none). Re-check it and treat the arrival as a plain stop
+	 * when there is no marker, instead of letting the decouple read a stale
+	 * position. */
+	const Order *decouple_flags_order = (want_decouple && consist->orders != nullptr) ? consist->orders->GetOrderAt(consist->cur_implicit_order_index + 1) : nullptr;
+	if (decouple_flags_order == nullptr || !decouple_flags_order->IsType(OT_DECOUPLE)) {
+		want_decouple = false;
+		decouple_flags_order = nullptr;
+	}
+	/* Which parts may leave the station in the same direction as the other
+	 * part. For such a part the JustDecoupled flag below is withheld, so the
+	 * normal departure reverse check can turn it back around once its natural
+	 * side is blocked; waiting for the other part to leave is handled by path
+	 * reservation. When both parts request the original direction, the physical
+	 * trailer waits for the leading part to clear the platform and neither part
+	 * reverses while still in the station. */
+	bool first_same_dir = decouple_flags_order != nullptr && decouple_flags_order->GetDecoupleFirstSameDirExit();
+	bool second_same_dir = decouple_flags_order != nullptr && decouple_flags_order->GetDecoupleSecondSameDirExit();
+	bool both_same_dir = first_same_dir && second_same_dir;
 	Debug(desync, 1, "TrainEnterStation: veh={} st={} tile=({},{}) want_decouple={} ordertype={}", consist->index, station, TileX(consist->tile), TileY(consist->tile), want_decouple, (int)consist->current_order.GetType());
 	std::unique_ptr<OrderList> wait_orders[2];
 	const StringID order_failure = want_decouple ? PrepareDecoupleWaitOrders(consist, wait_orders) : STR_NULL;
