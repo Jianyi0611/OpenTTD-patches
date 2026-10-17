@@ -271,12 +271,22 @@ static void CopyStationTile(Blueprint &blueprint, TileIndex tile, TileIndexDiffC
 			break;
 
 		case StationType::Airport: {
-			/* Record the airport only once, at its northern tile. */
 			const Station *st = Station::GetByTile(tile);
-			if (st->airport.tile != tile) break;
+			if (st->airport.tile == INVALID_TILE) break;
 			if (st->airport.type == AT_OILRIG || IsBuiltInHeliportTile(tile)) break; /* Industry built-in heliports are not copyable. */
 
-			BlueprintAirport airport{offset, st->airport.type, st->airport.layout,
+			/* Record the airport only once. The anchor is the northern tile of the
+			 * airport's bounding box, which is not necessarily an airport tile: a custom
+			 * (multitile) airport may have a hole there, e.g. when it is not rectangular.
+			 * Any tile of the station therefore has to be able to trigger the recording. */
+			if (std::any_of(blueprint.airports.begin(), blueprint.airports.end(),
+					[st](const BlueprintAirport &a) { return a.station == st->index; })) break;
+
+			/* Offset of the anchor tile, relative to the blueprint origin. */
+			TileIndexDiffC anchor{static_cast<int16_t>(offset.x + TileX(st->airport.tile) - TileX(tile)),
+					static_cast<int16_t>(offset.y + TileY(st->airport.tile) - TileY(tile))};
+
+			BlueprintAirport airport{anchor, st->airport.type, st->airport.layout,
 					static_cast<uint8_t>(to_underlying(st->airport.rotation)), static_cast<uint8_t>(st->airport.air_type),
 					st->airport.w, st->airport.h, st->index, {}};
 
@@ -285,9 +295,8 @@ static void CopyStationTile(Blueprint &blueprint, TileIndex tile, TileIndexDiffC
 				for (TileIndex t : st->airport) {
 					if (!st->TileBelongsToAirport(t)) continue;
 					if (GetTileOwner(t) != _local_company) continue;
-					TileIndexDiffC rel = BlueprintOffset(t, tile);
-					TileIndexDiffC toff{static_cast<int16_t>(offset.x + rel.x), static_cast<int16_t>(offset.y + rel.y)};
-					if (toff.x < 0 || toff.y < 0) continue;
+					TileIndexDiffC rel = BlueprintOffset(t, st->airport.tile);
+					TileIndexDiffC toff{static_cast<int16_t>(anchor.x + rel.x), static_cast<int16_t>(anchor.y + rel.y)};
 					airport.tiles.push_back({toff, static_cast<uint8_t>(Tile(t).m4()),
 							static_cast<uint8_t>(Tile(t).m5()), static_cast<uint8_t>(Tile(t).m6()),
 							static_cast<uint16_t>(Tile(t).m8() & ~(0x3F << 6))}); // clear reservation bits
@@ -311,14 +320,15 @@ static void CopyStationTile(Blueprint &blueprint, TileIndex tile, TileIndexDiffC
  */
 static TileIndexDiffC ShrinkBlueprintToContents(Blueprint &blueprint)
 {
-	int min_x = blueprint.width - 1;
-	int min_y = blueprint.height - 1;
-	int max_x = 0;
-	int max_y = 0;
+	/* Start from empty bounds rather than the selected area: a multi-tile element
+	 * (a whole custom airport, a dock's water part) can extend outside the selection,
+	 * so its tiles must enlarge the blueprint instead of being clipped to it. */
+	int min_x = INT_MAX;
+	int min_y = INT_MAX;
+	int max_x = INT_MIN;
+	int max_y = INT_MIN;
 
 	auto include = [&](int x, int y) {
-		x = Clamp(x, 0, blueprint.width - 1);
-		y = Clamp(y, 0, blueprint.height - 1);
 		min_x = std::min(min_x, x);
 		min_y = std::min(min_y, y);
 		max_x = std::max(max_x, x);
@@ -454,11 +464,13 @@ uint CopyAreaToBlueprint(TileArea area, Blueprint &blueprint)
 	}
 
 	uint count = blueprint.CountItems();
-	uint ox = TileX(area.tile);
-	uint oy = TileY(area.tile);
+	int ox = TileX(area.tile);
+	int oy = TileY(area.tile);
 
 	if (count > 0) {
 		TileIndexDiffC shifted = ShrinkBlueprintToContents(blueprint);
+		/* A multi-tile element (e.g. a whole custom airport) may extend north or west
+		 * of the selection, so the shift can be negative. */
 		ox += shifted.x;
 		oy += shifted.y;
 	}
@@ -467,7 +479,9 @@ uint CopyAreaToBlueprint(TileArea area, Blueprint &blueprint)
 	blueprint.corner_heights.reserve((blueprint.width + 1) * (blueprint.height + 1));
 	for (uint y = 0; y <= blueprint.height; y++) {
 		for (uint x = 0; x <= blueprint.width; x++) {
-			blueprint.corner_heights.push_back(TileHeight(TileXY(std::min(ox + x, Map::MaxX()), std::min(oy + y, Map::MaxY()))));
+			blueprint.corner_heights.push_back(TileHeight(TileXY(
+					Clamp<int>(ox + static_cast<int>(x), 0, static_cast<int>(Map::MaxX())),
+					Clamp<int>(oy + static_cast<int>(y), 0, static_cast<int>(Map::MaxY())))));
 		}
 	}
 

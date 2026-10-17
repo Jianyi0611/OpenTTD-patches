@@ -11,11 +11,14 @@
 
 #include "../3rdparty/catch2/catch.hpp"
 
+#include "../air_map.h"
 #include "../blueprint.h"
 #include "../blueprint_cmd.h"
 #include "../company_func.h"
 #include "../map_func.h"
 #include "../rail_map.h"
+#include "../station_base.h"
+#include "../station_map.h"
 #include "../newgrf.h"
 #include "../newgrf_newsignals.h"
 #include "../newgrf_object.h"
@@ -432,6 +435,61 @@ TEST_CASE("Blueprint - transforming a blueprint moves elements consistently")
 	CHECK(full_circle.rail_tracks[0].offset.x == 0);
 	CHECK(full_circle.rail_tracks[0].offset.y == 0);
 	CHECK(full_circle.rail_tracks[0].track == TRACK_X);
+}
+
+TEST_CASE("Blueprint - non-rectangular custom airport can be copied")
+{
+	AllocateMap(64, 64);
+	_local_company = OWNER_BEGIN;
+
+	/* An L-shaped custom airport: the north-west corner of its bounding box (5, 5) is a hole. */
+	Station *st = Station::Create(TileXY(5, 5));
+	st->owner = _local_company;
+	st->facilities = {StationFacility::Airport};
+	st->airport.type = AT_CUSTOM;
+
+	const std::vector<TileIndex> tiles = {
+		TileXY(6, 5), TileXY(7, 5),
+		TileXY(5, 6), TileXY(6, 6), TileXY(7, 6),
+		TileXY(5, 7),
+	};
+	for (TileIndex t : tiles) {
+		MakeAirport(t, _local_company, st->index, 0, WaterClass::Invalid);
+		SetAirType(t, AIRTYPE_ASPHALT);
+		SetAirportTileType(t, ATT_SIMPLE_TRACK);
+		SetAirportTileTracks(t, TRACK_BIT_Y);
+		st->rect.BeforeAddTile(t, StationRect::ADD_FORCE);
+	}
+	st->UpdateAirportDataStructure();
+
+	/* The anchor is the bounding box corner, which is not an airport tile here. */
+	REQUIRE(st->airport.tile == TileXY(5, 5));
+	REQUIRE(!IsAirportTile(st->airport.tile));
+
+	/* Selecting the bounding box copies the whole airport even though the anchor is a hole. */
+	Blueprint blueprint;
+	CopyAreaToBlueprint(TileArea(TileXY(5, 5), TileXY(7, 7)), blueprint);
+	REQUIRE(blueprint.airports.size() == 1);
+	CHECK(blueprint.airports[0].station == st->index);
+	CHECK(blueprint.airports[0].type == AT_CUSTOM);
+	CHECK(blueprint.airports[0].tiles.size() == tiles.size());
+	CHECK(blueprint.airports[0].offset.x == 0);
+	CHECK(blueprint.airports[0].offset.y == 0);
+
+	/* A selection covering only the south-east part still yields the whole airport, re-based
+	 * so that every tile offset is inside the resulting blueprint. */
+	Blueprint partial;
+	CopyAreaToBlueprint(TileArea(TileXY(6, 6), TileXY(7, 7)), partial);
+	REQUIRE(partial.airports.size() == 1);
+	CHECK(partial.airports[0].tiles.size() == tiles.size());
+	CHECK(partial.width == 3);
+	CHECK(partial.height == 3);
+	for (const BlueprintAirportTile &apt : partial.airports[0].tiles) {
+		CHECK(apt.offset.x >= 0);
+		CHECK(apt.offset.y >= 0);
+		CHECK(apt.offset.x < partial.width);
+		CHECK(apt.offset.y < partial.height);
+	}
 }
 
 TEST_CASE("Blueprint - two tracks with signals on one tile")
