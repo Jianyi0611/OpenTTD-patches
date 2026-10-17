@@ -4710,7 +4710,10 @@ void ClearCoupleSearchLastFail()
 	_couple_search_last_fail.clear();
 }
 
-/** A failed couple target search is retried only after this many ticks. */
+/** A failed couple target search is retried only after this many vehicle ticks.
+ *  This must be a vehicle-tick clock, not the date-tick counter: with a day
+ *  length factor the date tick advances only once per DayLengthFactor vehicle
+ *  ticks, which would stretch the retry interval by that factor. */
 constexpr uint64_t COUPLE_FAIL_RETRY_INTERVAL = 60;
 
 /**
@@ -4748,7 +4751,9 @@ static bool HasWaitingCoupleTrain()
 static Track DoTrainCouplePathfind(const Train *v, bool do_track_reservation, Train **couple_target, uint32_t *couple_cost)
 {
 	const VehicleID id = v->Primary()->index;
-	const uint64_t now = _tick_counter;
+	/* Vehicle ticks, not date ticks: _scaled_tick_counter advances once per
+	 * simulation iteration and is restored from the savegame (see afterload). */
+	const uint64_t now = _scaled_tick_counter;
 
 	/* Nobody is waiting for a couple anywhere: no target can be found, so do
 	 * not walk the whole network to prove it. */
@@ -7514,7 +7519,6 @@ static void Couple(Train *v, Train *u)
 		}
 		return;
 	}
-
 
 	/* The absorbed consist's primary pointers must follow the surviving
 	 * primary, otherwise vehicles of the absorbed part resolve their consist

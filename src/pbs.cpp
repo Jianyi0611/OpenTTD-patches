@@ -1749,16 +1749,54 @@ static CoupleApproachOutcome CoupleApproachSearch(const Train *v, const Train *t
 		 * which IsValidTile filters out. */
 		TileIndexDiff step = TileOffsByDiagDir(ft.exitdir);
 		TrackBits mover_track = TrackToTrackBits(TrackdirToTrack(n.td));
+
+		/* Travel direction of this step, used to order vehicles along the track
+		 * when several consists share a tile. */
+		const int dir_x = static_cast<int>(TileX(ft.new_tile)) - static_cast<int>(TileX(n.tile));
+		const int dir_y = static_cast<int>(TileY(ft.new_tile)) - static_cast<int>(TileY(n.tile));
+		auto along = [dir_x, dir_y](const Train *u) {
+			return static_cast<int64_t>(u->x_pos) * dir_x + static_cast<int64_t>(u->y_pos) * dir_y;
+		};
+
 		bool saw_foreign = false;
 		bool reached = false;
 		for (uint i = 1; i <= ft.tiles_skipped + 1; i++) {
 			TileIndex t = ft.new_tile - step * (ft.tiles_skipped + 1 - i);
 			if (!IsValidTile(t) || t == n.tile) continue;
-			/* A foreign consist standing on the track we travel is in the way even when it shares
-			 * the partner's own tile (coupled consists overlap there), so it is checked first. */
-			if (foreign_on(t, mover_track)) saw_foreign = true;
 			/* The contact happens where the partner is met; tiles past it are not travelled. */
-			if (partner_on(t)) { reached = true; break; }
+			if (partner_on(t)) {
+				/* Vehicles of several consists can share the partner's tile when their
+				 * ends meet (queued trains, short vehicles). Only a foreign vehicle
+				 * lying between us and the partner's contact end is in the way: one
+				 * beyond the contact end is behind the partner, and the couple is
+				 * made past it, not through it. Compare along-track positions
+				 * instead of treating every foreign vehicle on the tile as blocking. */
+				int64_t contact = 0;
+				bool have_contact = false;
+				for (const Train *u : VehiclesOnTile<VehicleType::Train>(t)) {
+					if (u->Primary() != partner || (u->track & mover_track) == TRACK_BIT_NONE) continue;
+					const int64_t pos = along(u);
+					if (!have_contact || pos < contact) {
+						contact = pos;
+						have_contact = true;
+					}
+				}
+				if (!have_contact) {
+					/* Partner shares the tile but not our track: keep the old
+					 * conservative rule. */
+					if (foreign_on(t, mover_track)) saw_foreign = true;
+				} else {
+					for (const Train *u : VehiclesOnTile<VehicleType::Train>(t)) {
+						const Train *up = u->Primary();
+						if (up == partner || up == mover) continue;
+						if ((u->track & mover_track) == TRACK_BIT_NONE) continue;
+						if (along(u) < contact) saw_foreign = true;
+					}
+				}
+				reached = true;
+				break;
+			}
+			if (foreign_on(t, mover_track)) saw_foreign = true;
 		}
 		if (reached) {
 			/* This is the first (shortest) route to the partner. A foreign consist met on the way
