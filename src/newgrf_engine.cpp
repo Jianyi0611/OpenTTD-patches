@@ -205,11 +205,17 @@ uint8_t MapAircraftMovementState(const Aircraft *v)
 			return v->IsHelicopter() ? AMS_TTDP_FLIGHT_TO_TOWER : AMS_TTDP_FLIGHT_DESCENT;
 
 		case AS_ON_HOLD_APPROACHING:
+		case AS_ON_HOLD_WAITING:
+			return v->IsHelicopter() ? AMS_TTDP_FLIGHT_TO_TOWER : AMS_TTDP_FLIGHT_APPROACH;
+
 		case AS_FLYING:
 		case AS_FLYING_FALLING:
 		case AS_FLYING_NO_DEST:
-		case AS_ON_HOLD_WAITING:
-			return v->IsHelicopter() ? AMS_TTDP_FLIGHT_TO_TOWER : AMS_TTDP_FLIGHT_APPROACH;
+			/* Free flight, i.e. cruising towards the destination. jgrpp maps FLYING to
+			 * FLIGHT_TO_TOWER unless the airport movement data flags a holding pattern.
+			 * NewGRFs such as WAS return the cruise speed (callback 36) only for this
+			 * state, so reporting FLIGHT_APPROACH here capped aircraft at approach speed. */
+			return AMS_TTDP_FLIGHT_TO_TOWER;
 
 		case AS_IDLE:
 			break;
