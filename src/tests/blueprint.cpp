@@ -354,6 +354,56 @@ TEST_CASE("Blueprint - direction, axis and road bit transformation")
 	CHECK(TransformBlueprintRoadBits(ROAD_NE | ROAD_SE, 0, true) == (ROAD_SW | ROAD_SE));
 }
 
+TEST_CASE("Blueprint - runway direction transformation")
+{
+	/* Rotation by 90 degrees anticlockwise: N -> W -> S -> E -> N. */
+	CHECK(TransformBlueprintDirection(Direction::N, 1, false) == Direction::W);
+	CHECK(TransformBlueprintDirection(Direction::E, 1, false) == Direction::N);
+	CHECK(TransformBlueprintDirection(Direction::NE, 1, false) == Direction::NW);
+	CHECK(TransformBlueprintDirection(Direction::N, 4, false) == Direction::N);
+
+	/* Reflection against the NW-SE axis: NE and SW swap, as do N/W and E/S. */
+	CHECK(TransformBlueprintDirection(Direction::NE, 0, true) == Direction::SW);
+	CHECK(TransformBlueprintDirection(Direction::N, 0, true) == Direction::W);
+	CHECK(TransformBlueprintDirection(Direction::SE, 0, true) == Direction::SE);
+	CHECK(TransformBlueprintDirection(Direction::NW, 0, true) == Direction::NW);
+}
+
+TEST_CASE("Blueprint - custom airport tiles rotate their tile data")
+{
+	/* Hangar on the north edge opening to the south-west, with an X track. */
+	BlueprintAirportTile hangar{{0, 0}, 0, static_cast<uint8_t>(ATT_HANGAR_STANDARD << 4), 0,
+			static_cast<uint16_t>(TRACK_BIT_X | (to_underlying(DiagDirection::SW) << 14))};
+	TransformBlueprintAirportTile(hangar, 1, false);
+	CHECK(hangar.m5 == static_cast<uint8_t>(ATT_HANGAR_STANDARD << 4));
+	CHECK(GB(hangar.m8, 0, 6) == TRACK_BIT_Y);
+	CHECK(GB(hangar.m8, 14, 2) == to_underlying(DiagDirection::SE));
+
+	/* Runway middle: the packed direction N becomes W. */
+	BlueprintAirportTile runway{{1, 0}, 0, static_cast<uint8_t>(ATT_RUNWAY_MIDDLE << 4), 0,
+			static_cast<uint16_t>(to_underlying(Direction::N) << 12)};
+	TransformBlueprintAirportTile(runway, 1, false);
+	CHECK(GB(runway.m8, 12, 3) == to_underlying(Direction::W));
+
+	/* Runway start: its direction rotates by one quarter turn as well. */
+	BlueprintAirportTile runway_start{{2, 0}, 0, static_cast<uint8_t>(ATT_RUNWAY_START_ALLOW_LANDING << 4), 0,
+			static_cast<uint16_t>(to_underlying(DiagDirection::NE) << 12)};
+	TransformBlueprintAirportTile(runway_start, 1, false);
+	CHECK(GB(runway_start.m8, 12, 2) == to_underlying(DiagDirection::NW));
+
+	/* Four quarter turns restore the captured tile exactly, reservation bits included. */
+	BlueprintAirportTile original{{3, 0}, 0x11, static_cast<uint8_t>((ATT_APRON_NORMAL << 4) | 0x3), 0x82,
+			static_cast<uint16_t>(TRACK_BIT_UPPER | TRACK_BIT_LEFT | (1 << 6) | (to_underlying(DiagDirection::NW) << 14))};
+	BlueprintAirportTile rotated = original;
+	for (int i = 0; i < 4; i++) TransformBlueprintAirportTile(rotated, 1, false);
+	CHECK(rotated.offset.x == original.offset.x);
+	CHECK(rotated.offset.y == original.offset.y);
+	CHECK(rotated.m4 == original.m4);
+	CHECK(rotated.m5 == original.m5);
+	CHECK(rotated.m6 == original.m6);
+	CHECK(rotated.m8 == original.m8);
+}
+
 TEST_CASE("Blueprint - transforming a blueprint moves elements consistently")
 {
 	/* A 3x2 blueprint with a single X track in its north corner. */

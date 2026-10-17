@@ -420,8 +420,10 @@ const struct ObjectSpec *ResolveBlueprintObject(const BlueprintSpecRef &spec);
 TileIndexDiffC TransformBlueprintPoint(TileIndexDiffC point, uint16_t bounds_x, uint16_t bounds_y, uint8_t rotation, bool reflected);
 Track TransformBlueprintTrack(Track track, uint8_t rotation, bool reflected);
 DiagDirection TransformBlueprintDiagDir(DiagDirection dir, uint8_t rotation, bool reflected);
+Direction TransformBlueprintDirection(Direction dir, uint8_t rotation, bool reflected);
 Axis TransformBlueprintAxis(Axis axis, uint8_t rotation);
 RoadBits TransformBlueprintRoadBits(RoadBits bits, uint8_t rotation, bool reflected);
+void TransformBlueprintAirportTile(BlueprintAirportTile &apt, uint8_t rotation, bool reflected);
 Blueprint TransformBlueprint(const Blueprint &blueprint, uint8_t rotation, bool reflected);
 BlueprintPasteData PrepareBlueprintPaste(const Blueprint &blueprint, const BlueprintPasteOptions &options, RailType convert_to);
 

@@ -535,6 +535,26 @@ DiagDirection TransformBlueprintDiagDir(DiagDirection dir, uint8_t rotation, boo
 }
 
 /**
+ * Transform a runway direction the same way as #TransformBlueprintPoint transforms points.
+ * @param dir Packed direction of a plain runway tile.
+ * @param rotation Number of quarter turns anticlockwise (0..3).
+ * @param reflected Whether to reflect against the NW-SE axis before rotating.
+ * @return The transformed direction.
+ */
+Direction TransformBlueprintDirection(Direction dir, uint8_t rotation, bool reflected)
+{
+	/* Reflection against the NW-SE axis: NE and SW swap, as do N/W and E/S. */
+	static const Direction reflect_map[to_underlying(Direction::End)] = {
+		Direction::W, Direction::SW, Direction::S, Direction::SE,
+		Direction::E, Direction::NE, Direction::N, Direction::NW
+	};
+
+	if (reflected) dir = reflect_map[to_underlying(dir)];
+	/* Rotation by 90 degrees anticlockwise: N -> W -> S -> E -> N. */
+	return static_cast<Direction>((to_underlying(dir) + 6 * (rotation % 4u)) % to_underlying(Direction::End));
+}
+
+/**
  * Transform an axis the same way as #TransformBlueprintPoint transforms points.
  * @param axis Axis to transform.
  * @param rotation Number of quarter turns anticlockwise (0..3).
@@ -570,6 +590,60 @@ RoadBits TransformBlueprintRoadBits(RoadBits bits, uint8_t rotation, bool reflec
 static void SortBlueprintOffsets(TileIndexDiffC &a, TileIndexDiffC &b)
 {
 	if (b.y < a.y || (b.y == a.y && b.x < a.x)) std::swap(a, b);
+}
+
+/**
+ * Transform the direction-bearing parts of a captured custom airport tile.
+ *
+ * Custom (multitile) airports are replayed from their captured raw tile words
+ * instead of being rebuilt from a layout spec, so the tile contents have to be
+ * transformed together with their offsets. The tracks, the runway direction and
+ * the rotation of aprons/infrastructure and hangars all live in m8; leaving them
+ * alone makes a rotated paste face the original way, e.g. a hangar opening onto
+ * the grass next to the airport.
+ * @param apt Captured tile to transform in place.
+ * @param rotation Number of quarter turns anticlockwise (0..3).
+ * @param reflected Whether to reflect against the NW-SE axis before rotating.
+ */
+void TransformBlueprintAirportTile(BlueprintAirportTile &apt, uint8_t rotation, bool reflected)
+{
+	/* m8 bits 0-5: one bit per track that is laid on the tile. */
+	uint8_t tracks = apt.m8 & TRACK_BIT_MASK;
+	uint8_t transformed_tracks = 0;
+	for (Track track = TRACK_BEGIN; track < TRACK_END; track++) {
+		if (HasBit(tracks, to_underlying(track))) SetBit(transformed_tracks, to_underlying(TransformBlueprintTrack(track, rotation, reflected)));
+	}
+	apt.m8 = (apt.m8 & ~static_cast<uint16_t>(TRACK_BIT_MASK)) | transformed_tracks;
+
+	switch (static_cast<AirportTileType>(GB(apt.m5, 4, ATT_NUM_BITS))) {
+		case ATT_RUNWAY_MIDDLE:
+			/* m8 bits 12-14: the packed direction(s) of the runway. */
+			SB(apt.m8, 12, 3, to_underlying(TransformBlueprintDirection(static_cast<Direction>(GB(apt.m8, 12, 3)), rotation, reflected)));
+			break;
+
+		case ATT_RUNWAY_START_NO_LANDING:
+		case ATT_RUNWAY_START_ALLOW_LANDING:
+		case ATT_RUNWAY_END:
+			/* m8 bits 12-13: the direction along the runway. */
+			SB(apt.m8, 12, 2, to_underlying(TransformBlueprintDiagDir(static_cast<DiagDirection>(GB(apt.m8, 12, 2)), rotation, reflected)));
+			break;
+
+		case ATT_HANGAR_STANDARD:
+		case ATT_HANGAR_EXTENDED:
+		case ATT_APRON_NORMAL:
+		case ATT_APRON_HELIPAD:
+		case ATT_APRON_HELIPORT:
+		case ATT_APRON_BUILTIN_HELIPORT:
+		case ATT_INFRASTRUCTURE_NO_CATCH:
+		case ATT_INFRASTRUCTURE_WITH_CATCH:
+			/* m8 bits 14-15: hangar exit direction / rotation of the tile. */
+			SB(apt.m8, 14, 2, to_underlying(TransformBlueprintDiagDir(static_cast<DiagDirection>(GB(apt.m8, 14, 2)), rotation, reflected)));
+			break;
+
+		default:
+			/* Flat tiles have no direction of their own; the tracks above are all they carry. */
+			break;
+	}
 }
 
 /**
@@ -677,7 +751,10 @@ Blueprint TransformBlueprint(const Blueprint &blueprint, uint8_t rotation, bool 
 		b = tile_offset(b);
 		airport.offset = {std::min(a.x, b.x), std::min(a.y, b.y)};
 		if (swap_axes) std::swap(airport.w, airport.h);
-		for (BlueprintAirportTile &apt : airport.tiles) apt.offset = tile_offset(apt.offset);
+		for (BlueprintAirportTile &apt : airport.tiles) {
+			apt.offset = tile_offset(apt.offset);
+			TransformBlueprintAirportTile(apt, rotation, reflected);
+		}
 		result.airports.push_back(airport);
 	}
 
