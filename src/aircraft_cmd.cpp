@@ -2126,8 +2126,14 @@ void HandleAircraftFlightLevel(Aircraft *v)
 			assert(IsValidTile(v->GetNextTile()));
 			int z = GetTileHeightBelowAircraft(v) + 1;
 			/* Runway may be in a higher tile than the current one. */
-			z = std::max(z, GetTileMaxPixelZ(v->GetNextTile()) + 1);
-			z = v->z_pos - z;
+			int z_target = std::max(z, GetTileMaxPixelZ(v->GetNextTile()) + 1);
+			/* The aircraft may have been saved (or flown into) an altitude below the terrain/runway level.
+			 * Restore a legal descent altitude instead of descending further through the terrain. */
+			if (v->z_pos < z_target) {
+				v->z_pos = z_target;
+				break;
+			}
+			z = v->z_pos - z_target;
 
 			if (z > 32) {
 				v->z_pos = v->z_pos - 2;
@@ -2139,9 +2145,16 @@ void HandleAircraftFlightLevel(Aircraft *v)
 
 		case AS_FLYING_LANDING: {
 			int z = GetTileHeightBelowAircraft(v) + 1;
-			assert(z < v->z_pos);
-			v->z_pos -= 1;
-			if (v->z_pos == z) HandlePlaneLandsOnRunway(v);
+			if (v->z_pos <= z) {
+				/* Aircraft was saved (or got into) an illegal altitude below the terrain, e.g. embedded in a
+				 * mountainside while landing. Restore a legal altitude instead of asserting, so that such a
+				 * savegame can still be loaded and the aircraft lands normally. */
+				v->z_pos = z + 1;
+			} else {
+				assert(z < v->z_pos);
+				v->z_pos -= 1;
+				if (v->z_pos == z) HandlePlaneLandsOnRunway(v);
+			}
 			break;
 		}
 
