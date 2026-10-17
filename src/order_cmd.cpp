@@ -70,11 +70,20 @@
  */
 const Depot *GetOrderHangar(const Order &o)
 {
+	/* Aircraft hangar orders name the airport, not the hangar: that is what the order
+	 * GUI, the script API, CmdSendVehicleToDepot and FindClosestDepot store. Depot and
+	 * station indices are allocated from separate pools, so a depot with the same numeric
+	 * index can exist at a completely different airport; trying the depot interpretation
+	 * first would silently redirect the aircraft to that other airport's hangar. */
+	const Station *st = Station::GetIfValid(o.GetDestination().ToStationID());
+	if (st != nullptr && st->airport.hangar != nullptr) return st->airport.hangar;
+
+	/* Compatibility with an order that stored the hangar depot index instead, e.g. an
+	 * aircraft saved in the middle of an automatic servicing order. */
 	const Depot *depot = Depot::GetIfValid(o.GetDestination().ToDepotID());
 	if (depot != nullptr && IsAirportTile(depot->xy)) return depot;
 
-	const Station *st = Station::GetIfValid(o.GetDestination().ToStationID());
-	return (st != nullptr) ? st->airport.hangar : nullptr;
+	return nullptr;
 }
 
 DestinationID GetTargetDestination(const Order &o, bool is_aircraft)

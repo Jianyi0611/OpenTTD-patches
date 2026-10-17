@@ -4298,7 +4298,7 @@ CommandCost Vehicle::SendToDepot(DoCommandFlags flags, DepotCommandFlags command
 		}
 
 		this->SetDestTile(closest_depot.location);
-		this->current_order.MakeGoToDepot(closest_depot.destination.ToDepotID(), {});
+		this->current_order.MakeGoToDepot(closest_depot.destination, {});
 		if (command.Test(DepotCommandFlag::Sell)) {
 			this->current_order.SetDepotActionType(ODATFB_HALT | ODATFB_SELL);
 		} else if (!command.Test(DepotCommandFlag::Service)) {
