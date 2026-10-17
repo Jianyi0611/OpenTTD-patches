@@ -927,7 +927,6 @@ STR_NEWS_VEHICLE_HAS_TOO_FEW_ORDERS                             :{WHITE}Nid oes 
 STR_NEWS_VEHICLE_HAS_VOID_ORDER                                 :{WHITE}Mae gan {VEHICLE} orchymyn gwallus
 STR_NEWS_VEHICLE_HAS_DUPLICATE_ENTRY                            :{WHITE}Mae gan {VEHICLE} orchmynion dyblyg
 STR_NEWS_VEHICLE_HAS_INVALID_ENTRY                              :{WHITE}Mae gan {VEHICLE} orsaf annilys yn ei orchmynion
-STR_NEWS_PLANE_USES_TOO_SHORT_RUNWAY                            :{WHITE}Mae gan {VEHICLE}o fewn ei orchmynion faes awyr sydd â llwybr glanio sy'n rhy fyr
 
 STR_NEWS_VEHICLE_IS_GETTING_OLD                                 :{WHITE}Mae {VEHICLE} yn heneiddio
 STR_NEWS_VEHICLE_IS_GETTING_VERY_OLD                            :{WHITE}Mae {VEHICLE} yn hynod o hen

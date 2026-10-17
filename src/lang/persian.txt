@@ -857,7 +857,6 @@ STR_NEWS_VEHICLE_HAS_TOO_FEW_ORDERS                             :تعداد دس
 STR_NEWS_VEHICLE_HAS_VOID_ORDER                                 :برنامه حرکت {WHITE}{VEHICLE} باطل شده است
 STR_NEWS_VEHICLE_HAS_DUPLICATE_ENTRY                            :برنامه جابجایی {WHITE}{VEHICLE} دستور تکراری دارد
 STR_NEWS_VEHICLE_HAS_INVALID_ENTRY                              :{WHITE}{VEHICLE} یک ایستگاه نا معتبر در برنامه جابجایی خود دارد
-STR_NEWS_PLANE_USES_TOO_SHORT_RUNWAY                            :{WHITE}{VEHICLE} در دستور کارش فرودگاهی با طول باند کوتاه تر از حد لازم دارد.
 
 STR_NEWS_VEHICLE_IS_GETTING_OLD                                 :{WHITE}{VEHICLE} قدیمی شده است
 STR_NEWS_VEHICLE_IS_GETTING_VERY_OLD                            :{WHITE}{VEHICLE} بسیار قدیمی شده است

@@ -879,7 +879,6 @@ STR_NEWS_VEHICLE_HAS_TOO_FEW_ORDERS                             :{WHITE}{VEHICLE
 STR_NEWS_VEHICLE_HAS_VOID_ORDER                                 :{WHITE}{VEHICLE} பிழையான கட்டளையைக் கொண்டுள்ளது
 STR_NEWS_VEHICLE_HAS_DUPLICATE_ENTRY                            :{WHITE}{VEHICLE} இரட்டடிப்பு கட்டளைகளைக் கொண்டுள்ளது
 STR_NEWS_VEHICLE_HAS_INVALID_ENTRY                              :{WHITE}{VEHICLE} பிழையான நிலையத்தினை கட்டளைகளில் கொண்டுள்ளது
-STR_NEWS_PLANE_USES_TOO_SHORT_RUNWAY                            :{WHITE}{VEHICLE} அதன் ஆர்டர்களில் ஓடுபாதை மிகக் குறுகியதாக இருக்கும் விமான நிலையத்தைக் கொண்டுள்ளது
 
 STR_NEWS_VEHICLE_IS_GETTING_OLD                                 :{WHITE}{VEHICLE} பழையதாகிறது
 STR_NEWS_VEHICLE_IS_GETTING_VERY_OLD                            :{WHITE}{VEHICLE} பழையதாகிறது

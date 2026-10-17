@@ -856,7 +856,6 @@ STR_NEWS_VEHICLE_HAS_TOO_FEW_ORDERS                             :{WHITE}Níl a n
 STR_NEWS_VEHICLE_HAS_VOID_ORDER                                 :{WHITE}Tá ordú folamh ag {VEHICLE}
 STR_NEWS_VEHICLE_HAS_DUPLICATE_ENTRY                            :{WHITE}Tá orduithe dúbailte ag {VEHICLE}
 STR_NEWS_VEHICLE_HAS_INVALID_ENTRY                              :{WHITE}Tá stáisiún neamhbhailí ag {VEHICLE} ina chuid orduithe
-STR_NEWS_PLANE_USES_TOO_SHORT_RUNWAY                            :{WHITE}Tá aerfort a bhfuil rúidbhealach róghearr aige in orduithe {VEHICLE}
 
 STR_NEWS_VEHICLE_IS_GETTING_OLD                                 :{WHITE}Tá {VEHICLE} ag fáil sean
 STR_NEWS_VEHICLE_IS_GETTING_VERY_OLD                            :{WHITE}Tá {VEHICLE} ag fáil an-sean

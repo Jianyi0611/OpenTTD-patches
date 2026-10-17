@@ -4710,12 +4710,6 @@ void CheckOrders(const Vehicle *v)
 				n_st++;
 				if (!CanVehicleUseStation(v, st)) {
 					message = STR_NEWS_VEHICLE_HAS_INVALID_ENTRY;
-				} else if (v->type == VehicleType::Aircraft &&
-							(AircraftVehInfo(v->engine_type)->subtype & AIR_FAST) &&
-							st->airport.GetSpec()->min_runway_length < 6 &&
-							!_cheats.no_jetcrash.value &&
-							message == INVALID_STRING_ID) {
-					message = STR_NEWS_PLANE_USES_TOO_SHORT_RUNWAY;
 				}
 			}
 			if (order->IsType(OT_GOTO_DEPOT)) {

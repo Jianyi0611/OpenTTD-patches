@@ -1020,7 +1020,6 @@ STR_NEWS_VEHICLE_HAS_TOO_FEW_ORDERS                             :{WHITE}Chan eil
 STR_NEWS_VEHICLE_HAS_VOID_ORDER                                 :{WHITE}Tha òrdugh falamh aig {VEHICLE}
 STR_NEWS_VEHICLE_HAS_DUPLICATE_ENTRY                            :{WHITE}Tha òrdugh dùbailte aig {VEHICLE}
 STR_NEWS_VEHICLE_HAS_INVALID_ENTRY                              :{WHITE}Tha stèisean mì-dhligheach sna h-òrduighean aig {VEHICLE}
-STR_NEWS_PLANE_USES_TOO_SHORT_RUNWAY                            :{WHITE}Tha port-adhair am measg nan òrduighean aig {VEHICLE} aig a bheil raon-laighe ro ghoirid
 
 STR_NEWS_VEHICLE_IS_GETTING_OLD                                 :{WHITE}Tha {VEHICLE} a' fàs aosta
 STR_NEWS_VEHICLE_IS_GETTING_VERY_OLD                            :{WHITE}Tha {VEHICLE} a' fàs glè aosta

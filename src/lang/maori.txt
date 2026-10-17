@@ -928,7 +928,6 @@ STR_NEWS_VEHICLE_HAS_TOO_FEW_ORDERS                             :{WHITE}Ehara i 
 STR_NEWS_VEHICLE_HAS_VOID_ORDER                                 :{WHITE}He mahi muhu tā {VEHICLE}
 STR_NEWS_VEHICLE_HAS_DUPLICATE_ENTRY                            :{WHITE}He mahi taurua tā {VEHICLE}
 STR_NEWS_VEHICLE_HAS_INVALID_ENTRY                              :{WHITE}He teihana muhu kei roto i ngā mahi a {VEHICLE}
-STR_NEWS_PLANE_USES_TOO_SHORT_RUNWAY                            :{WHITE}He poto rawa te aratau o tētahi taunga rererangi i roto i ngā mahi a {VEHICLE}
 
 STR_NEWS_VEHICLE_IS_GETTING_OLD                                 :{WHITE}Kei te tawhito haere a {VEHICLE}
 STR_NEWS_VEHICLE_IS_GETTING_VERY_OLD                            :{WHITE}Kei te tino tawhito haere a {VEHICLE}
