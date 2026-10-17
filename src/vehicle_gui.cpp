@@ -4320,6 +4320,9 @@ static bool IsVehicleRefittable(const Vehicle *v)
 {
 	if (!v->IsStoppedInDepot()) return false;
 
+	/* Refittable parts may sit before the primary in the consist, so scan the
+	 * whole physical chain from the chain head. */
+	v = v->First();
 	do {
 		if (IsEngineRefittable(v->engine_type)) return true;
 	} while (v->IsArticulatedCallbackVehicleType() && (v = v->Next()) != nullptr);

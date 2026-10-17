@@ -1087,17 +1087,20 @@ struct DepotWindow : Window {
 
 		VehicleID new_vehicle_over = VehicleID::Invalid();
 		if (result.vehicle != nullptr) {
+			const Train *first = (this->type == VehicleType::Train) ? Train::From(result.vehicle)->First() : nullptr;
 			if (result.wagon == nullptr && result.vehicle->Last()->index != this->sel) { // ..at the end of the train.
 				/* NOTE: As a wagon can't be moved at the begin of a train, head index isn't used to mark a drag-and-drop
 				 * destination inside a train. This head index is then used to indicate that a wagon is inserted at
 				 * the end of the train.
-				 */
-				new_vehicle_over = result.vehicle->index;
-			} else if (result.wagon != nullptr && result.vehicle != result.wagon &&
+				 * The list entries are keyed by the primary, but the drawn image is laid out from the chain
+				 * head, so the destination is marked with the head's index regardless of where the primary sits. */
+				new_vehicle_over = (first != nullptr) ? first->index : result.vehicle->index;
+			} else if (result.wagon != nullptr && result.wagon->index != first->index &&
 					result.wagon->index != this->sel &&
 					/* A chain can start with a wagon now that the primary may sit mid-chain, so
 					 * there is no previous vehicle to compare against. That wagon heads another
-					 * train, which makes this a valid insertion point rather than a no-op move. */
+					 * train, which makes this a valid insertion point rather than a no-op move.
+					 * Over the chain head itself means 'insert in front', which is not possible. */
 					(result.wagon->Previous() == nullptr || result.wagon->Previous()->index != this->sel)) { // ..over an existing wagon.
 				new_vehicle_over = result.wagon->index;
 			}

@@ -679,8 +679,12 @@ public:
 	{
 		/* Physical state: always evaluated on the chain head, callable on any vehicle. */
 		const Vehicle *f = this->First();
-		/* Free wagons have no VehState::Stopped state */
-		if (f->IsPrimaryVehicle() && !f->vehstatus.Test(VehState::Stopped)) return false;
+		/* The VehState::Stopped flag is carried by the controlling primary engine,
+		 * which normally is the chain head. When the head is a plain wagon
+		 * (a free-wagon chain, or a consist whose engine sits behind it) the head
+		 * has no stopped state of its own, so ask the consist's primary instead. */
+		const Vehicle *p = this->Primary();
+		if (p->IsPrimaryVehicle() && !p->vehstatus.Test(VehState::Stopped)) return false;
 		return f->IsChainInDepot();
 	}
 
