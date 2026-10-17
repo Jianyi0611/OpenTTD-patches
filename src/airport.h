@@ -11,8 +11,10 @@
 #define AIRPORT_H
 
 #include "direction_type.h"
+#include "station_type.h"
 #include "track_type.h"
 #include "tile_type.h"
+#include "water_map.h"
 
 /** Some airport-related constants */
 static const uint MAX_TERMINALS =   8;                       ///< maximum number of terminals per airport
@@ -51,6 +53,16 @@ TrackBits GetAllowedTracks(TileIndex tile);
 void SetRunwayReservation(TileIndex tile, bool b);
 TileIndex GetRunwayExtreme(TileIndex tile, DiagDirection dir);
 uint GetRunwayLength(TileIndex tile);
+
+/**
+ * Convert a tile into a built-in heliport station tile of an oil rig station.
+ * Used both when creating an oil rig station and when upgrading legacy
+ * StationType::Oilrig tiles while loading a game.
+ * @param t The tile to convert.
+ * @param sid The station the tile shall belong to.
+ * @param wc The water class the tile shall have (capture before MakeStation).
+ */
+void MakeBuiltInHeliportTile(TileIndex t, StationID sid, WaterClass wc);
 
 enum AirportFlagBits : uint8_t {
 	AFB_CLOSED_MANUAL         = 0,   ///< Airport closed: manually closed.

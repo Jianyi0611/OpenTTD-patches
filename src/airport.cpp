@@ -172,11 +172,33 @@ void Station::ClearAirportDataInfrastructure() {
 	this->airport.air_type = INVALID_AIRTYPE;
 	this->airport.aprons.clear();
 	this->airport.helipads.clear();
+	this->airport.heliports.clear();
 	this->airport.runways.clear();
 	if (this->airport.HasHangar()) {
 		delete this->airport.hangar;
 		this->airport.hangar = nullptr;
 	}
+}
+
+/**
+ * Convert a tile into an oil rig built-in heliport airport tile.
+ * @param t Tile to convert, may be an Industry tile (during creation) or a
+ *          legacy StationType::Oilrig station tile (during load).
+ * @param sid Station the tile shall belong to.
+ * @param wc Water class for the tile, captured before making it a station tile.
+ */
+void MakeBuiltInHeliportTile(TileIndex t, StationID sid, WaterClass wc)
+{
+	MakeStation(t, OWNER_NONE, sid, StationType::Airport, 0, wc);
+
+	const AirportSpec *as = AirportSpec::Get(AT_OILRIG);
+	const AirportTileTable *tile_desc = &as->layouts[0].tiles[0];
+	Tile(t).m4() = 0;
+	Tile(t).m5() = 0;
+	SetAirType(t, as->airtype);
+	SetAirportTileType(t, tile_desc->type);
+	SetAirportTileTracks(t, tile_desc->trackbits);
+	SetApronType(t, tile_desc->apron_type);
 }
 
 void UpdateTracks(TileIndex tile)
@@ -425,8 +447,23 @@ void Station::UpdateAirportDataStructure()
 {
 	this->ClearAirportDataInfrastructure();
 
-	/* Recover the airport area tile rescanning the rect of the station */
+	/* Legacy oil rigs were represented by a single StationType::Oilrig tile,
+	 * which is not a StationType::Airport tile and thus would be missed by the
+	 * generic airport tile scan below. In that case the airport's tile would be
+	 * silently invalidated both when loading a game and when rebuilding the
+	 * data after modifications, which makes helicopters unable to use the oil
+	 * rig and desynchronizes joining clients. Upgrade legacy tiles to the
+	 * modular built-in heliport representation, which keeps the same map
+	 * features but is fully supported by the airport data structure. */
 	TileArea ta(TileXY(this->rect.left, this->rect.top), TileXY(this->rect.right, this->rect.bottom));
+	for (TileIndex t : ta) {
+		if (IsTileType(t, TileType::Station) && IsOilRig(t) && GetStationIndex(t) == this->index) {
+			WaterClass wc = GetWaterClass(t);
+			MakeBuiltInHeliportTile(t, this->index, wc);
+		}
+	}
+
+	/* Recover the airport area tile rescanning the rect of the station */
 	/* At the same time, detect any hangar. */
 	TileIndex first_hangar = INVALID_TILE;
 

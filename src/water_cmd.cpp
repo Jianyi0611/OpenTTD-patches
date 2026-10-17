@@ -236,7 +236,7 @@ void CheckForDockingTile(TileIndex t)
 				SetDockingTile(t, true);
 			}
 		}
-		if (IsTileType(tile, TileType::Station) && IsOilRig(tile)) {
+		if (IsTileType(tile, TileType::Station) && (IsOilRig(tile) || IsBuiltInHeliportTile(tile))) {
 			Station::GetByTile(tile)->docking_station.Add(t);
 			SetDockingTile(t, true);
 		}
@@ -775,11 +775,11 @@ bool IsWateredTile(TileIndex tile, Direction from)
 			return false;
 
 		case TileType::Station:
-			if (IsOilRig(tile)) {
+			if (IsOilRig(tile) || IsBuiltInHeliportTile(tile)) {
 				/* Do not draw waterborders inside of industries.
 				 * Note: There is no easy way to detect the industry of an oilrig tile. */
 				TileIndex src_tile = tile + TileOffsByDir(from);
-				if ((IsTileType(src_tile, TileType::Station) && IsOilRig(src_tile)) ||
+				if ((IsTileType(src_tile, TileType::Station) && (IsOilRig(src_tile) || IsBuiltInHeliportTile(src_tile))) ||
 				    (IsTileType(src_tile, TileType::Industry))) return true;
 
 				return IsTileOnWater(tile);

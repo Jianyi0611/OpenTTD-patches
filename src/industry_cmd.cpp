@@ -61,7 +61,7 @@ IndustryPool _industry_pool("Industry");
 INSTANTIATE_POOL_METHODS(Industry)
 
 void ShowIndustryViewWindow(IndustryID industry);
-void BuildOilRig(TileIndex tile);
+void BuildBuiltInHeliport(TileIndex tile);
 
 static uint8_t _industry_sound_ctr;
 static TileIndex _industry_sound_tile;
@@ -162,8 +162,12 @@ Industry::~Industry()
 				/* MakeWaterKeepingClass() can also handle 'land' */
 				MakeWaterKeepingClass(tile_cur, OWNER_NONE);
 			}
-		} else if (IsTileType(tile_cur, TileType::Station) && IsOilRig(tile_cur)) {
-			DeleteOilRig(tile_cur);
+		} else if (IsTileType(tile_cur, TileType::Station) && (IsOilRig(tile_cur) || IsBuiltInHeliportTile(tile_cur))) {
+			if (IsBuiltInHeliportTile(tile_cur)) {
+				DeleteBuiltInHeliport(tile_cur);
+			} else {
+				DeleteOilRig(tile_cur);
+			}
 		}
 	}
 
@@ -831,7 +835,7 @@ static void MakeIndustryTileBigger(TileIndex tile)
 		if (IsTileType(other, TileType::Industry) &&
 				GetIndustryGfx(other) == GFX_OILRIG_1 &&
 				GetIndustryIndex(tile) == GetIndustryIndex(other)) {
-			BuildOilRig(tile);
+			BuildBuiltInHeliport(tile);
 		}
 		break;
 	}

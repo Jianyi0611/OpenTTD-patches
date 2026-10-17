@@ -274,6 +274,7 @@ static void CopyStationTile(Blueprint &blueprint, TileIndex tile, TileIndexDiffC
 			/* Record the airport only once, at its northern tile. */
 			const Station *st = Station::GetByTile(tile);
 			if (st->airport.tile != tile) break;
+			if (st->airport.type == AT_OILRIG || IsBuiltInHeliportTile(tile)) break; /* Industry built-in heliports are not copyable. */
 
 			BlueprintAirport airport{offset, st->airport.type, st->airport.layout,
 					static_cast<uint8_t>(to_underlying(st->airport.rotation)), static_cast<uint8_t>(st->airport.air_type),
