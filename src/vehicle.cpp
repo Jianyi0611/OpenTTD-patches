@@ -890,12 +890,20 @@ CommandCost EnsureNoTrainOnTrackBits(const TileIndex tile, const TrackBits track
 	return CommandCost();
 }
 
+/** Vehicles on board a carrier retain a location, but do not occupy the track below it.
+ * Use the same membership rule for updates, load-time rebuilding and validation. */
+static bool IsVehicleExcludedFromTileHash(const Vehicle *v)
+{
+	return v->type >= VehicleType::CompanyEnd || v->tile == INVALID_TILE || v->IsVirtualOrCarried() ||
+			(v->tile == 0 && _settings_game.construction.freeform_edges);
+}
+
 void UpdateVehicleTileHash(Vehicle *v, bool remove)
 {
 	TileIndex old_hash_tile = v->hash_tile_current;
 	TileIndex new_hash_tile;
 
-	if (remove || HasBit(v->subtype, GVSF_VIRTUAL) || (v->tile == 0 && _settings_game.construction.freeform_edges)) {
+	if (remove || IsVehicleExcludedFromTileHash(v)) {
 		new_hash_tile = INVALID_TILE;
 	} else {
 		new_hash_tile = v->tile;
@@ -943,11 +951,7 @@ void UpdateVehicleTileHash(Vehicle *v, bool remove)
 
 bool ValidateVehicleTileHash(const Vehicle *v)
 {
-	if (v->tile == INVALID_TILE
-			|| (v->type == VehicleType::Train && Train::From(v)->IsVirtual())
-			|| (v->type == VehicleType::Ship && HasBit(v->subtype, GVSF_VIRTUAL))
-			|| (v->type == VehicleType::Aircraft && v->tile == 0 && _settings_game.construction.freeform_edges)
-			|| v->type >= VehicleType::CompanyEnd) {
+	if (IsVehicleExcludedFromTileHash(v)) {
 		return v->hash_tile_current == INVALID_TILE;
 	}
 

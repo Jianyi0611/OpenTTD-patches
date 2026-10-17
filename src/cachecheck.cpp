@@ -396,7 +396,7 @@ void CheckCaches(bool force_check, std::function<void(std::string_view)> log, Ch
 		for (Vehicle *v : Vehicle::Iterate()) {
 			extern bool ValidateVehicleTileHash(const Vehicle *v);
 			if (!ValidateVehicleTileHash(v)) {
-				cclog("vehicle tile hash mismatch: type {}, vehicle {}, company {}, unit number {}", v->type, v->index, v->owner, v->unitnumber);
+				cclog("vehicle tile hash mismatch: type {}, vehicle {}, company {}, unit number {}, tile {}, hash tile {}, transport flags {}", v->type, v->index, v->owner, v->unitnumber, v->tile, v->hash_tile_current, v->rv_transport_flags);
 			}
 
 			extern void FillNewGRFVehicleCache(const Vehicle *v);

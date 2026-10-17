@@ -19,6 +19,7 @@
 #include "../map_func.h"
 #include "../station_map.h"
 #include "../rail_map.h"
+#include "../roadveh_transport.h"
 #include "../scope.h"
 #include "../gfx_type.h"
 #include "../sl/saveload.h"
@@ -26,6 +27,7 @@
 
 extern std::string _savegame_format;
 extern bool ValidateVehicleTileHash(const Vehicle *v);
+extern void UpdateVehicleTileHash(Vehicle *v, bool remove);
 
 /** Capture a real savegame to verify the network snapshot's binary representation. */
 struct CoupleSnapshotCapture : SaveFilter {
@@ -611,5 +613,68 @@ TEST_CASE_METHOD(TrainDecoupleFixture, "Couple - station inspection preserves ha
 		CHECK(front->flags == flags);
 		CHECK(random_checker.Check());
 	}
+	DeallocateMap();
+}
+
+TEST_CASE_METHOD(TrainDecoupleFixture, "Vehicle tile hash - carried trains stay off the track until unloaded")
+{
+	AllocateMap(64, 64);
+	Train *carrier = MakeTrain();
+	Train *carried = MakeTrain();
+	carrier->tile = carried->tile = TileXY(10, 10);
+	carrier->UpdatePosition();
+	carried->UpdatePosition();
+	REQUIRE(ValidateVehicleTileHash(carrier));
+	REQUIRE(ValidateVehicleTileHash(carried));
+
+	/* Boarding deliberately removes each part from the physical track index. */
+	carried->rv_transport_flags |= Vehicle::RV_TRANSPORT_CARRIED;
+	CHECK_FALSE(ValidateVehicleTileHash(carried));
+	UpdateVehicleTileHash(carried, true);
+	CHECK(ValidateVehicleTileHash(carried));
+	CHECK(ValidateVehicleTileHash(carrier));
+	CHECK(GetFirstVehicleOnTile(carrier->tile, VehicleType::Train) == carrier);
+
+	/* Sprite/position refreshes while on board must not create a phantom train. */
+	carried->tile = TileXY(12, 12);
+	carried->UpdatePosition();
+	CHECK(carried->hash_tile_current == INVALID_TILE);
+	CHECK(GetFirstVehicleOnTile(carried->tile, VehicleType::Train) == nullptr);
+	CHECK(ValidateVehicleTileHash(carried));
+	CHECK(ValidateVehicleTileHash(carrier));
+
+	/* Putting it down restores its occupancy, even on the carrier's tile. */
+	carried->tile = carrier->tile;
+	carried->rv_transport_flags &= ~Vehicle::RV_TRANSPORT_CARRIED;
+	CHECK_FALSE(ValidateVehicleTileHash(carried));
+	carried->UpdatePosition();
+	CHECK(carried->hash_tile_current == carried->tile);
+	CHECK(GetFirstVehicleOnTile(carried->tile, VehicleType::Train) == carried);
+	CHECK(ValidateVehicleTileHash(carried));
+	CHECK(ValidateVehicleTileHash(carrier));
+	_vehicle_pool.CleanPool();
+	DeallocateMap();
+}
+
+TEST_CASE_METHOD(TrainDecoupleFixture, "Vehicle tile hash - loading repairs stale carried state on a following part")
+{
+	AllocateMap(64, 64);
+	Train *front = MakeTrain();
+	Train *part = MakeTrain();
+	front->SetNext(part);
+	front->tile = part->tile = TileXY(10, 10);
+	front->UpdatePosition();
+	/* A following part was skipped by the initial hash rebuild because its
+	 * saved carried flag disagreed with the primary's ordinary state. */
+	part->rv_transport_flags |= Vehicle::RV_TRANSPORT_CARRIED;
+	part->vehstatus.Set(VehState::Hidden);
+	REQUIRE(ValidateVehicleTileHash(part));
+	RVTransportValidateAfterLoad();
+	CHECK((part->rv_transport_flags & Vehicle::RV_TRANSPORT_CARRIED) == 0);
+	CHECK_FALSE(part->vehstatus.Test(VehState::Hidden));
+	CHECK(part->hash_tile_current == part->tile);
+	CHECK(ValidateVehicleTileHash(part));
+	CHECK(ValidateVehicleTileHash(front));
+	_vehicle_pool.CleanPool();
 	DeallocateMap();
 }
