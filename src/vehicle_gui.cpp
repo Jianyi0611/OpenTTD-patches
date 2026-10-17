@@ -865,6 +865,9 @@ struct RefitWindow : public Window {
 
 		this->refit_list.clear();
 		Vehicle *v = Vehicle::Get(this->window_number);
+		/* The consist image and the selection are laid out from the chain head,
+		 * so enumerate the whole physical chain; the primary may sit mid-chain. */
+		if (v->type == VehicleType::Train) v = v->First();
 
 		/* Road vehicle transport: the built-in "Vehicles (Car)" cargo is a normal cargo as far as
 		 * refitting goes, so it is offered here just like any other cargo, and a chain configured for
@@ -1216,7 +1219,7 @@ struct RefitWindow : public Window {
 						const int highlight_top = CentreBounds(r.top, r.bottom, height);
 						const int highlight_bottom = highlight_top + height - 1;
 
-						for (Train *u = Train::From(v); u != nullptr; u = u->Next()) {
+						for (Train *u = Train::From(v)->First(); u != nullptr; u = u->Next()) {
 							/* Start checking. */
 							const bool contained = std::ranges::find(vehicles_to_refit, u->index) != vehicles_to_refit.end();
 							if (contained && left == INT32_MIN) {
@@ -1350,8 +1353,13 @@ struct RefitWindow : public Window {
 			case VehicleType::Train: {
 				/* Don't select anything if we are not clicking in the vehicle. */
 				if (left_x >= 0) {
-					const Train *u = Train::From(v);
+					const Train *u = Train::From(v)->First();
+					/* The panel image is drawn from the chain head, so the hit test must
+					 * start there too; the primary may sit elsewhere in the consist. */
 					bool start_counting = false;
+					/* Ctrl keeps counting until the end of the consist, giving an explicit
+					 * length instead of the UINT8_MAX 'whole consist' sentinel. */
+					bool count_to_end = _ctrl_pressed;
 					for (; u != nullptr; u = u->Next()) {
 						int current_width = u->GetDisplayImageWidth();
 						left_x  -= current_width;
@@ -1368,15 +1376,16 @@ struct RefitWindow : public Window {
 							this->num_vehicles++;
 						}
 
-						if (right_x < 0) break;
+						/* Normally the drag range ends the selection. With Ctrl the selection
+						 * continues to the end of the consist. Do not use UINT8_MAX for that:
+						 * it now strictly means 'refit the whole consist', including any
+						 * vehicles before the selection start. */
+						if (right_x < 0 && !count_to_end) break;
 					}
 				}
 
 				/* If the selection is not correct, clear it. */
-				if (this->num_vehicles != 0) {
-					if (_ctrl_pressed) this->num_vehicles = UINT8_MAX;
-					break;
-				}
+				if (this->num_vehicles != 0) break;
 				[[fallthrough]];
 			}
 
@@ -5320,7 +5329,9 @@ int GetVehicleWidth(const Vehicle *v, EngineImageType image_type)
 {
 	if (v->type == VehicleType::Train || v->type == VehicleType::Road) {
 		int vehicle_width = 0;
-		for (const Vehicle *u = v; u != nullptr; u = u->Next()) {
+		/* The drawn image (DrawTrainImage) spans the whole physical consist from
+		 * the chain head; the primary may sit mid-chain. */
+		for (const Vehicle *u = (v->type == VehicleType::Train) ? v->First() : v; u != nullptr; u = u->Next()) {
 			vehicle_width += GetSingleVehicleWidth(u, image_type);
 		}
 		return vehicle_width;
