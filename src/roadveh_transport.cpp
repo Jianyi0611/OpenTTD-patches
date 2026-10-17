@@ -644,9 +644,10 @@ static void RVTransportLeaveBoardingStation(Vehicle *rv)
 {
 	if (rv == nullptr) return;
 
+	rv->RemoveFromLoadingQueues();
+
 	if (Station::IsValidID(rv->last_station_visited)) {
 		Station *st = Station::Get(rv->last_station_visited);
-		st->loading_vehicles.erase(std::remove(st->loading_vehicles.begin(), st->loading_vehicles.end(), rv), st->loading_vehicles.end());
 		HideFillingPercent(&rv->fill_percent_te_id);
 		rv->CancelReservation(StationID::Invalid(), st);
 	}

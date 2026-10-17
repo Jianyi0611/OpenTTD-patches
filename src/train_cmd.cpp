@@ -7595,12 +7595,7 @@ static void Couple(Train *v, Train *u)
 	/* If the absorbed consist was queued for loading/unloading at a station,
 	 * drop the stale entry: it can never leave the queue by itself anymore
 	 * and its load_unload_ticks would eventually hit zero and assert. */
-	Station *couple_station = Station::GetIfValid(u->last_station_visited);
-	if (couple_station != nullptr) {
-		auto &loading = couple_station->loading_vehicles;
-		auto it = std::find(loading.begin(), loading.end(), u);
-		if (it != loading.end()) loading.erase(it);
-	}
+	u->RemoveFromLoadingQueues();
 	AdvanceWagonsAfterCouple(v_last);
 
 	/* Stale look-ahead/reservations from before the flip: rebuild them for
