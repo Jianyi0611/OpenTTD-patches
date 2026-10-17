@@ -49,8 +49,6 @@ enum class VehicleRailFlag : uint8_t {
 	PendingSpeedRestriction   = 21, ///< This vehicle has one or more pending speed restriction changes.
 	SpeedAdaptationExempt     = 22, ///< This vehicle is exempt from train speed adaptation.
 	SameDirDecouplePending    = 23, ///< Trailing split part waits for the leading part to clear its platform before following.
-	CoupleCheckReversePending = 24, ///< Wait for a selected early couple target only after a waypoint reversal completes.
-	CoupleCheckReservationReleased = 25, ///< Forward reservation has already been released for an early couple checkpoint.
 };
 using VehicleRailFlags = EnumBitSet<VehicleRailFlag, uint32_t>;
 

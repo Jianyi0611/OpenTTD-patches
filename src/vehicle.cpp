@@ -3943,7 +3943,6 @@ void Vehicle::HandleLoading(bool mode)
 				RVTransportSetWaiting(this, true);
 				return;
 			}
-			if (this->type == VehicleType::Train && TrainShouldWaitForCoupleAtCheckpoint(Train::From(this))) return;
 
 			this->LeaveStation();
 
@@ -4250,7 +4249,6 @@ CommandCost Vehicle::SendToDepot(DoCommandFlags flags, DepotCommandFlags command
 	}
 
 	if (flags.Test(DoCommandFlag::Execute)) {
-		if (this->type == VehicleType::Train) CancelTrainCoupleCheckpoint(Train::From(this));
 		if (this->current_order.IsAnyLoadingType()) this->LeaveStation();
 		if (this->current_order.IsType(OT_WAITING)) this->HandleWaiting(true);
 

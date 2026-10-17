@@ -34,7 +34,5 @@ DEF_CMD_TUPLE_LT (Commands::SetTrainSpeedRestriction, CmdSetTrainSpeedRestrictio
 extern btree::btree_map<VehicleID, uint64_t> _couple_search_last_fail;
 
 void ClearCoupleSearchLastFail();
-void CancelTrainCoupleCheckpoint(Train *train);
-bool TrainShouldWaitForCoupleAtCheckpoint(Train *train, bool *at_checkpoint = nullptr, StationID arrived = StationID::Invalid());
 
 #endif /* TRAIN_CMD_H */

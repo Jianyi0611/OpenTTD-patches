@@ -2994,7 +2994,7 @@ CommandCost CmdModifyOrder(DoCommandFlags flags, OrderTargetType target_type, ui
 				break;
 
 			case OT_GOTO_COUPLE:
-				if (mof != MOF_COUPLE_LOAD && mof != MOF_COUPLE_CARGO && mof != MOF_COUPLE_VALUE && mof != MOF_COUPLE_SLOT && mof != MOF_COUPLE_SLOT_GROUP && mof != MOF_COUPLE_GROUP && mof != MOF_COUPLE_STATION && mof != MOF_COUPLE_USE_WAITING_SCHEDULE && mof != MOF_COUPLE_CHECK_POINT) return CMD_ERROR;
+				if (mof != MOF_COUPLE_LOAD && mof != MOF_COUPLE_CARGO && mof != MOF_COUPLE_VALUE && mof != MOF_COUPLE_SLOT && mof != MOF_COUPLE_SLOT_GROUP && mof != MOF_COUPLE_GROUP && mof != MOF_COUPLE_STATION && mof != MOF_COUPLE_USE_WAITING_SCHEDULE) return CMD_ERROR;
 				break;
 
 			case OT_WAIT_COUPLE:
@@ -3465,18 +3465,6 @@ CommandCost CmdModifyOrder(DoCommandFlags flags, OrderTargetType target_type, ui
 			}
 			break;
 
-		case MOF_COUPLE_CHECK_POINT:
-			if (!is_list && v->type != VehicleType::Train) return CMD_ERROR;
-			if (data != 0) {
-				bool found = false;
-				for (VehicleOrderID i = 0; i < sel_ord; ++i) {
-					const Order *candidate = ol->GetOrderAt(i);
-					if (candidate != nullptr && (candidate->IsType(OT_GOTO_STATION) || candidate->IsType(OT_GOTO_WAYPOINT)) && candidate->GetDestination().base() == data - 1) { found = true; break; }
-				}
-				if (!found) return CMD_ERROR;
-			}
-			break;
-
 		case MOF_COUPLE_USE_WAITING_SCHEDULE:
 			if (!is_list && v->type != VehicleType::Train) return CMD_ERROR;
 			if (order->GetType() != OT_GOTO_COUPLE) return CMD_ERROR;
@@ -3935,10 +3923,6 @@ CommandCost CmdModifyOrder(DoCommandFlags flags, OrderTargetType target_type, ui
 				order->SetCoupleUseWaitingSchedule(data != 0);
 				break;
 
-			case MOF_COUPLE_CHECK_POINT:
-				order->SetCoupleCheckPoint(data == 0 ? StationID::Invalid() : StationID{(uint16_t)(data - 1)});
-				break;
-
 			case MOF_FIRST_ORDERS:
 				order->SetDecoupleFirstOrdersType((OrderDecoupleOrdersFlags)data);
 				break;
@@ -4092,7 +4076,6 @@ CommandCost CmdModifyOrder(DoCommandFlags flags, OrderTargetType target_type, ui
 				u->current_order.SetCoupleSlotGroup(order->GetCoupleSlotGroup());
 				u->current_order.SetCoupleGroup(order->GetCoupleGroup());
 				u->current_order.SetXData2Low(order->GetXData2Low());
-				u->current_order.SetCoupleCheckPoint(order->GetCoupleCheckPoint());
 			}
 			if (sel_ord == u->cur_real_order_index && u->current_order.IsType(OT_WAIT_COUPLE) && mof == MOF_WAIT_COUPLE_STATION) {
 				u->current_order.SetWaitCoupleStation(order->GetWaitCoupleStation());
@@ -5988,15 +5971,6 @@ bool ProcessOrders(Vehicle *v)
 	 */
 	bool may_reverse = v->current_order.IsType(OT_NOTHING) || v->current_order.IsType(OT_GOTO_COUPLE) || v->current_order.IsType(OT_WAIT_COUPLE);
 	Vehicle *moving_front = v->GetMovingFront();
-	/* A selected early couple checkpoint must hold before a via order advances.
-	 * ProcessOrders also runs from path reservation, outside TrainLocoHandler. */
-	if (v->type == VehicleType::Train && (v->current_order.IsType(OT_GOTO_WAYPOINT) ||
-			(v->current_order.IsType(OT_GOTO_STATION) && (v->current_order.GetNonStopType() & ONSF_NO_STOP_AT_DESTINATION_STATION))) &&
-			TrainShouldWaitForCoupleAtCheckpoint(Train::From(v))) {
-		v->cur_speed = 0;
-		v->subspeed = 0;
-		return false;
-	}
 
 	v->vehicle_flags.Reset(VehicleFlag::ConditionalOrderWait);
 

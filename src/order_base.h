@@ -620,10 +620,6 @@ public:
 	 * @param station the station, or #StationID::Invalid() for any station.
 	 */
 	inline void SetCoupleStation(StationID station) { this->SetXData2Low(station == StationID::Invalid() ? 0 : station.base() + 1); }
-	/** Optional station or waypoint where an approaching train checks for a matching partner before continuing its schedule. */
-	inline bool HasCoupleCheckPoint() const { return this->IsType(OT_GOTO_COUPLE) && HasBit(this->GetXFlags(), 6); }
-	inline StationID GetCoupleCheckPoint() const { return this->HasCoupleCheckPoint() ? this->GetDestination().ToStationID() : StationID::Invalid(); }
-	inline void SetCoupleCheckPoint(StationID station) { AssignBit(this->GetXFlagsRef(), 6, station != StationID::Invalid()); this->SetDestination(station); }
 
 	/**
 	 * Update the jump_counter of this order.

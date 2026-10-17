@@ -97,55 +97,6 @@ protected:
 	}
 };
 
-TEST_CASE("Couple - early checkpoint survives order copy without changing coupling station")
-{
-	Order order;
-	order.MakeGoToCouple();
-	order.SetCoupleStation(StationID{27});
-	order.SetCoupleCheckPoint(StationID{12});
-	Order copy(order);
-	CHECK(copy.HasCoupleCheckPoint());
-	CHECK(copy.GetCoupleCheckPoint() == StationID{12});
-	CHECK(copy.GetCoupleStation() == StationID{27});
-	copy.SetCoupleCheckPoint(StationID::Invalid());
-	CHECK_FALSE(copy.HasCoupleCheckPoint());
-	CHECK(copy.GetCoupleStation() == StationID{27});
-}
-
-TEST_CASE_METHOD(TrainDecoupleFixture, "Couple - depot override releases checkpoint and exclusive partner")
-{
-	Train *moving = MakeTrain();
-	Train *waiting = MakeTrain();
-	moving->couple_target = waiting->index;
-	waiting->couple_claimant = moving->index;
-	waiting->couple_claim_cost = 42;
-	moving->flags.Set({VehicleRailFlag::CoupleCheckReversePending, VehicleRailFlag::CoupleCheckReservationReleased});
-	moving->reverse_distance = 16;
-	CancelTrainCoupleCheckpoint(moving);
-	CHECK(moving->couple_target == VehicleID::Invalid());
-	CHECK(waiting->couple_claimant == VehicleID::Invalid());
-	CHECK(waiting->couple_claim_cost == 0);
-	CHECK(moving->reverse_distance == 0);
-	CHECK_FALSE(moving->flags.Test(VehicleRailFlag::CoupleCheckReversePending));
-	CHECK_FALSE(moving->flags.Test(VehicleRailFlag::CoupleCheckReservationReleased));
-}
-
-TEST_CASE_METHOD(TrainDecoupleFixture, "Couple - checkpoint cancellation preserves ordinary reversing and another claimant")
-{
-	Train *moving = MakeTrain();
-	Train *waiting = MakeTrain();
-	Train *other = MakeTrain();
-	moving->couple_target = waiting->index;
-	waiting->couple_claimant = other->index;
-	waiting->couple_claim_cost = 42;
-	moving->reverse_distance = 16;
-	CancelTrainCoupleCheckpoint(moving);
-	CHECK(moving->couple_target == VehicleID::Invalid());
-	CHECK(waiting->couple_claimant == other->index);
-	CHECK(waiting->couple_claim_cost == 42);
-	CHECK(moving->reverse_distance == 16);
-}
-
 TEST_CASE_METHOD(TrainDecoupleFixture, "Couple - diagnostics do not clear a stale claim")
 {
 	Train *moving = MakeTrain();

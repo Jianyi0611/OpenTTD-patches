@@ -2108,11 +2108,6 @@ STR_ORDER_LIST_ALL_SCHEDULES                                    :All schedules
 STR_ORDER_LIST_ALL_SCHEDULES_TOOLTIP                            :{BLACK}Drag a schedule or group here to move it out of its group
 STR_ORDER_WAIT_COUPLE_STATION_TOOLTIP                            :{BLACK}Select a station on the map for the train to wait at. Click again to clear, so the train holds where it is.
 STR_ORDER_WAIT_COUPLE_AT                                        : at {STATION}
-STR_ORDER_COUPLE_CHECK_SELECT                                   :{BLACK}Check location: {RAW_STRING}...
-STR_ORDER_COUPLE_CHECK_ITEM                                     :{BLACK}{RAW_STRING}{RAW_STRING}
-STR_ORDER_COUPLE_CHECK_NONE                                     :{BLACK}Check only when going to couple
-STR_ORDER_COUPLE_CHECK_MENU                                     :{BLACK}Check for partner at: {RAW_STRING}
-STR_ORDER_COUPLE_CHECK_AT                                       :; check at {STATION} first
 STR_ORDER_LIST_EDIT                                             :{BLACK}Edit
 STR_ORDER_LIST_DELETE                                           :{BLACK}Delete
 STR_ORDER_LIST_DELETE_TOOLTIP                                   :{BLACK}Delete the selected order list
