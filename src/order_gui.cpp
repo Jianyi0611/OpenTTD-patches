@@ -1569,9 +1569,13 @@ public:
 			case WID_CPO_SPEED_MAX_MODE: {
 				const uint row = widget == WID_CPO_SPEED_MIN_MODE ? 0 : 1;
 				DropDownList list;
-				list.push_back(MakeDropDownListStringItem(STR_ORDER_COUPLE_SPEED_DISABLED, 0));
-				list.push_back(MakeDropDownListStringItem(STR_ORDER_COUPLE_SPEED_OWN_MAX, 1));
-				list.push_back(MakeDropDownListStringItem(STR_ORDER_COUPLE_SPEED_MANUAL, 2));
+				const StringID labels[] = {STR_ORDER_COUPLE_SPEED_DISABLED, STR_ORDER_COUPLE_SPEED_OWN_MAX, STR_ORDER_COUPLE_SPEED_MANUAL};
+				for (uint mode = 0; mode < lengthof(labels); mode++) {
+					auto item = MakeDropDownListStringItem(labels[mode], mode);
+					/* Highlighting must override the labels' embedded black colour. */
+					item->colour_flags.Set(ExtendedTextColourFlag::Forced);
+					list.push_back(std::move(item));
+				}
 				ShowDropDownList(this, std::move(list), to_underlying(this->order->GetCoupleSpeedBoundMode(row)), widget, 0);
 				return;
 			}
