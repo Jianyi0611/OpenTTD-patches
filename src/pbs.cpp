@@ -1633,7 +1633,7 @@ bool IsCouplePartnerTile(const Train *v, TileIndex tile)
 }
 
 /** Tile budget for the couple approach walk. */
-static constexpr uint COUPLE_APPROACH_BUDGET = 256;
+static constexpr uint COUPLE_APPROACH_BUDGET = 2048;
 
 enum class CoupleApproachOutcome {
 	Unreachable,     ///< the partner could not be reached at all
