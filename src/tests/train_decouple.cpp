@@ -879,9 +879,16 @@ TEST_CASE_METHOD(TrainDecoupleFixture, "Couple - checkpoint speed preference is 
 		MakeRailStation(train->tile, OWNER_NONE, StationID{0}, Axis::X, 0, RAILTYPE_RAIL);
 	}
 	CHECK(GetCoupleSpeedPreferencePenalty(moving, matching) == 0);
-	CHECK(GetCoupleSpeedPreferencePenalty(moving, slow) == 5);
+	CHECK(GetCoupleSpeedPreferencePenalty(moving, slow) == 10);
 	GameRandomSeedChecker random_checker;
 	CHECK(FindBestCoupleCheckpointTarget(moving, moving->current_order) == matching);
+	/* Prefer the matching train across a moderate detour which outweighed the old score. */
+	matching->tile = TileXY(19, 10);
+	MakeRailStation(matching->tile, OWNER_NONE, StationID{0}, Axis::X, 0, RAILTYPE_RAIL);
+	CHECK(FindBestCoupleCheckpointTarget(moving, moving->current_order) == matching);
+	matching->vcache.cached_max_speed = UINT16_MAX;
+	CHECK(GetCoupleSpeedPreferencePenalty(moving, matching) <= 24); // Large gaps cannot impose an unbounded detour.
+	matching->vcache.cached_max_speed = 120;
 	matching->current_order.MakeDummy();
 	CHECK(FindBestCoupleCheckpointTarget(moving, moving->current_order) == slow);
 	matching->current_order.MakeWaitCouple();

@@ -7199,7 +7199,7 @@ uint GetCoupleSpeedPreferencePenalty(const Train *moving, const Train *waiting)
 	const uint a = moving->Primary()->GetDisplayMaxSpeed();
 	const uint b = waiting->Primary()->GetDisplayMaxSpeed();
 	const uint gap = a > b ? a - b : b - a;
-	return std::min<uint>((gap + 7) / 8, 16);
+	return std::min<uint>((gap + 3) / 4, 24);
 }
 
 /** Select a checkpoint partner deterministically, avoiding expensive checks for worse candidates. */
