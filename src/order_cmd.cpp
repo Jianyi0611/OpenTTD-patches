@@ -1659,10 +1659,38 @@ static void InsertOrderOnStandaloneList(OrderList *ol, Order &&new_o, VehicleOrd
 	InvalidateStandaloneOrderGUIs();
 }
 
+/**
+ * Clear the early check points of couple orders whose location order is gone.
+ * A check point only works while a station/waypoint order earlier in the list
+ * references its location; drop any check point left dangling after edits.
+ * @param ol the order list to repair, may be nullptr.
+ */
+static void ClearDanglingCoupleCheckPoints(OrderList *ol)
+{
+	if (ol == nullptr) return;
+	for (VehicleOrderID ci = 0; ci < ol->GetNumOrders(); ++ci) {
+		Order *couple = ol->GetOrderAt(ci);
+		if (couple == nullptr || !couple->IsType(OT_GOTO_COUPLE) || !couple->HasCoupleCheckPoint()) continue;
+		const StationID station = couple->GetCoupleCheckPoint();
+		bool present = false;
+		for (VehicleOrderID i = 0; i < ci; ++i) {
+			const Order *point = ol->GetOrderAt(i);
+			if (point != nullptr && (point->IsType(OT_GOTO_STATION) || point->IsType(OT_GOTO_WAYPOINT)) &&
+					point->GetDestination().ToStationID() == station) {
+				present = true;
+				break;
+			}
+		}
+		if (!present) couple->SetCoupleCheckPoint(StationID::Invalid());
+	}
+}
+
 /** Delete an order from a standalone order list and fix up conditional jump targets. */
 static void DeleteOrderOnStandaloneList(OrderList *ol, VehicleOrderID sel_ord)
 {
 	ol->DeleteOrderAt(sel_ord);
+
+	ClearDanglingCoupleCheckPoints(ol);
 
 	StandaloneListDeleteUpdateVehicles(ol, sel_ord);
 
@@ -2412,6 +2440,8 @@ static void CancelLoadingDueToDeletedOrder(Vehicle *v)
 void DeleteOrder(Vehicle *v, VehicleOrderID sel_ord)
 {
 	v->orders->DeleteOrderAt(sel_ord);
+
+	ClearDanglingCoupleCheckPoints(v->orders);
 
 	Vehicle *u = v->FirstShared();
 	DeleteOrderWarnings(u);
