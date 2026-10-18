@@ -14,6 +14,7 @@
 #include "mock_environment.h"
 
 #include "../window_gui.h"
+#include "../window_func.h"
 #include "../core/format.hpp"
 
 #include <set>
@@ -98,4 +99,69 @@ TEST_CASE_METHOD(WindowDescTestsFixture, "WindowDesc - NWidgetPart validity")
 
 	REQUIRE_NOTHROW(root = MakeWindowNWidgetTree(window_desc->nwid_parts, &shade_select));
 	CHECK((root != nullptr));
+}
+
+/** A child dialog with the same focus restoration as the coupling criteria window. */
+class FocusRestoringTestWindow : public Window {
+public:
+	FocusRestoringTestWindow(WindowDesc &desc, WindowNumber number, Window *parent = nullptr) : Window(desc)
+	{
+		this->CreateNestedTree();
+		this->InitializeData(number);
+		this->width = this->height = 100;
+		this->parent = parent;
+		this->querystrings[0] = nullptr;
+	}
+
+	void OnFocusLost(bool closing, Window *newly_focused_window) override
+	{
+		if (closing) CHECK_FALSE(this->querystrings.empty());
+		this->Window::OnFocusLost(closing, newly_focused_window);
+	}
+
+	void Close(int data = 0) override
+	{
+		if (this->parent != nullptr) FocusWindowById(this->parent->window_class, this->parent->window_number);
+		this->Window::Close(data);
+	}
+};
+
+TEST_CASE_METHOD(WindowDescTestsFixture, "Window focus - closing a parent cannot leave focus on a closed window")
+{
+	static constexpr NWidgetPart widgets[] = { NWidget(WWT_PANEL, Colours::Grey), SetMinimalSize(100, 100), EndContainer() };
+	static WindowDesc parent_desc(__FILE__, __LINE__, WindowPosition::Manual, nullptr, 10, 10,
+			WindowClass::VehicleOrders, WindowClass::VehicleView, {}, widgets);
+	static WindowDesc child_desc(__FILE__, __LINE__, WindowPosition::Manual, nullptr, 10, 10,
+			WindowClass::VehicleCoupleCriteria, WindowClass::VehicleOrders, {}, widgets);
+	REQUIRE(_focused_window == nullptr);
+	auto *parent = new FocusRestoringTestWindow(parent_desc, 0x7150);
+	auto *child = new FocusRestoringTestWindow(child_desc, 0x7151, parent);
+	if (GENERATE(false, true)) new FocusRestoringTestWindow(child_desc, 0x7152, child);
+	SetFocusedWindow(GENERATE(false, true) ? static_cast<Window *>(parent) : static_cast<Window *>(child));
+	parent->Close();
+	CHECK(_focused_window == nullptr);
+	/* Allow safe cleanup even when testing the regression against the unfixed code. */
+	_focused_window = nullptr;
+	Window::DeleteClosedWindows();
+	CHECK_FALSE(EditBoxInGlobalFocus());
+}
+
+TEST_CASE_METHOD(WindowDescTestsFixture, "Window focus - closing only the child restores a live parent")
+{
+	static constexpr NWidgetPart widgets[] = { NWidget(WWT_PANEL, Colours::Grey), SetMinimalSize(100, 100), EndContainer() };
+	static WindowDesc parent_desc(__FILE__, __LINE__, WindowPosition::Manual, nullptr, 10, 10,
+			WindowClass::VehicleOrders, WindowClass::VehicleView, {}, widgets);
+	static WindowDesc child_desc(__FILE__, __LINE__, WindowPosition::Manual, nullptr, 10, 10,
+			WindowClass::VehicleCoupleCriteria, WindowClass::VehicleOrders, {}, widgets);
+	REQUIRE(_focused_window == nullptr);
+	auto *parent = new FocusRestoringTestWindow(parent_desc, 0x7160);
+	auto *child = new FocusRestoringTestWindow(child_desc, 0x7161, parent);
+	child->Close();
+	CHECK(_focused_window == parent);
+	Window::DeleteClosedWindows();
+	CHECK(_focused_window == parent);
+	CHECK_FALSE(EditBoxInGlobalFocus());
+	parent->Close();
+	CHECK(_focused_window == nullptr);
+	Window::DeleteClosedWindows();
 }
