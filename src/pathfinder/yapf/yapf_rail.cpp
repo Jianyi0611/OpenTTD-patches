@@ -545,11 +545,22 @@ public:
 		Tpf pf1;
 		pf1.DisableCache(true);
 		Trackdir ret = pf1.FindNearestCoupleTrain(v, dont_reserve);
+		Tpf *result = &pf1;
+		std::unique_ptr<Tpf> fallback;
+		/* If scoring exhausted the node budget or could not reserve its route,
+		 * retain the original nearest-reachable search as a compatibility fallback. */
+		if (ret == INVALID_TRACKDIR && pf1.HasCoupleSpeedPreference()) {
+			fallback = std::make_unique<Tpf>();
+			fallback->DisableCache(true);
+			fallback->SetCoupleSpeedPreference(false);
+			ret = fallback->FindNearestCoupleTrain(v, dont_reserve);
+			result = fallback.get();
+		}
 		if (couple_target != nullptr) {
-			*couple_target = (ret != INVALID_TRACKDIR) ? pf1.couple_target_found : nullptr;
+			*couple_target = (ret != INVALID_TRACKDIR) ? result->couple_target_found : nullptr;
 		}
 		if (couple_cost != nullptr) {
-			*couple_cost = (ret != INVALID_TRACKDIR) ? pf1.couple_cost_found : 0;
+			*couple_cost = (ret != INVALID_TRACKDIR) ? result->couple_cost_found : 0;
 		}
 		return ret;
 	}

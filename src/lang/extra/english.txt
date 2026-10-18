@@ -2700,3 +2700,24 @@ STR_CONFIG_SETTING_NEWS_CARGO_FLOW                              :Overflowing car
 STR_CONFIG_SETTING_NEWS_CARGO_FLOW_HELPTEXT                     :Warn about stations where cargo is accumulating.{}The detection is based on shape of the cargo history graph, not on specific amount threshold.
 
 STR_STATION_CARGO_OVERFLOW                                      :{WHITE}{CARGO_LIST} overflowing at {STATION}
+
+# Coupling maximum-speed criteria
+STR_ORDER_COUPLE_REJECT_SLOWER                                :{BLACK}Skip if my train has a lower top speed
+STR_ORDER_COUPLE_REJECT_FASTER                                :{BLACK}Skip if my train has a higher top speed
+STR_ORDER_COUPLE_SPEED_TOOLTIP                                :{BLACK}Compare both trains before coupling. Slower means my train has a lower top speed; faster means it has a higher top speed. Enabling both allows equal top speeds only. Current speed and temporary limits do not count.
+STR_ORDER_COUPLE_REJECT_SLOWER_SUFFIX                         : (require this train maximum speed >= waiting train)
+STR_ORDER_COUPLE_REJECT_FASTER_SUFFIX                         : (require this train maximum speed <= waiting train)
+STR_COUPLE_DIAGNOSTIC_SLOWER                                  :Approaching train maximum speed is lower than waiting train
+STR_COUPLE_DIAGNOSTIC_FASTER                                  :Approaching train maximum speed is higher than waiting train
+
+# Custom coupling maximum-speed range
+STR_ORDER_COUPLE_SPEED_DISABLED                               :{BLACK}Disabled
+STR_ORDER_COUPLE_SPEED_LABEL1                                 :{BLACK}Waiting train top speed: rule 1
+STR_ORDER_COUPLE_SPEED_LABEL2                                 :{BLACK}Waiting train top speed: rule 2
+STR_ORDER_COUPLE_SPEED_QUERY                                  :{WHITE}Maximum speed threshold ({STRING}, whole units)
+STR_ORDER_COUPLE_SPEED_RANGE_TOOLTIP                          :{BLACK}Choose a comparison, then click the number to enter the waiting train top speed. Is means equal; is not means different; < and > exclude the number, <= and >= include it. To allow 80 to 120, set rule 1 >= 80 and rule 2 <= 120. Every enabled rule and button must match. Disabled means ignore this rule. A stopped train still uses its top speed.
+STR_ORDER_COUPLE_SPEED_RANGE_SUFFIX                           : (waiting train max. speed {STRING} {NUM} {STRING})
+STR_COUPLE_DIAGNOSTIC_SPEED_RANGE                             :Waiting train maximum speed fails the custom speed criteria
+
+STR_ORDER_COUPLE_SPEED_VALUE                                    :{BLACK}{NUM} {STRING}
+STR_ORDER_COUPLE_SPEED_INVALID                                  :{WHITE}Enter a speed from 0 to 65535.

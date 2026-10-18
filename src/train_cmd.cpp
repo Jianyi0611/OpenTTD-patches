@@ -7144,6 +7144,18 @@ static CoupleCandidateResult GetCoupleVolatileConditionResult(const Train *movin
 	if (carrier->vehstatus.Test(VehState::Crashed)) return CoupleCandidateResult::Crashed;
 	if (carrier->vehstatus.Test(VehState::Stopped)) return CoupleCandidateResult::Stopped;
 	if (!IsTrainCouplingAllowed(moving->owner, carrier->owner)) return CoupleCandidateResult::Owner;
+	/* Compare the consist capability, not temporary shunting, signal or track limits.
+	 * This read-only check is shared by checkpoint claims, routing and contact. */
+	const uint moving_speed = moving->Primary()->GetDisplayMaxSpeed();
+	const uint waiting_speed = carrier->GetDisplayMaxSpeed();
+	if (order.GetCoupleRejectSlower() && moving_speed < waiting_speed) return CoupleCandidateResult::Slower;
+	if (order.GetCoupleRejectFaster() && moving_speed > waiting_speed) return CoupleCandidateResult::Faster;
+	for (uint row = 0; row < 2; row++) {
+		const uint8_t comparator = order.GetCoupleSpeedComparator(row);
+		if (comparator == 0) continue;
+		if (comparator > 6 || order.GetCoupleSpeedUnit(row) >= 6 || !OrderConditionCompare(static_cast<OrderConditionComparator>(comparator - 1),
+				ConvertKmhishSpeedToIntegerDisplaySpeed(waiting_speed, order.GetCoupleSpeedUnit(row)), order.GetCoupleSpeedValue(row))) return CoupleCandidateResult::SpeedRange;
+	}
 	if (!CoupleOrderLoadOk(order, rep)) return CoupleCandidateResult::Load;
 	if (!CoupleCargoOk(order, rep)) return CoupleCandidateResult::Cargo;
 	if (!CoupleNumOk(order, rep)) return CoupleCandidateResult::UnitCount;
@@ -7181,6 +7193,35 @@ CoupleCandidateResult GetCoupleCandidateResult(const Train *moving, const Order 
 	return CoupleCandidateResult::Valid;
 }
 
+/** Bounded soft preference, in tiles: matching speed never makes another valid partner ineligible. */
+uint GetCoupleSpeedPreferencePenalty(const Train *moving, const Train *waiting)
+{
+	const uint a = moving->Primary()->GetDisplayMaxSpeed();
+	const uint b = waiting->Primary()->GetDisplayMaxSpeed();
+	const uint gap = a > b ? a - b : b - a;
+	return std::min<uint>((gap + 7) / 8, 16);
+}
+
+/** Select a checkpoint partner deterministically, avoiding expensive checks for worse candidates. */
+Train *FindBestCoupleCheckpointTarget(Train *moving, const Order &couple)
+{
+	Train *best = nullptr;
+	std::tuple<uint64_t, uint, uint32_t, uint32_t> best_key{};
+	for (Train *candidate : Train::Iterate()) {
+		if (!candidate->IsPrimaryVehicle() || candidate->Primary() == moving->Primary() || candidate->vehstatus.Test(VehState::Crashed)) continue;
+		const uint penalty = GetCoupleSpeedPreferencePenalty(moving, candidate);
+		for (Train *end : {candidate->First(), candidate->First()->Last()}) {
+			const uint distance = DistanceManhattan(end->tile, moving->tile);
+			const auto key = std::make_tuple(uint64_t(distance) + penalty, penalty, candidate->index.base(), end->index.base());
+			if (best != nullptr && key >= best_key) continue;
+			if (GetCoupleCandidateResult(moving, couple, candidate->First(), end->tile, true, 0) != CoupleCandidateResult::Valid) continue;
+			best = end;
+			best_key = key;
+		}
+	}
+	return best;
+}
+
 /** Select and exclusively claim a matching waiting consist, or report that no partner is ready. */
 static bool ClaimOrWaitForCoupleOrder(Train *moving, const Order &couple)
 {
@@ -7188,20 +7229,14 @@ static bool ClaimOrWaitForCoupleOrder(Train *moving, const Order &couple)
 		moving->flags.Reset(VehicleRailFlag::CoupleCheckReservationReleased);
 		return false;
 	}
-	for (Train *candidate : Train::Iterate()) {
-		if (!candidate->IsPrimaryVehicle() || candidate == moving || candidate->vehstatus.Test(VehState::Crashed)) continue;
-		Train *ends[2] = {candidate->First(), candidate->First()->Last()};
-		if (DistanceManhattan(ends[1]->tile, moving->tile) < DistanceManhattan(ends[0]->tile, moving->tile)) std::swap(ends[0], ends[1]);
-		for (Train *end : ends) {
-			if (GetCoupleCandidateResult(moving, couple, candidate->First(), end->tile, true, 0) != CoupleCandidateResult::Valid) continue;
-			moving->couple_target = end->index;
-			ClaimCoupleTarget(moving, candidate, 0);
-			if (GetClaimedCoupleTarget(moving) != nullptr) {
-				moving->flags.Reset(VehicleRailFlag::CoupleCheckReservationReleased);
-				return false;
-			}
-			moving->couple_target = VehicleID::Invalid();
+	if (Train *target = FindBestCoupleCheckpointTarget(moving, couple); target != nullptr) {
+		moving->couple_target = target->index;
+		ClaimCoupleTarget(moving, target->Primary(), 0);
+		if (GetClaimedCoupleTarget(moving) != nullptr) {
+			moving->flags.Reset(VehicleRailFlag::CoupleCheckReservationReleased);
+			return false;
 		}
+		moving->couple_target = VehicleID::Invalid();
 	}
 	/* The checkpoint can be several orders before the actual couple order.
 	 * Stop and release its existing forward reservation just as an unmatched
@@ -7275,19 +7310,32 @@ Train *ResolveCoupleTargetStation(const Train *moving, TileIndex tile, Trackdir 
 {
 	if (!IsRailStationTile(tile)) return nullptr;
 
+	Train *best = nullptr;
+	std::vector<VehicleID> seen;
+	std::tuple<uint64_t, uint, uint32_t> best_key{};
 	TileIndexDiff diff = TileOffsByDiagDir(TrackdirToExitdir(ReverseTrackdir(td)));
 	for (TileIndex st_tile = tile; IsCompatibleTrainStationTile(st_tile, tile); st_tile += diff) {
 		for (Train *t : VehiclesOnTile<VehicleType::Train>(st_tile)) {
 			if (t->vehstatus.Test(VehState::Crashed)) continue;
+			/* A long waiting consist can occupy many platform tiles. Trial surgery
+			 * and approach probing must run once per consist, not once per wagon. */
+			const VehicleID id = t->Primary()->index;
+			if (std::find(seen.begin(), seen.end(), id) != seen.end()) continue;
+			seen.push_back(id);
 			Train *target = ValidateCoupleCandidate(moving, t->First(), st_tile, respect_claim, claim_cost);
 			if (target != nullptr) {
 				/* A candidate whose approach is blocked by another consist is not
 				 * reachable; keep looking for a waiting train we can reach. */
-				if (IsCoupleApproachPathClearTo(moving, target)) return target;
+				const uint penalty = GetCoupleSpeedPreferencePenalty(moving, target);
+				const auto key = std::make_tuple(uint64_t(DistanceManhattan(tile, target->tile)) + penalty, penalty, target->index.base());
+				if ((best == nullptr || key < best_key) && IsCoupleApproachPathClearTo(moving, target)) {
+					best = target;
+					best_key = key;
+				}
 			}
 		}
 	}
-	return nullptr;
+	return best;
 }
 
 bool IsCoupleArrangementValid(Train *v_phys, Train *u_phys)

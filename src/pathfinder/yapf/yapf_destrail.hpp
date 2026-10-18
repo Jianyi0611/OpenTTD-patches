@@ -298,8 +298,13 @@ public:
 
 protected:
 	Order dest_order;
+	bool prefer_matching_speed = true;
+	bool speed_preference_applied = false;
 
 public:
+	void SetCoupleSpeedPreference(bool enabled) { this->prefer_matching_speed = enabled; }
+	bool HasCoupleSpeedPreference() const { return this->speed_preference_applied; }
+
 	/** @copydoc CYapfBaseT::Yapf */
 	Tpf &Yapf()
 	{
@@ -332,6 +337,11 @@ public:
 	/** @copydoc CYapfBaseT::PfDetectDestinationTileFunc */
 	inline bool PfDetectDestination(TileIndex tile, Trackdir td, uint32_t claim_cost)
 	{
+		return this->GetCoupleDestination(tile, td, claim_cost) != nullptr;
+	}
+
+	Train *GetCoupleDestination(TileIndex tile, Trackdir td, uint32_t claim_cost)
+	{
 		if (IsRailStationTile(tile)) {
 			/* Station tile: search the entire platform for a waiting train
 			 * directly, without requiring a reservation. Cross-company trains
@@ -339,21 +349,29 @@ public:
 			 * All order/permission/validity checks live in the shared resolver.
 			 * A waiting train already claimed by another approaching consist is
 			 * not a destination unless this consist's path is cheaper. */
-			return ResolveCoupleTargetStation(Yapf().GetVehicle(), tile, td, true, claim_cost) != nullptr;
+			return ResolveCoupleTargetStation(Yapf().GetVehicle(), tile, td, true, claim_cost);
 		}
 
 		/* Non-station tiles: require reservation as usual. */
 		TrackdirBits tdb = TrackdirToTrackdirBits(td);
-		if (!HasReservedTracks(tile, TrackdirBitsToTrackBits(tdb))) return false;
+		if (!HasReservedTracks(tile, TrackdirBitsToTrackBits(tdb))) return nullptr;
 		Train *t = GetTrainForReservation(tile, TrackdirToTrack(td));
-		if (t == nullptr) return false;
-		return ValidateCoupleCandidate(Yapf().GetVehicle(), t->First(), tile, true, claim_cost) != nullptr;
+		if (t == nullptr) return nullptr;
+		return ValidateCoupleCandidate(Yapf().GetVehicle(), t->First(), tile, true, claim_cost);
 	}
 
 	/** @copydoc CYapfBaseT::PfCalcEstimateFunc */
 	inline bool PfCalcEstimate(Node &n)
 	{
 		n.estimate = n.cost;
+		if (this->prefer_matching_speed && n.flags_u.flags_s.target_seen) {
+			Train *target = this->GetCoupleDestination(n.GetLastTile(), n.GetLastTrackdir(), n.GetCost());
+			if (target != nullptr) {
+				const uint penalty = GetCoupleSpeedPreferencePenalty(Yapf().GetVehicle(), target) * YAPF_TILE_LENGTH;
+				this->speed_preference_applied |= penalty != 0;
+				n.estimate = std::min<int64_t>(int64_t(n.cost) + penalty, INT_MAX);
+			}
+		}
 		return true;
 	}
 

@@ -371,6 +371,12 @@ enum ModifyOrderFlags : uint8_t {
 	MOF_RV_GROUP,        ///< Road vehicle transport (RoRo) selection criterion: vehicle group ("载具组") a candidate must belong to.
 	MOF_DECOUPLE_FIRST_SAME_DIR,  ///< Allow the first part to leave the decouple station in the same direction as the other part.
 	MOF_DECOUPLE_SECOND_SAME_DIR, ///< Allow the second part to leave the decouple station in the same direction as the other part.
+	MOF_COUPLE_REJECT_SLOWER, ///< Reject coupling when the approaching train has a lower maximum speed.
+	MOF_COUPLE_REJECT_FASTER, ///< Reject coupling when the approaching train has a higher maximum speed.
+	MOF_COUPLE_SPEED_COMPARATOR1, ///< First waiting-train maximum-speed comparison.
+	MOF_COUPLE_SPEED_COMPARATOR2, ///< Second waiting-train maximum-speed comparison.
+	MOF_COUPLE_SPEED_VALUE1, ///< First waiting-train maximum-speed threshold.
+	MOF_COUPLE_SPEED_VALUE2, ///< Second waiting-train maximum-speed threshold.
 	MOF_END
 };
 

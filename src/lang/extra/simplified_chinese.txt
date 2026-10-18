@@ -2624,3 +2624,24 @@ STR_CONFIG_SETTING_NEWS_CARGO_FLOW                              :车站货物积
 STR_CONFIG_SETTING_NEWS_CARGO_FLOW_HELPTEXT                     :在车站货物积压时发出警告。{}警告基于过往货物接收发出历史计算发出，不基于某一特定数值
 
 STR_STATION_CARGO_OVERFLOW                                      :{WHITE}{1:STATION}有货物积压：{0:CARGO_LIST}
+
+# Coupling maximum-speed criteria
+STR_ORDER_COUPLE_REJECT_SLOWER                                :{BLACK}本车最高速度低于等待列车时，不连接
+STR_ORDER_COUPLE_REJECT_FASTER                                :{BLACK}本车最高速度高于等待列车时，不连接
+STR_ORDER_COUPLE_SPEED_TOOLTIP                                :{BLACK}比较连挂前双方的最高速度。“本车”是前往连接的机车；“更慢”指本车最高速度更低，“更快”指本车最高速度更高。两项都勾选时，只接最高速度相同的车。停车速度和临时限速不参与比较。
+STR_ORDER_COUPLE_REJECT_SLOWER_SUFFIX                         :（本车最大速度须不低于等待列车）
+STR_ORDER_COUPLE_REJECT_FASTER_SUFFIX                         :（本车最大速度须不高于等待列车）
+STR_COUPLE_DIAGNOSTIC_SLOWER                                  :前往连接列车的最大速度低于等待列车
+STR_COUPLE_DIAGNOSTIC_FASTER                                  :前往连接列车的最大速度高于等待列车
+
+# Custom coupling maximum-speed range
+STR_ORDER_COUPLE_SPEED_DISABLED                               :{BLACK}关闭
+STR_ORDER_COUPLE_SPEED_LABEL1                                 :{BLACK}等待列车最高速度：条件 1
+STR_ORDER_COUPLE_SPEED_LABEL2                                 :{BLACK}等待列车最高速度：条件 2
+STR_ORDER_COUPLE_SPEED_QUERY                                  :{WHITE}最大速度阈值（{STRING}，整数）
+STR_ORDER_COUPLE_SPEED_RANGE_TOOLTIP                          :{BLACK}先选比较方式，再点右侧数字输入等待列车的最高速度。“是”就是等于，“不是”就是不等于；<、>不含输入的数值，≤、≥包含该数值。例如只接80到120的车厢：条件1选≥80，条件2选≤120。所有已开启的条件和上方按钮都要同时满足；选“关闭”就忽略这一条。车厢即使停着，也按最高速度判断。
+STR_ORDER_COUPLE_SPEED_RANGE_SUFFIX                           :（等待列车最大速度{STRING}{NUM}{STRING}）
+STR_COUPLE_DIAGNOSTIC_SPEED_RANGE                             :等待列车最大速度不符合自定义速度条件
+
+STR_ORDER_COUPLE_SPEED_VALUE                                    :{BLACK}{NUM} {STRING}
+STR_ORDER_COUPLE_SPEED_INVALID                                  :{WHITE}请输入0至65535之间的速度。

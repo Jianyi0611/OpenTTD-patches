@@ -80,6 +80,11 @@ uint32_t GetStringGRFID(StringID string);
 
 uint ConvertKmhishSpeedToDisplaySpeed(uint speed, VehicleType type);
 uint ConvertDisplaySpeedToKmhishSpeed(uint speed, VehicleType type);
+uint ConvertKmhishSpeedToIntegerDisplaySpeed(uint speed, VehicleType type);
+uint8_t GetVelocityUnitCode(VehicleType type);
+StringID GetVelocityUnitNameForCode(uint8_t code);
+uint ConvertKmhishSpeedToIntegerDisplaySpeed(uint speed, uint8_t code);
+uint ConvertVelocityUnitValue(uint speed, uint8_t from, uint8_t to);
 
 StringID GetVelocityUnitName(VehicleType type);
 

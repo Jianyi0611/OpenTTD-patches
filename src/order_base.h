@@ -156,6 +156,10 @@ private:
 
 	TimetableTicks wait_time{};    ///< How long in ticks to wait at the destination.
 	TimetableTicks travel_time{};  ///< How long in ticks the journey to this destination should take.
+	uint16_t couple_speed_value1{}; ///< First coupling speed threshold in its recorded display units.
+	uint16_t couple_speed_value2{}; ///< Second coupling speed threshold in its recorded display units.
+	uint8_t couple_speed_unit1{1}; ///< First threshold unit code (metric by default).
+	uint8_t couple_speed_unit2{1}; ///< Second threshold unit code (metric by default).
 	uint16_t max_speed{};          ///< How fast the vehicle may go on the way to the destination.
 
 	void AllocExtraInfo();
@@ -391,8 +395,8 @@ public:
 		return *this;
 	}
 
-	static constexpr auto GetCmdRefFields() { return std::make_tuple(&Order::type, &Order::flags, &Order::dest); }
-	static constexpr char CMD_TUPLE_FMT[] = "t: {:X}, f: {:X}, d: {}";
+	static constexpr auto GetCmdRefFields() { return std::make_tuple(&Order::type, &Order::flags, &Order::dest, &Order::couple_speed_value1, &Order::couple_speed_value2, &Order::couple_speed_unit1, &Order::couple_speed_unit2); }
+	static constexpr char CMD_TUPLE_FMT[] = "t: {:X}, f: {:X}, d: {}, coupling speeds: {}, {}, units: {}, {}";
 
 	/**
 	 * Check whether this order is of the given type.
@@ -784,6 +788,19 @@ public:
 	inline bool GetCoupleUseWaitingSchedule() const { return HasBit(this->flags, 3); }
 	/** Set whether the consist takes over the waiting consist's schedule at coupling. */
 	inline void SetCoupleUseWaitingSchedule(bool on) { SB(this->flags, 3, 1, on ? 1 : 0); }
+	/** Reject partners whose maximum speed is higher than the approaching train. */
+	inline bool GetCoupleRejectSlower() const { return HasBit(this->flags, 4); }
+	inline void SetCoupleRejectSlower(bool on) { SB(this->flags, 4, 1, on ? 1 : 0); }
+	/** Reject partners whose maximum speed is lower than the approaching train. */
+	inline bool GetCoupleRejectFaster() const { return HasBit(this->flags, 5); }
+	inline void SetCoupleRejectFaster(bool on) { SB(this->flags, 5, 1, on ? 1 : 0); }
+	/** Optional speed criteria: 0 disables the row, 1..6 map to numeric OrderConditionComparator values + 1. */
+	inline uint8_t GetCoupleSpeedComparator(uint row) const { assert(row < 2); return GB(this->flags, 6 + 3 * row, 3); }
+	inline void SetCoupleSpeedComparator(uint row, uint8_t value) { assert(row < 2 && value <= 6); SB(this->flags, 6 + 3 * row, 3, value); }
+	inline uint16_t GetCoupleSpeedValue(uint row) const { assert(row < 2); return row == 0 ? this->couple_speed_value1 : this->couple_speed_value2; }
+	inline void SetCoupleSpeedValue(uint row, uint16_t value) { assert(row < 2); (row == 0 ? this->couple_speed_value1 : this->couple_speed_value2) = value; }
+	inline uint8_t GetCoupleSpeedUnit(uint row) const { assert(row < 2); return row == 0 ? this->couple_speed_unit1 : this->couple_speed_unit2; }
+	inline void SetCoupleSpeedUnit(uint row, uint8_t value) { assert(row < 2 && value < 6); (row == 0 ? this->couple_speed_unit1 : this->couple_speed_unit2) = value; }
 	/** How many wagons are we taking */
 	inline uint8_t GetNumCouple() const { return GB(this->decouple_flags, 1, 7); }
 	/** What orders should first part get */
