@@ -74,7 +74,7 @@ void UpdateAircraftOnUpdatedAirport(const Station *st)
 
 			case OT_GOTO_DEPOT:
 				if (!st->airport.HasHangar()) continue;
-				if (v->current_order.GetDestination() != st->airport.hangar->index) continue;
+				if (GetOrderHangar(v->current_order) != st->airport.hangar) continue;
 				v->dest_tile = v->GetOrderHangarLocation(st->airport.hangar->index);
 				break;
 

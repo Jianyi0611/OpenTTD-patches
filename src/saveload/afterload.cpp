@@ -3235,37 +3235,7 @@ bool AfterLoadGame()
 		InitializeAirportGui();
 	}
 
-	if (IsSavegameBeforeMultitileAirports()) {
-		/* Update go to hangar orders so they store the DepotID instead of StationID. */
-		for (Aircraft *a : Aircraft::Iterate()) {
-			if (!a->IsNormalAircraft()) continue;
-
-			/* Update current order. */
-			if (a->current_order.IsType(OT_GOTO_DEPOT)) {
-				Station *st = Station::GetIfValid(a->current_order.GetDestination().ToStationID());
-				Depot *dep = (st != nullptr) ? st->airport.hangar : nullptr;
-				if (dep == nullptr) {
-					/* Aircraft heading to a removed hangar. */
-					a->current_order.MakeDummy();
-				} else {
-					a->current_order.SetDestination(dep->index);
-				}
-			}
-
-			/* Update each aircraft order list once. */
-			if (a->orders == nullptr) continue;
-			if (a->orders->GetFirstSharedVehicle() != a) continue;
-
-			for (Order *order : a->Orders()) {
-				if (!order->IsType(OT_GOTO_DEPOT)) continue;
-				StationID station_id = order->GetDestination().ToStationID();
-				Station *st = Station::GetIfValid(station_id);
-				if (st != nullptr && st->airport.hangar != nullptr) {
-					order->SetDestination(st->airport.hangar->index);
-				}
-			}
-		}
-	}
+	/* Legacy hangar orders already name stations, as the current controller expects. */
 
 	/* Move the animation frame to the same location (m7) for all objects. */
 	if (IsSavegameVersionBefore(SLV_147)) {

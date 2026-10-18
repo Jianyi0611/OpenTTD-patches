@@ -581,7 +581,7 @@ static void CheckIfAircraftNeedsService(Aircraft *v)
 	 * (flag set) even though the hangar Depot pointer was already cleared. In that
 	 * case there is no valid hangar to send the aircraft to, so do not dereference it. */
 	if (st->airport.HasHangar() && st->airport.hangar != nullptr && CanVehicleUseStation(v, st)) {
-		v->current_order.MakeGoToDepot(st->airport.hangar->index, OrderDepotTypeFlag::Service);
+		v->current_order.MakeGoToDepot(st->index, OrderDepotTypeFlag::Service);
 		v->SetDestTile(v->GetOrderHangarLocation(st->airport.hangar->index));
 		SetWindowWidgetDirty(WindowClass::VehicleView, v->index, WID_VV_START_STOP);
 	} else if (v->current_order.IsType(OT_GOTO_DEPOT)) {
@@ -1397,8 +1397,10 @@ void UpdateAircraftState(Aircraft *v)
 			if (cur_station == StationID::Invalid()) {
 				/* If flying, find closest airport and go there. */
 				ClosestDepot closestHangar = v->FindClosestDepot();
-				cur_dest_station = GetStationIndex(Depot::Get(closestHangar.destination.ToDepotID())->xy);
-				dest_tile = v->GetOrderHangarLocation(closestHangar.destination.ToDepotID());
+				Station *hangar_station = Station::GetIfValid(closestHangar.destination.ToStationID());
+				cur_dest_station = (hangar_station != nullptr) ? hangar_station->index : StationID::Invalid();
+				dest_tile = (hangar_station != nullptr && hangar_station->airport.hangar != nullptr) ?
+						v->GetOrderHangarLocation(hangar_station->airport.hangar->index) : INVALID_TILE;
 			} else {
 				/* If aircraft is in an airport, go to its hangar or aprons. */
 				Station *st = Station::Get(cur_station);
@@ -2124,8 +2126,14 @@ void HandleAircraftFlightLevel(Aircraft *v)
 			assert(IsValidTile(v->GetNextTile()));
 			int z = GetTileHeightBelowAircraft(v) + 1;
 			/* Runway may be in a higher tile than the current one. */
-			z = std::max(z, GetTileMaxPixelZ(v->GetNextTile()) + 1);
-			z = v->z_pos - z;
+			int z_target = std::max(z, GetTileMaxPixelZ(v->GetNextTile()) + 1);
+			/* The aircraft may have been saved (or flown into) an altitude below the terrain/runway level.
+			 * Restore a legal descent altitude instead of descending further through the terrain. */
+			if (v->z_pos < z_target) {
+				v->z_pos = z_target;
+				break;
+			}
+			z = v->z_pos - z_target;
 
 			if (z > 32) {
 				v->z_pos = v->z_pos - 2;
@@ -2137,9 +2145,16 @@ void HandleAircraftFlightLevel(Aircraft *v)
 
 		case AS_FLYING_LANDING: {
 			int z = GetTileHeightBelowAircraft(v) + 1;
-			assert(z < v->z_pos);
-			v->z_pos -= 1;
-			if (v->z_pos == z) HandlePlaneLandsOnRunway(v);
+			if (v->z_pos <= z) {
+				/* Aircraft was saved (or got into) an illegal altitude below the terrain, e.g. embedded in a
+				 * mountainside while landing. Restore a legal altitude instead of asserting, so that such a
+				 * savegame can still be loaded and the aircraft lands normally. */
+				v->z_pos = z + 1;
+			} else {
+				assert(z < v->z_pos);
+				v->z_pos -= 1;
+				if (v->z_pos == z) HandlePlaneLandsOnRunway(v);
+			}
 			break;
 		}
 
@@ -2548,7 +2563,8 @@ ClosestDepot Aircraft::FindClosestDepot() const
 		st = Station::Get(station);
 	}
 
-	return ClosestDepot(st->airport.hangar->xy, DestinationID(st->airport.hangar->index), false);
+	/* Name the airport, like every other aircraft hangar order; see GetOrderHangar(). */
+	return ClosestDepot(st->airport.hangar->xy, DestinationID(st->index), false);
 }
 
 /**
@@ -2773,9 +2789,9 @@ bool TryReservePath(Aircraft *v)
 	if (v->state != AS_HANGAR && dest_state == AS_HANGAR && !v->current_order.IsType(OT_GOTO_DEPOT)) {
 		/* Create the hangar order. */
 		// revise
-		Depot *hangar = Station::GetByTile(v->tile)->airport.hangar;
-		assert(hangar != nullptr);
-		v->current_order.MakeGoToDepot(hangar->index, OrderDepotTypeFlag::Service);
+		Station *st = Station::GetByTile(v->tile);
+		assert(st->airport.hangar != nullptr);
+		v->current_order.MakeGoToDepot(st->index, OrderDepotTypeFlag::Service);
 		SetWindowWidgetDirty(WindowClass::VehicleView, v->index, WID_VV_START_STOP);
 	}
 

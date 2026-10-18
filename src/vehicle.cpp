@@ -4304,7 +4304,7 @@ CommandCost Vehicle::SendToDepot(DoCommandFlags flags, DepotCommandFlags command
 		}
 
 		this->SetDestTile(closest_depot.location);
-		this->current_order.MakeGoToDepot(closest_depot.destination.ToDepotID(), {});
+		this->current_order.MakeGoToDepot(closest_depot.destination, {});
 		if (command.Test(DepotCommandFlag::Sell)) {
 			this->current_order.SetDepotActionType(ODATFB_HALT | ODATFB_SELL);
 		} else if (!command.Test(DepotCommandFlag::Service)) {
@@ -5064,12 +5064,17 @@ StringID GetVehicleCannotUseStationReason(const Vehicle *v, const Station *st)
  * @param[in,out] set Set of affected vehicles.
  * @param v First vehicle of the selection.
  * @param num_vehicles Number of vehicles in the selection (not counting articulated parts).
+ *   UINT8_MAX selects the entire physical consist, including vehicles before \a v.
  * @pre \a set must be empty.
  * @post \a set will contain the vehicles that will be refitted.
  */
 void GetVehicleSet(VehicleSet &set, Vehicle *v, uint8_t num_vehicles)
 {
 	if (v->type == VehicleType::Train) {
+		/* 'Everything' covers the whole physical chain; the primary may sit
+		 * mid-chain, so the vehicles before the selection start must be included too. */
+		if (num_vehicles == UINT8_MAX) v = v->First();
+
 		Train *u = Train::From(v);
 		/* Only include whole vehicles, so start with the first articulated part */
 		u = u->GetFirstEnginePart();

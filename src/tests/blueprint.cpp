@@ -11,11 +11,20 @@
 
 #include "../3rdparty/catch2/catch.hpp"
 
+#include "../air_map.h"
+#include "../air.h"
+#include "../depot_base.h"
+#include "../aircraft.h"
+#include "../engine_base.h"
+#include "../order_func.h"
+#include "../core/random_func.hpp"
 #include "../blueprint.h"
 #include "../blueprint_cmd.h"
 #include "../company_func.h"
 #include "../map_func.h"
 #include "../rail_map.h"
+#include "../station_base.h"
+#include "../station_map.h"
 #include "../newgrf.h"
 #include "../newgrf_newsignals.h"
 #include "../newgrf_object.h"
@@ -28,6 +37,8 @@
 #include "../safeguards.h"
 
 extern std::vector<ObjectSpec> _object_specs;
+extern AirTypeInfo _airtypes[AIRTYPE_END];
+extern void UpdateAircraftOnUpdatedAirport(const Station *st);
 
 TEST_CASE("Blueprint - signal identity follows remapped and enabled style slots")
 {
@@ -354,6 +365,56 @@ TEST_CASE("Blueprint - direction, axis and road bit transformation")
 	CHECK(TransformBlueprintRoadBits(ROAD_NE | ROAD_SE, 0, true) == (ROAD_SW | ROAD_SE));
 }
 
+TEST_CASE("Blueprint - runway direction transformation")
+{
+	/* Rotation by 90 degrees anticlockwise: N -> W -> S -> E -> N. */
+	CHECK(TransformBlueprintDirection(Direction::N, 1, false) == Direction::W);
+	CHECK(TransformBlueprintDirection(Direction::E, 1, false) == Direction::N);
+	CHECK(TransformBlueprintDirection(Direction::NE, 1, false) == Direction::NW);
+	CHECK(TransformBlueprintDirection(Direction::N, 4, false) == Direction::N);
+
+	/* Reflection against the NW-SE axis: NE and SW swap, as do N/W and E/S. */
+	CHECK(TransformBlueprintDirection(Direction::NE, 0, true) == Direction::SW);
+	CHECK(TransformBlueprintDirection(Direction::N, 0, true) == Direction::W);
+	CHECK(TransformBlueprintDirection(Direction::SE, 0, true) == Direction::SE);
+	CHECK(TransformBlueprintDirection(Direction::NW, 0, true) == Direction::NW);
+}
+
+TEST_CASE("Blueprint - custom airport tiles rotate their tile data")
+{
+	/* Hangar on the north edge opening to the south-west, with an X track. */
+	BlueprintAirportTile hangar{{0, 0}, 0, static_cast<uint8_t>(ATT_HANGAR_STANDARD << 4), 0,
+			static_cast<uint16_t>(TRACK_BIT_X | (to_underlying(DiagDirection::SW) << 14))};
+	TransformBlueprintAirportTile(hangar, 1, false);
+	CHECK(hangar.m5 == static_cast<uint8_t>(ATT_HANGAR_STANDARD << 4));
+	CHECK(GB(hangar.m8, 0, 6) == TRACK_BIT_Y);
+	CHECK(GB(hangar.m8, 14, 2) == to_underlying(DiagDirection::SE));
+
+	/* Runway middle: the packed direction N becomes W. */
+	BlueprintAirportTile runway{{1, 0}, 0, static_cast<uint8_t>(ATT_RUNWAY_MIDDLE << 4), 0,
+			static_cast<uint16_t>(to_underlying(Direction::N) << 12)};
+	TransformBlueprintAirportTile(runway, 1, false);
+	CHECK(GB(runway.m8, 12, 3) == to_underlying(Direction::W));
+
+	/* Runway start: its direction rotates by one quarter turn as well. */
+	BlueprintAirportTile runway_start{{2, 0}, 0, static_cast<uint8_t>(ATT_RUNWAY_START_ALLOW_LANDING << 4), 0,
+			static_cast<uint16_t>(to_underlying(DiagDirection::NE) << 12)};
+	TransformBlueprintAirportTile(runway_start, 1, false);
+	CHECK(GB(runway_start.m8, 12, 2) == to_underlying(DiagDirection::NW));
+
+	/* Four quarter turns restore the captured tile exactly, reservation bits included. */
+	BlueprintAirportTile original{{3, 0}, 0x11, static_cast<uint8_t>((ATT_APRON_NORMAL << 4) | 0x3), 0x82,
+			static_cast<uint16_t>(TRACK_BIT_UPPER | TRACK_BIT_LEFT | (1 << 6) | (to_underlying(DiagDirection::NW) << 14))};
+	BlueprintAirportTile rotated = original;
+	for (int i = 0; i < 4; i++) TransformBlueprintAirportTile(rotated, 1, false);
+	CHECK(rotated.offset.x == original.offset.x);
+	CHECK(rotated.offset.y == original.offset.y);
+	CHECK(rotated.m4 == original.m4);
+	CHECK(rotated.m5 == original.m5);
+	CHECK(rotated.m6 == original.m6);
+	CHECK(rotated.m8 == original.m8);
+}
+
 TEST_CASE("Blueprint - transforming a blueprint moves elements consistently")
 {
 	/* A 3x2 blueprint with a single X track in its north corner. */
@@ -382,6 +443,62 @@ TEST_CASE("Blueprint - transforming a blueprint moves elements consistently")
 	CHECK(full_circle.rail_tracks[0].offset.x == 0);
 	CHECK(full_circle.rail_tracks[0].offset.y == 0);
 	CHECK(full_circle.rail_tracks[0].track == TRACK_X);
+}
+
+TEST_CASE("Blueprint - non-rectangular custom airport can be copied")
+{
+	AllocateMap(64, 64);
+	auto cleanup = scope_guard([] { _station_pool.CleanPool(); DeallocateMap(); });
+	AutoRestoreBackup local(_local_company, OWNER_BEGIN);
+
+	/* An L-shaped custom airport: the north-west corner of its bounding box (5, 5) is a hole. */
+	Station *st = Station::Create(TileXY(5, 5));
+	st->owner = _local_company;
+	st->facilities = {StationFacility::Airport};
+	st->airport.type = AT_CUSTOM;
+
+	const std::vector<TileIndex> tiles = {
+		TileXY(6, 5), TileXY(7, 5),
+		TileXY(5, 6), TileXY(6, 6), TileXY(7, 6),
+		TileXY(5, 7),
+	};
+	for (TileIndex t : tiles) {
+		MakeAirport(t, _local_company, st->index, 0, WaterClass::Invalid);
+		SetAirType(t, AIRTYPE_ASPHALT);
+		SetAirportTileType(t, ATT_SIMPLE_TRACK);
+		SetAirportTileTracks(t, TRACK_BIT_Y);
+		st->rect.BeforeAddTile(t, StationRect::ADD_FORCE);
+	}
+	st->UpdateAirportDataStructure();
+
+	/* The anchor is the bounding box corner, which is not an airport tile here. */
+	REQUIRE(st->airport.tile == TileXY(5, 5));
+	REQUIRE(!IsAirportTile(st->airport.tile));
+
+	/* Selecting the bounding box copies the whole airport even though the anchor is a hole. */
+	Blueprint blueprint;
+	CopyAreaToBlueprint(TileArea(TileXY(5, 5), TileXY(7, 7)), blueprint);
+	REQUIRE(blueprint.airports.size() == 1);
+	CHECK(blueprint.airports[0].station == st->index);
+	CHECK(blueprint.airports[0].type == AT_CUSTOM);
+	CHECK(blueprint.airports[0].tiles.size() == tiles.size());
+	CHECK(blueprint.airports[0].offset.x == 0);
+	CHECK(blueprint.airports[0].offset.y == 0);
+
+	/* A selection covering only the south-east part still yields the whole airport, re-based
+	 * so that every tile offset is inside the resulting blueprint. */
+	Blueprint partial;
+	CopyAreaToBlueprint(TileArea(TileXY(6, 6), TileXY(7, 7)), partial);
+	REQUIRE(partial.airports.size() == 1);
+	CHECK(partial.airports[0].tiles.size() == tiles.size());
+	CHECK(partial.width == 3);
+	CHECK(partial.height == 3);
+	for (const BlueprintAirportTile &apt : partial.airports[0].tiles) {
+		CHECK(apt.offset.x >= 0);
+		CHECK(apt.offset.y >= 0);
+		CHECK(apt.offset.x < partial.width);
+		CHECK(apt.offset.y < partial.height);
+	}
 }
 
 TEST_CASE("Blueprint - two tracks with signals on one tile")
@@ -849,4 +966,134 @@ TEST_CASE("Blueprint - full slot set serialization round-trip")
 	REQUIRE(result[7].road_depots.size() == 1);
 	CHECK(result[7].road_depots[0].dir == DiagDirection::NE);
 	CHECK(result[7].road_depots[0].roadtype == ROADTYPE_ROAD);
+}
+
+TEST_CASE("Airport - rebuilding caches preserves saved hangar depots")
+{
+	AllocateMap(64, 64);
+	REQUIRE(Station::GetNumItems() == 0);
+	REQUIRE(Depot::GetNumItems() == 0);
+	auto cleanup = scope_guard([] { _station_pool.CleanPool(); _depot_pool.CleanPool(); DeallocateMap(); });
+	TileIndex tile = TileXY(10, 10);
+	Station *st = Station::Create(tile);
+	st->owner = OWNER_BEGIN;
+	st->facilities = {StationFacility::Airport};
+	st->airport.type = AT_CUSTOM;
+	st->rect.BeforeAddTile(tile, StationRect::ADD_FORCE);
+	MakeAirport(tile, OWNER_BEGIN, st->index, 0, WaterClass::Invalid);
+	SetAirType(tile, AIRTYPE_ASPHALT);
+	SetAirportTileType(tile, ATT_HANGAR_STANDARD);
+	SetHangarDirection(tile, DiagDirection::NE);
+	SetAirportTileTracks(tile, TRACK_BIT_X);
+	st->UpdateAirportDataStructure();
+	REQUIRE(st->airport.hangar != nullptr);
+	const DepotID saved_id = st->airport.hangar->index;
+	st->airport.hangar->name = "Saved hangar";
+	SECTION("running game rebuild") {}
+	SECTION("joining client restores the depot pool before the station cache") {
+		st->airport.hangar = nullptr;
+	}
+	GameRandomSeedChecker random_checker;
+	st->UpdateAirportDataStructure();
+	REQUIRE(st->airport.hangar != nullptr);
+	CHECK(st->airport.hangar->index == saved_id);
+	CHECK(st->airport.hangar->name == "Saved hangar");
+	CHECK(Depot::GetNumItems() == 1);
+	CHECK(random_checker.Check());
+	st->UpdateAirportDataStructure();
+	CHECK(st->airport.hangar->index == saved_id);
+	CHECK(Depot::GetNumItems() == 1);
+}
+
+TEST_CASE("Blueprint - runway flight reservations never copy but hangar orientation does")
+{
+	for (AirportTileType type : {ATT_RUNWAY_MIDDLE, ATT_RUNWAY_END, ATT_RUNWAY_START_NO_LANDING, ATT_RUNWAY_START_ALLOW_LANDING, ATT_HANGAR_STANDARD, ATT_APRON_NORMAL}) {
+		BlueprintAirportTile tile{{0, 0}, 0, uint8_t(type << 4), 0, uint16_t(0x8000 | (0x3F << 6) | TRACK_BIT_X)};
+		ClearBlueprintAirportReservations(tile);
+		CHECK((tile.m8 & (0x3F << 6)) == 0);
+		CHECK(HasBit(tile.m8, 15) == (type == ATT_HANGAR_STANDARD || type == ATT_APRON_NORMAL));
+		CHECK((tile.m8 & TRACK_BIT_MASK) == TRACK_BIT_X);
+		for (uint8_t rotation = 0; rotation < 4; rotation++) {
+			BlueprintAirportTile rotated = tile;
+			TransformBlueprintAirportTile(rotated, rotation, true);
+			if (type >= ATT_RUNWAY_MIDDLE) CHECK_FALSE(HasBit(rotated.m8, 15));
+		}
+	}
+}
+
+TEST_CASE("Blueprint - invalid custom airport tile types fail before changing the map")
+{
+	AllocateMap(64, 64);
+	auto cleanup = scope_guard([] { DeallocateMap(); });
+	GameRandomSeedChecker random_checker;
+	const TileIndex tile = TileXY(10, 10);
+	const TileType old_type = GetTileType(tile);
+	for (uint8_t type : {uint8_t(ATT_WAITING_POINT), uint8_t(9), uint8_t(11)}) {
+		BlueprintPasteData data;
+		data.blueprint.width = data.blueprint.height = 1;
+		BlueprintAirport airport{{0, 0}, AT_CUSTOM, 0, 0, AIRTYPE_ASPHALT, 1, 1, StationID{0}, {}};
+		airport.tiles.push_back({{0, 0}, 0, uint8_t(type << 4), 0, 0});
+		data.blueprint.airports.push_back(airport);
+		CHECK(CmdPasteBlueprint({}, tile, data).Failed());
+		CHECK(CmdPasteBlueprint(DoCommandFlag::Execute, tile, data).Failed());
+		CHECK(GetTileType(tile) == old_type);
+		CHECK(random_checker.Check());
+	}
+}
+
+TEST_CASE("Airport - equal surface sorting priorities use deterministic IDs")
+{
+	std::array<AirTypeInfo, AIRTYPE_END> original;
+	std::copy_n(_airtypes, AIRTYPE_END, original.begin());
+	AutoRestoreBackup sorted(_sorted_airtypes, AutoRestoreBackupNoNewValueTag{});
+	auto cleanup = scope_guard([&] { std::copy(original.begin(), original.end(), _airtypes); });
+	for (auto &type : _airtypes) type.label = 0;
+	_airtypes[0].label = 1;
+	_airtypes[1].label = 2;
+	_airtypes[0].sorting_order = _airtypes[1].sorting_order = 10;
+	InitAirTypes();
+	REQUIRE(_sorted_airtypes.size() == 2);
+	CHECK(_sorted_airtypes[0] == AirType{0});
+	CHECK(_sorted_airtypes[1] == AirType{1});
+}
+
+TEST_CASE("Airport - edited hangar targets resolve stations before colliding depot IDs")
+{
+	AllocateMap(64, 64);
+	auto cleanup = scope_guard([] {
+		_vehicle_pool.CleanPool(); _engine_pool.CleanPool();
+		_station_pool.CleanPool(); _depot_pool.CleanPool(); DeallocateMap();
+	});
+	Station *target = Station::CreateAtIndex(StationID{12}, TileXY(10, 10));
+	Station *other = Station::CreateAtIndex(StationID{21}, TileXY(20, 20));
+	for (Station *st : {target, other}) {
+		st->facilities = {StationFacility::Airport};
+		st->airport.type = AT_CUSTOM;
+		st->rect.BeforeAddTile(st->xy, StationRect::ADD_FORCE);
+		MakeAirport(st->xy, OWNER_BEGIN, st->index, 0, WaterClass::Invalid);
+		SetAirType(st->xy, AIRTYPE_ASPHALT);
+		SetAirportTileType(st->xy, ATT_HANGAR_STANDARD);
+		SetHangarDirection(st->xy, DiagDirection::NE);
+		SetAirportTileTracks(st->xy, TRACK_BIT_X);
+	}
+	other->airport.hangar = Depot::CreateAtIndex(DepotID{12}, other->xy);
+	for (Station *st : {target, other}) st->UpdateAirportDataStructure();
+	REQUIRE(target->airport.hangar->index != DepotID{target->index.base()});
+	Engine *engine = Engine::Create(VehicleType::Aircraft, 0);
+	Aircraft *v = Aircraft::Create();
+	v->subtype = AIR_AIRCRAFT;
+	v->state = AS_IDLE;
+	v->engine_type = engine->index;
+	v->targetairport = target->index;
+	v->current_order.MakeGoToDepot(target->index, {});
+	v->dest_tile = INVALID_TILE;
+	SetBit(target->airport.flags, AFB_LANDING_RUNWAY);
+	CHECK(GetOrderHangar(v->current_order) == target->airport.hangar);
+	UpdateAircraftOnUpdatedAirport(target);
+	CHECK(v->dest_tile == target->xy);
+	/* Removing the intended hangar must not retarget to the colliding ID. */
+	SetAirportTileType(target->xy, ATT_SIMPLE_TRACK);
+	target->UpdateAirportDataStructure();
+	CHECK(target->airport.hangar == nullptr);
+	CHECK(GetOrderHangar(v->current_order) == nullptr);
 }

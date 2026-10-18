@@ -44,6 +44,8 @@
 #include "scope_info.h"
 #include "scope.h"
 #include "core/checksum_func.hpp"
+static void AdvanceWagonsAfterCouple(Train *v);
+static void MoveTrainToPosition(Train *v, int x, int y);
 #include "debug_dbg_assert.h"
 #include "debug_settings.h"
 #include "train_settings.h"
@@ -3630,7 +3632,6 @@ static bool IsWholeTrainInsideDepot(const Train *v)
 	}
 	return true;
 }
-
 static void ReverseTrainForCouple(Train *v, bool joint_at_tail);
 
 /**
@@ -6128,35 +6129,36 @@ static int CouplePairOffset(const Train *a)
  */
 static void AdvanceWagonsAfterCouple(Train *v)
 {
-	int difference = CouplePairOffset(v);
-	int diff_x = abs(v->x_pos - v->Next()->x_pos);
-	int diff_y = abs(v->y_pos - v->Next()->y_pos);
-	int real_diff = std::max(diff_x, diff_y) - difference;
+	Train *u_first = v->Next();
+	/* Target spacing: rounding applies from whichever vehicle enforces this
+	 * pair after the merge. Using the approach-phase rounding here would
+	 * accept a 1px-off seam that motion never corrects again. */
+	int difference = !v->IsDrivingBackwards()
+		? CoupleJointOffset(v->gcache.cached_veh_length, u_first->gcache.cached_veh_length, false)
+		: CoupleJointOffset(u_first->gcache.cached_veh_length, v->gcache.cached_veh_length, true);
 
-	/* Contact coupling can land a pixel or two inside the partner when the
-	 * approach step jumps over the exact-contact sample. real_diff < 0 means
-	 * the joint pair is too close: open the gap by advancing one half of the
-	 * merged consist. After the orientation phase both halves face the same
-	 * direction, so the half that leads along that direction moves away from
-	 * the joint when pushed forward, while the trailing half would close the
-	 * gap further. Decide which half to push from the sign of the dot product
-	 * between the shared facing and the joint vector. */
-	if (real_diff > 0) {
-		CoupleAdvanceVehicles(v->Next(), nullptr);
-	} else if (real_diff < 0) {
-		Train *u_first = v->Next();
-		TileIndexDiffC dd = CoupleMotionDelta(u_first);
-		int dot = (u_first->x_pos - v->x_pos) * dd.x + (u_first->y_pos - v->y_pos) * dd.y;
-		/* Push the leading half (dot > 0: u half ahead of the joint along the
-		 * shared motion direction) without a bound; push the trailing half
-		 * only up to the joint vehicle. */
-		if (dot > 0) {
-			CoupleAdvanceVehicles(u_first, nullptr);
-		} else {
-			CoupleAdvanceVehicles(v->First(), v);
-		}
+	int diff_x = abs(v->x_pos - u_first->x_pos);
+	int diff_y = abs(v->y_pos - u_first->y_pos);
+	int actual = std::max(diff_x, diff_y);
+	int shift = actual - difference;
+
+	/* Contact coupling can land a pixel or two inside/outside the partner when
+	 * the approach step jumps over the exact-contact sample. Fix the seam with
+	 * a rigid translation of the u-half: every vehicle moves by the same 1px
+	 * step, so all internal pair spacings are preserved exactly and only the
+	 * joint gap changes. Pushing via TrainController cannot be used here: a
+	 * half that drives backwards would be pushed away from v, widening the
+	 * seam instead of closing it. */
+	if (shift == 0) return;
+
+	/* Joint axis: for a straight-axis v_last/u_first delta only one is nonzero. */
+	int sx = (u_first->x_pos != v->x_pos) ? (u_first->x_pos > v->x_pos ? 1 : -1) : 0;
+	int sy = (sx == 0) ? (u_first->y_pos > v->y_pos ? 1 : -1) : 0;
+	int dx = -sx * shift, dy = -sy * shift;
+
+	for (Train *w = u_first; w != nullptr; w = w->Next()) {
+		MoveTrainToPosition(w, w->x_pos + dx, w->y_pos + dy);
 	}
-
 }
 
 /**
