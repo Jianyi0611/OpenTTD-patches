@@ -313,6 +313,9 @@ enum class OrderConditionComparator : uint8_t {
 };
 
 
+/** Source of an inclusive coupling speed bound; stored using existing speed flags. */
+enum class CoupleSpeedBoundMode : uint8_t { Disabled, OwnMax, Manual };
+
 /**
  * Enumeration for the data to set in #CmdModifyOrder.
  */
@@ -377,6 +380,8 @@ enum ModifyOrderFlags : uint8_t {
 	MOF_COUPLE_SPEED_COMPARATOR2, ///< Second waiting-train maximum-speed comparison.
 	MOF_COUPLE_SPEED_VALUE1, ///< First waiting-train maximum-speed threshold.
 	MOF_COUPLE_SPEED_VALUE2, ///< Second waiting-train maximum-speed threshold.
+	MOF_COUPLE_SPEED_MIN_MODE, ///< Atomically select the waiting-train minimum-speed source.
+	MOF_COUPLE_SPEED_MAX_MODE, ///< Atomically select the waiting-train maximum-speed source.
 	MOF_END
 };
 

@@ -3018,7 +3018,8 @@ CommandCost CmdModifyOrder(DoCommandFlags flags, OrderTargetType target_type, ui
 
 			case OT_GOTO_COUPLE:
 				if (mof != MOF_COUPLE_LOAD && mof != MOF_COUPLE_CARGO && mof != MOF_COUPLE_VALUE && mof != MOF_COUPLE_SLOT && mof != MOF_COUPLE_SLOT_GROUP && mof != MOF_COUPLE_GROUP && mof != MOF_COUPLE_STATION && mof != MOF_COUPLE_USE_WAITING_SCHEDULE && mof != MOF_COUPLE_CHECK_POINT && mof != MOF_COUPLE_REJECT_SLOWER && mof != MOF_COUPLE_REJECT_FASTER
-						&& mof != MOF_COUPLE_SPEED_COMPARATOR1 && mof != MOF_COUPLE_SPEED_COMPARATOR2 && mof != MOF_COUPLE_SPEED_VALUE1 && mof != MOF_COUPLE_SPEED_VALUE2) return CMD_ERROR;
+						&& mof != MOF_COUPLE_SPEED_COMPARATOR1 && mof != MOF_COUPLE_SPEED_COMPARATOR2 && mof != MOF_COUPLE_SPEED_VALUE1 && mof != MOF_COUPLE_SPEED_VALUE2
+						&& mof != MOF_COUPLE_SPEED_MIN_MODE && mof != MOF_COUPLE_SPEED_MAX_MODE) return CMD_ERROR;
 				break;
 
 			case OT_WAIT_COUPLE:
@@ -3508,6 +3509,13 @@ CommandCost CmdModifyOrder(DoCommandFlags flags, OrderTargetType target_type, ui
 			}
 			break;
 
+		case MOF_COUPLE_SPEED_MIN_MODE:
+		case MOF_COUPLE_SPEED_MAX_MODE:
+			if (data > to_underlying(CoupleSpeedBoundMode::Manual)) return CMD_ERROR;
+			if (!is_list && v->type != VehicleType::Train) return CMD_ERROR;
+			if (!order->IsType(OT_GOTO_COUPLE)) return CMD_ERROR;
+			break;
+
 		case MOF_COUPLE_SPEED_COMPARATOR1:
 		case MOF_COUPLE_SPEED_COMPARATOR2:
 			if (data > 6) return CMD_ERROR;
@@ -3991,6 +3999,11 @@ CommandCost CmdModifyOrder(DoCommandFlags flags, OrderTargetType target_type, ui
 				order->SetWaitCoupleStation(data == 0 ? StationID::Invalid() : StationID{(uint16_t)(data - 1)});
 				break;
 
+			case MOF_COUPLE_SPEED_MIN_MODE:
+			case MOF_COUPLE_SPEED_MAX_MODE:
+				order->SetCoupleSpeedBoundMode(mof == MOF_COUPLE_SPEED_MIN_MODE ? 0 : 1, static_cast<CoupleSpeedBoundMode>(data));
+				break;
+
 			case MOF_COUPLE_SPEED_COMPARATOR1:
 			case MOF_COUPLE_SPEED_COMPARATOR2:
 				order->SetCoupleSpeedComparator(mof == MOF_COUPLE_SPEED_COMPARATOR1 ? 0 : 1, data);
@@ -4103,7 +4116,8 @@ CommandCost CmdModifyOrder(DoCommandFlags flags, OrderTargetType target_type, ui
 			}
 			/* A running train holds a copy of its active order. Update that copy
 			 * in simulation scope even when the standalone schedule is edited. */
-			if (mof == MOF_COUPLE_REJECT_SLOWER || mof == MOF_COUPLE_REJECT_FASTER ||
+			if (mof == MOF_COUPLE_SPEED_MIN_MODE || mof == MOF_COUPLE_SPEED_MAX_MODE ||
+					mof == MOF_COUPLE_REJECT_SLOWER || mof == MOF_COUPLE_REJECT_FASTER ||
 					mof == MOF_COUPLE_SPEED_COMPARATOR1 || mof == MOF_COUPLE_SPEED_COMPARATOR2 || mof == MOF_COUPLE_SPEED_VALUE1 || mof == MOF_COUPLE_SPEED_VALUE2) {
 				for (Vehicle *u = ol->GetFirstSharedVehicle(); u != nullptr; u = u->NextShared()) {
 					if (sel_ord != u->cur_real_order_index || !u->current_order.IsType(OT_GOTO_COUPLE)) continue;

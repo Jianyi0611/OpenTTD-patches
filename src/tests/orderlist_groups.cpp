@@ -355,3 +355,53 @@ TEST_CASE_METHOD(ScheduleGroupFixture, "Decouple - disabling a missing marker pr
 	CHECK(schedule->GetOrderAt(0)->GetDecouple() == ODF_NOTHING);
 	if (has_successor) CHECK(schedule->GetOrderAt(1)->GetDecouple() == ODF_DECOUPLE);
 }
+
+
+TEST_CASE_METHOD(ScheduleGroupFixture, "Couple - speed bound sources switch atomically and synchronise active orders")
+{
+	const bool edit_list = GENERATE(false, true);
+	OrderList *schedule = Create("Speed bounds", OrderListID::Invalid(), false);
+	Order couple;
+	couple.MakeGoToCouple();
+	couple.SetCoupleSpeedValue(0, 80);
+	couple.SetCoupleSpeedValue(1, 120);
+	couple.SetCoupleSpeedUnit(0, 0);
+	schedule->GetOrderVector().push_back(couple);
+	schedule->RecalculateDerivedCounters();
+	std::array<Train *, 2> trains;
+	for (Train *&train : trains) {
+		train = Train::Create();
+		train->SetEngine();
+		train->SetFrontEngine();
+		train->owner = owner;
+		train->orders = schedule;
+		schedule->AssignVehicle(train);
+		train->current_order = couple;
+	}
+	const auto target = edit_list ? OrderTargetType::OrderList : OrderTargetType::Vehicle;
+	const uint32_t id = edit_list ? schedule->index.base() : trains[0]->index.base();
+	for (uint row = 0; row < 2; row++) {
+		const ModifyOrderFlags mof = row == 0 ? MOF_COUPLE_SPEED_MIN_MODE : MOF_COUPLE_SPEED_MAX_MODE;
+		for (CoupleSpeedBoundMode mode : {CoupleSpeedBoundMode::OwnMax, CoupleSpeedBoundMode::Manual, CoupleSpeedBoundMode::Disabled}) {
+			const auto before = schedule->GetOrderAt(0)->GetCoupleSpeedBoundMode(row);
+			CHECK(CmdModifyOrder({}, target, id, 0, mof, to_underlying(mode), INVALID_CARGO, {}).Succeeded());
+			CHECK(schedule->GetOrderAt(0)->GetCoupleSpeedBoundMode(row) == before);
+			REQUIRE(CmdModifyOrder(DoCommandFlag::Execute, target, id, 0, mof, to_underlying(mode), INVALID_CARGO, {}).Succeeded());
+			for (const Order *order : {schedule->GetOrderAt(0), &trains[0]->current_order, &trains[1]->current_order}) {
+				CHECK(order->GetCoupleSpeedBoundMode(row) == mode);
+				CHECK(order->GetCoupleSpeedComparator(row) == (mode == CoupleSpeedBoundMode::Manual ? to_underlying(row == 0 ? OrderConditionComparator::MoreThanOrEqual : OrderConditionComparator::LessThanOrEqual) + 1 : 0));
+				CHECK((row == 0 ? order->GetCoupleRejectFaster() : order->GetCoupleRejectSlower()) == (mode == CoupleSpeedBoundMode::OwnMax));
+				CHECK(order->GetCoupleSpeedBoundMode(1 - row) == CoupleSpeedBoundMode::Disabled);
+				CHECK(order->GetCoupleSpeedValue(0) == 80);
+				CHECK(order->GetCoupleSpeedValue(1) == 120);
+				CHECK(order->GetCoupleSpeedUnit(0) == 0);
+			}
+		}
+		CHECK(CmdModifyOrder(DoCommandFlag::Execute, target, id, 0, mof, 3, INVALID_CARGO, {}).Failed());
+	}
+	Order legacy;
+	legacy.MakeGoToCouple();
+	legacy.SetCoupleSpeedComparator(0, 2); // Existing not-equal criteria remain unchanged until edited.
+	CHECK(legacy.GetCoupleSpeedBoundMode(0) == CoupleSpeedBoundMode::Manual);
+	CHECK(legacy.GetCoupleSpeedComparator(0) == 2);
+}

@@ -2712,12 +2712,16 @@ STR_COUPLE_DIAGNOSTIC_FASTER                                  :Approaching train
 
 # Custom coupling maximum-speed range
 STR_ORDER_COUPLE_SPEED_DISABLED                               :{BLACK}Disabled
-STR_ORDER_COUPLE_SPEED_LABEL1                                 :{BLACK}Waiting train top speed: rule 1
-STR_ORDER_COUPLE_SPEED_LABEL2                                 :{BLACK}Waiting train top speed: rule 2
+STR_ORDER_COUPLE_SPEED_LABEL1                                  :{BLACK}Minimum
+STR_ORDER_COUPLE_SPEED_LABEL2                                  :{BLACK}Maximum
 STR_ORDER_COUPLE_SPEED_QUERY                                  :{WHITE}Maximum speed threshold ({STRING}, whole units)
-STR_ORDER_COUPLE_SPEED_RANGE_TOOLTIP                          :{BLACK}Choose a comparison, then click the number to enter the waiting train top speed. Is means equal; is not means different; < and > exclude the number, <= and >= include it. To allow 80 to 120, set rule 1 >= 80 and rule 2 <= 120. Every enabled rule and button must match. Disabled means ignore this rule. A stopped train still uses its top speed.
+STR_ORDER_COUPLE_SPEED_RANGE_TOOLTIP                           :{BLACK}Limit the waiting train top speed, including both bounds. My top speed follows the approaching train. Select Manual, then click the number. Disable both for no limit, or choose My top speed twice for equal speeds. Legacy comparisons retain their effect until reselected.
 STR_ORDER_COUPLE_SPEED_RANGE_SUFFIX                           : (waiting train max. speed {STRING} {NUM} {STRING})
 STR_COUPLE_DIAGNOSTIC_SPEED_RANGE                             :Waiting train maximum speed fails the custom speed criteria
 
 STR_ORDER_COUPLE_SPEED_VALUE                                    :{BLACK}{NUM} {STRING}
 STR_ORDER_COUPLE_SPEED_INVALID                                  :{WHITE}Enter a speed from 0 to 65535.
+
+STR_ORDER_COUPLE_SPEED_LABEL                                     :{BLACK}Speed
+STR_ORDER_COUPLE_SPEED_OWN_MAX                                   :{BLACK}My top speed
+STR_ORDER_COUPLE_SPEED_MANUAL                                    :{BLACK}Manual

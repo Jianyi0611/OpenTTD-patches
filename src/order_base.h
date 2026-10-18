@@ -801,6 +801,20 @@ public:
 	inline void SetCoupleSpeedValue(uint row, uint16_t value) { assert(row < 2); (row == 0 ? this->couple_speed_value1 : this->couple_speed_value2) = value; }
 	inline uint8_t GetCoupleSpeedUnit(uint row) const { assert(row < 2); return row == 0 ? this->couple_speed_unit1 : this->couple_speed_unit2; }
 	inline void SetCoupleSpeedUnit(uint row, uint8_t value) { assert(row < 2 && value < 6); (row == 0 ? this->couple_speed_unit1 : this->couple_speed_unit2) = value; }
+	/** Source of the minimum (row 0) or maximum (row 1) waiting-train speed. */
+	inline CoupleSpeedBoundMode GetCoupleSpeedBoundMode(uint row) const
+	{
+		if (this->GetCoupleSpeedComparator(row) != 0) return CoupleSpeedBoundMode::Manual;
+		return (row == 0 ? this->GetCoupleRejectFaster() : this->GetCoupleRejectSlower()) ? CoupleSpeedBoundMode::OwnMax : CoupleSpeedBoundMode::Disabled;
+	}
+	/** Update both representations together; keep saved manual values and units. */
+	inline void SetCoupleSpeedBoundMode(uint row, CoupleSpeedBoundMode mode)
+	{
+		assert(row < 2);
+		this->SetCoupleSpeedComparator(row, mode == CoupleSpeedBoundMode::Manual ? to_underlying(row == 0 ? OrderConditionComparator::MoreThanOrEqual : OrderConditionComparator::LessThanOrEqual) + 1 : 0);
+		if (row == 0) this->SetCoupleRejectFaster(mode == CoupleSpeedBoundMode::OwnMax);
+		else this->SetCoupleRejectSlower(mode == CoupleSpeedBoundMode::OwnMax);
+	}
 	/** How many wagons are we taking */
 	inline uint8_t GetNumCouple() const { return GB(this->decouple_flags, 1, 7); }
 	/** What orders should first part get */

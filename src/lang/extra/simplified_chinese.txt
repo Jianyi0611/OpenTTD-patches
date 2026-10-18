@@ -2636,12 +2636,16 @@ STR_COUPLE_DIAGNOSTIC_FASTER                                  :前往连接列�
 
 # Custom coupling maximum-speed range
 STR_ORDER_COUPLE_SPEED_DISABLED                               :{BLACK}关闭
-STR_ORDER_COUPLE_SPEED_LABEL1                                 :{BLACK}等待列车最高速度：条件 1
-STR_ORDER_COUPLE_SPEED_LABEL2                                 :{BLACK}等待列车最高速度：条件 2
+STR_ORDER_COUPLE_SPEED_LABEL1                                  :{BLACK}最小值
+STR_ORDER_COUPLE_SPEED_LABEL2                                  :{BLACK}最大值
 STR_ORDER_COUPLE_SPEED_QUERY                                  :{WHITE}最大速度阈值（{STRING}，整数）
-STR_ORDER_COUPLE_SPEED_RANGE_TOOLTIP                          :{BLACK}先选比较方式，再点右侧数字输入等待列车的最高速度。“是”就是等于，“不是”就是不等于；<、>不含输入的数值，≤、≥包含该数值。例如只接80到120的车厢：条件1选≥80，条件2选≤120。所有已开启的条件和上方按钮都要同时满足；选“关闭”就忽略这一条。车厢即使停着，也按最高速度判断。
+STR_ORDER_COUPLE_SPEED_RANGE_TOOLTIP                           :{BLACK}限制等待列车的最高速度，最小值和最大值都包含边界。“本车最大速度”随前往连接的机车变化；选“手动输入”后点击数字修改。两端关闭则不限速，两端均选本车则只接同速列车。旧版比较条件保留原效果，重新选择后使用上下限。
 STR_ORDER_COUPLE_SPEED_RANGE_SUFFIX                           :（等待列车最大速度{STRING}{NUM}{STRING}）
 STR_COUPLE_DIAGNOSTIC_SPEED_RANGE                             :等待列车最大速度不符合自定义速度条件
 
 STR_ORDER_COUPLE_SPEED_VALUE                                    :{BLACK}{NUM} {STRING}
 STR_ORDER_COUPLE_SPEED_INVALID                                  :{WHITE}请输入0至65535之间的速度。
+
+STR_ORDER_COUPLE_SPEED_LABEL                                     :{BLACK}速度条件
+STR_ORDER_COUPLE_SPEED_OWN_MAX                                   :{BLACK}本车最大速度
+STR_ORDER_COUPLE_SPEED_MANUAL                                    :{BLACK}手动输入
