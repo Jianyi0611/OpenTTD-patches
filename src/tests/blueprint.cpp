@@ -12,6 +12,9 @@
 #include "../3rdparty/catch2/catch.hpp"
 
 #include "../air_map.h"
+#include "../airport_cmd.h"
+#include "../settings_type.h"
+#include "../newgrf_airport.h"
 #include "../air.h"
 #include "../depot_base.h"
 #include "../aircraft.h"
@@ -1096,4 +1099,112 @@ TEST_CASE("Airport - edited hangar targets resolve stations before colliding dep
 	target->UpdateAirportDataStructure();
 	CHECK(target->airport.hangar == nullptr);
 	CHECK(GetOrderHangar(v->current_order) == nullptr);
+}
+
+TEST_CASE("Airport - invalid edit arguments fail without modifying map or random state")
+{
+	AllocateMap(64, 64);
+	auto cleanup = scope_guard([] { DeallocateMap(); });
+	AutoRestoreBackup enabled(_settings_game.station.allow_modify_airports, true);
+	const TileIndex tile = TileXY(10, 10);
+	MakeAirport(tile, OWNER_BEGIN, StationID{0}, 0, WaterClass::Invalid);
+	SetAirType(tile, AIRTYPE_ASPHALT);
+	SetAirportTileType(tile, ATT_SIMPLE_TRACK);
+	SetAirGfxType(tile, true);
+	const auto before = std::make_tuple(Tile(tile).m3(), Tile(tile).m4(), Tile(tile).m6(), Tile(tile).m8());
+	GameRandomSeedChecker random_checker;
+	for (DoCommandFlags flags : {DoCommandFlags{}, DoCommandFlags{DoCommandFlag::Execute}}) {
+		for (AirportTileType type : {ATT_WAITING_POINT, ATT_SIMPLE_TRACK, ATT_RUNWAY_MIDDLE, ATT_APRON_BUILTIN_HELIPORT, static_cast<AirportTileType>(9), static_cast<AirportTileType>(255)}) {
+			CHECK(CmdChangeAirportTiles(flags, tile, tile, AIRTYPE_ASPHALT, type, ATTG_DEFAULT_GFX, DiagDirection::NE, true, false).Failed());
+		}
+		CHECK(CmdChangeAirportTiles(flags, tile, tile, INVALID_AIRTYPE, ATT_APRON_NORMAL, ATTG_DEFAULT_GFX, DiagDirection::NE, true, false).Failed());
+		CHECK(CmdChangeAirportTiles(flags, tile, tile, AIRTYPE_ASPHALT, ATT_APRON_NORMAL, ATTG_DEFAULT_GFX, static_cast<DiagDirection>(255), true, false).Failed());
+		CHECK(CmdChangeAirportTiles(flags, tile, tile, AIRTYPE_ASPHALT, ATT_APRON_NORMAL, static_cast<AirportTiles>(255), DiagDirection::NE, true, false).Failed());
+		CHECK(CmdAddRemoveTracksToAirport(flags, tile, tile, AIRTYPE_ASPHALT, true, static_cast<Track>(255)).Failed());
+		CHECK(CmdAirportChangeTrackGFX(flags, tile, tile, AIRTYPE_ASPHALT, 255, false).Failed());
+		CHECK(CmdChangeAirType(flags, INVALID_TILE, AIRTYPE_ASPHALT).Failed());
+		CHECK(CmdChangeAirportTiles(flags, tile, INVALID_TILE, AIRTYPE_ASPHALT, ATT_APRON_NORMAL, ATTG_DEFAULT_GFX, DiagDirection::NE, true, false).Failed());
+		CHECK(CmdAirportToggleGround(flags, INVALID_TILE, tile, AIRTYPE_ASPHALT, false).Failed());
+		CHECK(CmdAddRemoveAirportTiles(flags, tile, INVALID_TILE, true, AIRTYPE_ASPHALT, StationID::Invalid(), false).Failed());
+		CHECK(CmdBuildAirport(flags, tile, 255, 0, AIRTYPE_ASPHALT, DiagDirection::NE, StationID::Invalid(), false).Failed());
+		CHECK(CmdBuildAirport(flags, tile, 0, 255, AIRTYPE_ASPHALT, DiagDirection::NE, StationID::Invalid(), false).Failed());
+		CHECK(before == std::make_tuple(Tile(tile).m3(), Tile(tile).m4(), Tile(tile).m6(), Tile(tile).m8()));
+		CHECK(random_checker.Check());
+	}
+}
+
+TEST_CASE("Airport - duplicate legacy hangars resolve identically for server and joining client")
+{
+	AllocateMap(64, 64);
+	REQUIRE(Station::GetNumItems() == 0);
+	REQUIRE(Depot::GetNumItems() == 0);
+	auto cleanup = scope_guard([] { _station_pool.CleanPool(); _depot_pool.CleanPool(); DeallocateMap(); });
+	const TileIndex tile = TileXY(10, 10);
+	Station *st = Station::Create(tile);
+	st->rect.BeforeAddTile(tile, StationRect::ADD_FORCE);
+	st->airport.type = AT_CUSTOM;
+	MakeAirport(tile, OWNER_BEGIN, st->index, 0, WaterClass::Invalid);
+	SetAirType(tile, AIRTYPE_ASPHALT);
+	SetAirportTileType(tile, ATT_HANGAR_STANDARD);
+	SetHangarDirection(tile, DiagDirection::NE);
+	SetAirportTileTracks(tile, TRACK_BIT_X);
+	REQUIRE(Depot::CanAllocateItem(2));
+	Depot *first = Depot::Create(tile);
+	Depot *second = Depot::Create(tile);
+	first->name = "Original hangar";
+	st->airport.hangar = second;
+	st->UpdateAirportDataStructure();
+	CHECK(st->airport.hangar == first);
+	st->airport.hangar = nullptr;
+	st->UpdateAirportDataStructure();
+	CHECK(st->airport.hangar == first);
+	CHECK(st->airport.hangar->name == "Original hangar");
+	CHECK(Depot::GetNumItems() == 2); // Do not delete another persistent identity while rebuilding caches.
+}
+
+TEST_CASE("Blueprint - raw custom runways must be complete including crossing branches")
+{
+	BlueprintAirport airport{{0, 0}, AT_CUSTOM, 0, 0, AIRTYPE_ASPHALT, 5, 5, StationID{0}, {}};
+	auto add = [&](int x, int y, AirportTileType type, uint direction) {
+		airport.tiles.push_back({{static_cast<int16_t>(x), static_cast<int16_t>(y)}, 0, static_cast<uint8_t>(type << 4), 0, static_cast<uint16_t>(direction << 12)});
+	};
+	add(0, 2, ATT_RUNWAY_START_ALLOW_LANDING, to_underlying(DiagDirection::SW));
+	add(1, 2, ATT_RUNWAY_MIDDLE, to_underlying(Direction::SW));
+	add(2, 2, ATT_RUNWAY_MIDDLE, to_underlying(Direction::S)); // Crossing requires both branches.
+	add(3, 2, ATT_RUNWAY_MIDDLE, to_underlying(Direction::SW));
+	add(4, 2, ATT_RUNWAY_END, to_underlying(DiagDirection::SW));
+	CHECK_FALSE(IsBlueprintAirportLayoutValid(airport));
+	add(2, 0, ATT_RUNWAY_START_NO_LANDING, to_underlying(DiagDirection::SE));
+	add(2, 1, ATT_RUNWAY_MIDDLE, to_underlying(Direction::SE));
+	add(2, 3, ATT_RUNWAY_MIDDLE, to_underlying(Direction::SE));
+	add(2, 4, ATT_RUNWAY_END, to_underlying(DiagDirection::SE));
+	CHECK(IsBlueprintAirportLayoutValid(airport));
+	airport.tiles.pop_back();
+	CHECK_FALSE(IsBlueprintAirportLayoutValid(airport));
+	airport.tiles.clear();
+	add(1, 1, ATT_RUNWAY_END, 0);
+	CHECK_FALSE(IsBlueprintAirportLayoutValid(airport));
+	airport.tiles.clear();
+	add(1, 1, ATT_SIMPLE_TRACK, 0);
+	CHECK(IsBlueprintAirportLayoutValid(airport));
+	airport.tiles.push_back(airport.tiles.front());
+	CHECK_FALSE(IsBlueprintAirportLayoutValid(airport));
+}
+
+TEST_CASE("Blueprint - incomplete runway payload fails before map changes")
+{
+	AllocateMap(64, 64);
+	auto cleanup = scope_guard([] { DeallocateMap(); });
+	const TileIndex tile = TileXY(10, 10);
+	const TileType before = GetTileType(tile);
+	BlueprintPasteData data;
+	data.blueprint.width = data.blueprint.height = 1;
+	BlueprintAirport airport{{0, 0}, AT_CUSTOM, 0, 0, AIRTYPE_ASPHALT, 1, 1, StationID{0}, {}};
+	airport.tiles.push_back({{0, 0}, 0, static_cast<uint8_t>(ATT_RUNWAY_START_ALLOW_LANDING << 4), 0, 0});
+	data.blueprint.airports.push_back(airport);
+	GameRandomSeedChecker random_checker;
+	CHECK(CmdPasteBlueprint({}, tile, data).Failed());
+	CHECK(CmdPasteBlueprint(DoCommandFlag::Execute, tile, data).Failed());
+	CHECK(GetTileType(tile) == before);
+	CHECK(random_checker.Check());
 }

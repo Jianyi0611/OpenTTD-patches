@@ -449,6 +449,8 @@ static const TileIndexDiffC _trackdelta[] = {
  */
 CommandCost CmdAddRemoveTracksToAirport(DoCommandFlags flags, TileIndex start_tile, TileIndex end_tile, AirType air_type, bool add, Track track)
 {
+	if (!IsValidTrack(track) || !ValParamAirType(air_type)) return CMD_ERROR;
+	if (!IsValidTile(start_tile) || !IsValidTile(end_tile)) return CMD_ERROR;
 	Trackdir trackdir = TrackToTrackdir(track);
 
 	CommandCost ret = ValidateAutoDrag(&trackdir, start_tile, end_tile);
@@ -501,6 +503,8 @@ CommandCost CmdAddRemoveTracksToAirport(DoCommandFlags flags, TileIndex start_ti
 
 	if (flags.Test(DoCommandFlag::Execute)) {
 		/* Do all station specific functions here. */
+		std::sort(affected_stations.begin(), affected_stations.end(), [](const Station *a, const Station *b) { return a->index < b->index; });
+		affected_stations.erase(std::unique(affected_stations.begin(), affected_stations.end()), affected_stations.end());
 		for (Station *st : affected_stations) {
 			assert(st != nullptr);
 			st->airport.type = AT_CUSTOM;
@@ -525,6 +529,8 @@ CommandCost CmdAddRemoveTracksToAirport(DoCommandFlags flags, TileIndex start_ti
  */
 CommandCost AddRunway(DoCommandFlags flags, TileIndex start_tile, TileIndex end_tile, AirType air_type, AirportTileType runway_type)
 {
+	if (!IsValidTile(start_tile) || !IsValidTile(end_tile) || !IsAirportTile(start_tile) || start_tile == end_tile) return CMD_ERROR;
+	if (TileX(start_tile) != TileX(end_tile) && TileY(start_tile) != TileY(end_tile)) return CMD_ERROR;
 	assert(IsValidTile(start_tile));
 	assert(IsAirportTile(start_tile));
 
@@ -638,9 +644,10 @@ TileArea GetRunwayTileArea(TileIndex tile)
  */
 CommandCost RemoveRunway(DoCommandFlags flags, TileIndex start_tile, TileIndex end_tile)
 {
+	if (!IsValidTile(start_tile) || !IsValidTile(end_tile) || !IsAirportTile(start_tile) || !IsAirportTile(end_tile)) return CMD_ERROR;
 	if (start_tile == end_tile || !IsRunwayExtreme(start_tile) || !IsRunwayExtreme(end_tile)) return CommandCost(STR_ERROR_AIRPORT_RUNWAY_CAN_T_REMOVE);
 
-	assert(GetRunwayTileArea(start_tile).Contains(end_tile) && IsRunwayExtreme(start_tile) && IsRunwayExtreme(end_tile));
+	if (!GetRunwayTileArea(start_tile).Contains(end_tile)) return CMD_ERROR;
 
 	TileArea ta(start_tile, end_tile);
 	assert(ta.w == 1 || ta.h == 1);
@@ -784,7 +791,12 @@ void SetGfxByAirtypeTile(TileIndex tile, AirportTiles at) {
  */
 CommandCost CmdChangeAirportTiles(DoCommandFlags flags, TileIndex start_tile, TileIndex end_tile, AirType air_type, AirportTileType air_tile_type, AirportTiles infra_type, DiagDirection direction, bool adding, bool diagonal)
 {
+	if (!IsValidTile(start_tile) || !IsValidTile(end_tile)) return CMD_ERROR;
 	if (!IsAirportTile(start_tile)) return CMD_ERROR;
+	if (!ValParamAirType(air_type)) return CommandCost(STR_ERROR_AIRPORT_INCORRECT_AIRTYPE);
+	if (!IsValidDiagDirection(direction) || infra_type >= ATTG_END) return CMD_ERROR;
+	if (air_tile_type == ATT_INFRASTRUCTURE_WITH_CATCH && infra_type > ATTG_WITH_CATCH_BUILDING_TERMINAL) return CMD_ERROR;
+	if (air_tile_type == ATT_INFRASTRUCTURE_NO_CATCH && infra_type < ATTG_NO_CATCH_FLAG) return CMD_ERROR;
 	const AirTypeInfo *ati = GetAirTypeInfo(air_type);
 
 	switch (air_tile_type) {
@@ -810,10 +822,10 @@ CommandCost CmdChangeAirportTiles(DoCommandFlags flags, TileIndex start_tile, Ti
 		case ATT_APRON_BUILTIN_HELIPORT:
 		default:
 			/* Not handled in this command. */
-			NOT_REACHED();
+			return CMD_ERROR;
 		case ATT_WAITING_POINT:
 			/* Not implemented. */
-			NOT_REACHED();
+			return CMD_ERROR;
 	}
 
 	CommandCost ret = CheckSettingBuildByTile();
@@ -860,6 +872,7 @@ CommandCost CmdChangeAirportTiles(DoCommandFlags flags, TileIndex start_tile, Ti
 
 		if (st == nullptr) {
 			st = Station::GetByTile(tile_iter);
+			if (adding && (air_tile_type == ATT_HANGAR_STANDARD || air_tile_type == ATT_HANGAR_EXTENDED) && st->airport.hangar == nullptr && !Depot::CanAllocateItem()) return CMD_ERROR;
 
 			BitmapTileArea bta;
 			bta.Initialize(st->airport);
@@ -1012,8 +1025,8 @@ CommandCost CmdChangeAirportTiles(DoCommandFlags flags, TileIndex start_tile, Ti
  */
 CommandCost CmdChangeAirType(DoCommandFlags flags, TileIndex tile, AirType air_type)
 {
-	if (!IsAirportTile(tile)) return CommandCost(STR_ERROR_SITE_UNSUITABLE);
 	if (!IsValidTile(tile)) return CMD_ERROR;
+	if (!IsAirportTile(tile)) return CommandCost(STR_ERROR_SITE_UNSUITABLE);
 
 	CommandCost ret = CheckSettingBuildByTile();
 	if (ret.Failed()) return ret;
@@ -1217,13 +1230,14 @@ void SetAdequateGfxForAirportTrack(TileIndex tile)
  */
 CommandCost CmdAirportChangeTrackGFX(DoCommandFlags flags, TileIndex start_tile, TileIndex end_tile, AirType air_type, uint8_t gfx_index, bool diagonal)
 {
+	if (!IsValidTile(start_tile) || !IsValidTile(end_tile)) return CMD_ERROR;
 	CommandCost ret = CheckSettingBuildByTile();
 	if (ret.Failed()) return ret;
 
 	/* Check air type. */
 	if (!ValParamAirType(air_type)) return CommandCost(STR_ERROR_AIRPORT_INCORRECT_AIRTYPE);
 	const AirTypeInfo *ati = GetAirTypeInfo(air_type);
-	assert(!ati->build_on_water);
+	if (ati->build_on_water || gfx_index > lengthof(ati->base_sprites.ground) + 1) return CMD_ERROR;
 
 	std::unique_ptr<TileIterator> iter;
 	if (diagonal) {
@@ -1259,13 +1273,14 @@ CommandCost CmdAirportChangeTrackGFX(DoCommandFlags flags, TileIndex start_tile,
 
 CommandCost CmdAirportToggleGround(DoCommandFlags flags, TileIndex start_tile, TileIndex end_tile, AirType air_type, bool diagonal)
 {
+	if (!IsValidTile(start_tile) || !IsValidTile(end_tile)) return CMD_ERROR;
 	CommandCost ret = CheckSettingBuildByTile();
 	if (ret.Failed()) return ret;
 
 	/* Check air type. */
 	if (!ValParamAirType(air_type)) return CommandCost(STR_ERROR_AIRPORT_INCORRECT_AIRTYPE);
 	const AirTypeInfo *ati = GetAirTypeInfo(air_type);
-	assert(!ati->build_on_water);
+	if (ati->build_on_water) return CMD_ERROR;
 
 	std::unique_ptr<TileIterator> iter;
 	if (diagonal) {
@@ -1388,6 +1403,8 @@ CommandCost RemoveAirportTiles(DoCommandFlags flags, TileIndex start_tile, TileI
 
 	if (flags.Test(DoCommandFlag::Execute)) {
 		/* Do all station specific functions here. */
+		std::sort(affected_stations.begin(), affected_stations.end(), [](const Station *a, const Station *b) { return a->index < b->index; });
+		affected_stations.erase(std::unique(affected_stations.begin(), affected_stations.end()), affected_stations.end());
 		for (Station *st : affected_stations) {
 			TileArea temp(ta.tile, ta.w, ta.h);
 			st->airport.Clear();
@@ -1545,6 +1562,7 @@ static CommandCost CheckFlatLandAirport(BitmapTileArea tile_area, DoCommandFlags
  */
 CommandCost CmdAddRemoveAirportTiles(DoCommandFlags flags, TileIndex start_tile, TileIndex end_tile, bool adding, AirType at, StationID station_to_join, bool adjacent)
 {
+	if (!IsValidTile(start_tile) || !IsValidTile(end_tile)) return CMD_ERROR;
 	CommandCost ret = CheckSettingBuildByTile();
 	if (ret.Failed()) return ret;
 
@@ -1614,8 +1632,8 @@ CommandCost CmdAddRemoveAirportTiles(DoCommandFlags flags, TileIndex start_tile,
 	TileIndex airport_tile = GetAnAirportTile(st);
 	int z = -1;
 	if (airport_tile != INVALID_TILE) {
-		auto [tileh, z] = GetTileSlopeZ(airport_tile);
-		z = z + GetSlopeMaxZ(tileh);
+		auto [tileh, airport_z] = GetTileSlopeZ(airport_tile);
+		z = airport_z + GetSlopeMaxZ(tileh);
 	}
 
 	Company *c = Company::GetIfValid(_current_company);
@@ -1684,6 +1702,9 @@ CommandCost CmdAddRemoveAirportTiles(DoCommandFlags flags, TileIndex start_tile,
  */
 CommandCost CmdBuildAirport(DoCommandFlags flags, TileIndex tile, uint8_t airport_type, uint8_t layout, AirType air_type, DiagDirection rotation, StationID station_to_join, bool allow_adjacent)
 {
+	if (!IsValidTile(tile) || airport_type >= NUM_AIRPORTS || !IsValidDiagDirection(rotation)) return CMD_ERROR;
+	const AirportSpec *as = AirportSpec::Get(airport_type);
+	if (layout >= as->layouts.size()) return CMD_ERROR;
 	bool reuse = (station_to_join != StationID::Invalid());
 	if (!reuse) station_to_join = StationID::Invalid();
 	bool distant_join = (station_to_join != StationID::Invalid());
@@ -1694,7 +1715,6 @@ CommandCost CmdBuildAirport(DoCommandFlags flags, TileIndex tile, uint8_t airpor
 	if (ret.Failed()) return ret;
 
 	/* Check if a valid, buildable airport was chosen for construction */
-	const AirportSpec *as = AirportSpec::Get(airport_type);
 	if (air_type == INVALID_AIRTYPE) air_type = as->airtype;
 
 	/* Validate before any use; an invalid surface must fail the command

@@ -608,6 +608,59 @@ static void SortBlueprintOffsets(TileIndexDiffC &a, TileIndexDiffC &b)
 	if (b.y < a.y || (b.y == a.y && b.x < a.x)) std::swap(a, b);
 }
 
+/** Validate raw custom airport geometry before it can change terrain or enter the map. */
+bool IsBlueprintAirportLayoutValid(const BlueprintAirport &airport)
+{
+	using Offset = std::pair<int, int>;
+	std::map<Offset, const BlueprintAirportTile *> tiles;
+	std::map<Offset, uint8_t> covered;
+	static constexpr uint8_t direction_masks[] = {9, 1, 3, 2, 6, 4, 12, 8};
+	for (const auto &tile : airport.tiles) {
+		if (!tiles.emplace(Offset{tile.offset.x, tile.offset.y}, &tile).second) return false;
+		const uint type = GB(tile.m5, 4, ATT_NUM_BITS);
+		if (type == ATT_WAITING_POINT || type == 9 || type == 11) return false;
+		if (!HasBit(tile.m6, 7)) continue;
+		if (type == ATT_SIMPLE_TRACK && tile.m4 > lengthof(GetAirTypeInfo(AIRTYPE_BEGIN)->base_sprites.ground)) return false;
+		if (type == ATT_INFRASTRUCTURE_WITH_CATCH && tile.m4 > ATTG_WITH_CATCH_BUILDING_TERMINAL) return false;
+		if (type == ATT_INFRASTRUCTURE_NO_CATCH && (tile.m4 < ATTG_NO_CATCH_FLAG || tile.m4 >= ATTG_END)) return false;
+	}
+	for (const auto &[offset, start] : tiles) {
+		const uint type = GB(start->m5, 4, ATT_NUM_BITS);
+		if (type != ATT_RUNWAY_START_ALLOW_LANDING && type != ATT_RUNWAY_START_NO_LANDING) continue;
+		const auto dir = static_cast<DiagDirection>(GB(start->m8, 12, 2));
+		const TileIndexDiffC step = TileIndexDiffCByDiagDir(dir);
+		const uint8_t mask = 1U << to_underlying(dir);
+		Offset pos = offset;
+		covered[pos] |= mask;
+		bool complete = false;
+		for (size_t length = 1; length < tiles.size(); length++) {
+			pos.first += step.x; pos.second += step.y;
+			auto it = tiles.find(pos);
+			if (it == tiles.end()) break;
+			const auto &tile = *it->second;
+			const uint current = GB(tile.m5, 4, ATT_NUM_BITS);
+			if (current == ATT_RUNWAY_MIDDLE) {
+				if ((direction_masks[GB(tile.m8, 12, 3)] & mask) == 0) break;
+			} else if (current == ATT_RUNWAY_END && GB(tile.m8, 12, 2) == to_underlying(dir)) {
+				covered[pos] |= mask;
+				complete = true;
+				break;
+			} else {
+				break;
+			}
+			covered[pos] |= mask;
+		}
+		if (!complete) return false;
+	}
+	for (const auto &[offset, tile] : tiles) {
+		const uint type = GB(tile->m5, 4, ATT_NUM_BITS);
+		if (type < ATT_RUNWAY_MIDDLE) continue;
+		const uint8_t required = type == ATT_RUNWAY_MIDDLE ? direction_masks[GB(tile->m8, 12, 3)] : (1U << GB(tile->m8, 12, 2));
+		if (covered[offset] != required) return false;
+	}
+	return true;
+}
+
 /** Remove transient ground and runway reservations without changing tile orientation. */
 void ClearBlueprintAirportReservations(BlueprintAirportTile &apt)
 {
@@ -1890,10 +1943,7 @@ CommandCost CmdPasteBlueprint(DoCommandFlags flags, TileIndex origin, const Blue
 	/* Raw custom tiles come from a network payload. Reject unsupported types
 	 * before changing terrain; GetAllowedTracks cannot handle these values. */
 	for (const BlueprintAirport &airport : bp.airports) {
-		for (const BlueprintAirportTile &tile : airport.tiles) {
-			const uint type = GB(tile.m5, 4, ATT_NUM_BITS);
-			if (type == ATT_WAITING_POINT || type == 9 || type == 11) return CMD_ERROR;
-		}
+		if (!IsBlueprintAirportLayoutValid(airport)) return CMD_ERROR;
 	}
 	for (const BlueprintObject &object : bp.objects) {
 		const ObjectSpec *spec = ResolveBlueprintObject(object.spec);

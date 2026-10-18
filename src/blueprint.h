@@ -423,6 +423,7 @@ DiagDirection TransformBlueprintDiagDir(DiagDirection dir, uint8_t rotation, boo
 Direction TransformBlueprintDirection(Direction dir, uint8_t rotation, bool reflected);
 Axis TransformBlueprintAxis(Axis axis, uint8_t rotation);
 RoadBits TransformBlueprintRoadBits(RoadBits bits, uint8_t rotation, bool reflected);
+bool IsBlueprintAirportLayoutValid(const BlueprintAirport &airport);
 void ClearBlueprintAirportReservations(BlueprintAirportTile &apt);
 void TransformBlueprintAirportTile(BlueprintAirportTile &apt, uint8_t rotation, bool reflected);
 Blueprint TransformBlueprint(const Blueprint &blueprint, uint8_t rotation, bool reflected);

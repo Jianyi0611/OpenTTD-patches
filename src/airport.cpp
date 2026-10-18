@@ -485,13 +485,15 @@ void Station::UpdateAirportDataStructure()
 
 	/* Reconnect a saved hangar before allocating anything: the station's
 	 * pointer is not saved, but the Depot pool (including its IDs) is. */
-	if (first_hangar != INVALID_TILE && this->airport.hangar == nullptr) {
+	if (first_hangar != INVALID_TILE) {
+		Depot *canonical = this->airport.hangar;
 		for (Depot *depot : Depot::Iterate()) {
-			if (IsValidTile(depot->xy) && this->TileBelongsToAirport(depot->xy) && IsHangar(depot->xy)) {
-				this->airport.hangar = depot;
-				break;
-			}
+			if (!IsValidTile(depot->xy) || !this->TileBelongsToAirport(depot->xy) || !IsHangar(depot->xy)) continue;
+			/* Legacy saves may contain duplicates. Both a running server and a
+			 * joining client must choose the same identity, regardless of an old pointer. */
+			if (canonical == nullptr || depot->index < canonical->index) canonical = depot;
 		}
+		this->airport.hangar = canonical;
 	}
 
 	/* Set/Clear depot. */
