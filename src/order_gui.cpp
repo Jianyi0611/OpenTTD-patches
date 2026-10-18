@@ -1250,6 +1250,8 @@ void ShowRVTransportWindow(Window *parent, const OrderCriteriaTarget &target, Ve
 /** Widgets of the #CoupleOptionsWindow (coupling selection criteria of a train couple order). */
 enum CoupleCriteriaWidgets : WidgetID {
 	WID_CPO_CAPTION,          ///< Caption of the window.
+	WID_CPO_CHECK_POINT_LABEL, ///< Label of the early couple check point criterion.
+	WID_CPO_CHECK_POINT,      ///< Early couple check point criterion (none / an earlier station or waypoint order).
 	WID_CPO_SLOT_GROUP_LABEL, ///< Label of the trace restrict slot group criterion.
 	WID_CPO_SLOT_GROUP,       ///< Trace restrict slot group criterion.
 	WID_CPO_GROUP_LABEL,      ///< Label of the vehicle group criterion.
@@ -1293,6 +1295,7 @@ private:
 
 	/** Snapshot of the criteria which are shown, to refresh the dropdowns when the order changes. */
 	struct SettingsSnapshot {
+		uint16_t check_point = 0; ///< Early check point (station id + 1), 0 when none.
 		uint8_t load = 0;
 		uint8_t cargo = 0;
 		uint8_t units = 0;
@@ -1301,7 +1304,7 @@ private:
 
 		bool operator==(const SettingsSnapshot &other) const
 		{
-			return this->load == other.load && this->cargo == other.cargo && this->units == other.units &&
+			return this->check_point == other.check_point && this->load == other.load && this->cargo == other.cargo && this->units == other.units &&
 					this->slot_group == other.slot_group && this->group == other.group;
 		}
 	};
@@ -1314,6 +1317,7 @@ private:
 	SettingsSnapshot GetSettings() const
 	{
 		SettingsSnapshot s;
+		s.check_point = this->order->HasCoupleCheckPoint() ? this->order->GetCoupleCheckPoint().base() + 1 : 0;
 		s.load = to_underlying(this->order->GetCoupleLoad());
 		s.cargo = this->order->HasCoupleCargoType() ? (uint8_t)this->order->GetCoupleCargoType() : (uint8_t)CARGO_NO_REFIT;
 		s.units = this->order->GetNumCouple();
@@ -1327,6 +1331,7 @@ private:
 	 * fallbacks used while no parameter is available. */
 	void UpdateWidgetTexts()
 	{
+		this->GetWidget<NWidgetCore>(WID_CPO_CHECK_POINT)->SetString(STR_ORDER_COUPLE_CHECK_NONE);
 		this->GetWidget<NWidgetCore>(WID_CPO_SLOT_GROUP)->SetString(STR_ORDER_COUPLE_ANY_GROUP);
 		this->GetWidget<NWidgetCore>(WID_CPO_GROUP)->SetString(STR_ORDER_COUPLE_ANY_VEHICLE_GROUP);
 		this->GetWidget<NWidgetCore>(WID_CPO_LOAD)->SetString(STR_ORDER_COUPLE_ANY + to_underlying(this->order->GetCoupleLoad()));
@@ -1354,6 +1359,27 @@ private:
 		if (!this->order->HasCoupleCargoType()) return INVALID_CARGO;
 		const CargoType cargo = this->order->GetCoupleCargoType();
 		return IsValidCargoType(cargo) ? cargo : INVALID_CARGO;
+	}
+
+	/** Build the dropdown which selects the early couple check point: none, or a station/waypoint
+	 * order before the couple order. Entries carry the stored "station + 1" value; "none" is 0. */
+	DropDownList BuildCheckPointList() const
+	{
+		DropDownList list;
+		list.push_back(MakeDropDownListCheckedItem(!this->order->HasCoupleCheckPoint(), STR_ORDER_COUPLE_CHECK_NONE, 0, false));
+		for (uint i = 0; i < this->order_id; ++i) {
+			const Order *point = this->target.GetOrder(i);
+			if (point == nullptr || (!point->IsType(OT_GOTO_STATION) && !point->IsType(OT_GOTO_WAYPOINT))) continue;
+			const StationID station = point->GetDestination().ToStationID();
+			const int result = station.base() + 1;
+			const bool checked = this->order->HasCoupleCheckPoint() && this->order->GetCoupleCheckPoint() == station;
+			std::string name = GetString(point->IsType(OT_GOTO_WAYPOINT) ? STR_WAYPOINT_NAME : STR_STATION_NAME, station);
+			auto item = MakeDropDownListCheckedItem(checked, GetString(STR_ORDER_COUPLE_CHECK_ITEM, GetString(STR_ORDER_INDEX, i + 1), name), result, false);
+			/* Embedded station/string colours must not hide text on the selected background. */
+			item->colour_flags.Set(ExtendedTextColourFlag::Forced);
+			list.push_back(std::move(item));
+		}
+		return list;
 	}
 
 	/** Build the dropdown which selects the trace restrict slot group criterion. The list works
@@ -1467,6 +1493,21 @@ public:
 	std::string GetWidgetString(WidgetID widget, StringID stringid) const override
 	{
 		switch (widget) {
+			case WID_CPO_CHECK_POINT: {
+				if (!this->order->HasCoupleCheckPoint()) return GetString(STR_ORDER_COUPLE_CHECK_NONE);
+				const StationID station = this->order->GetCoupleCheckPoint();
+				for (uint i = 0; i < this->order_id; ++i) {
+					const Order *point = this->target.GetOrder(i);
+					if (point != nullptr && (point->IsType(OT_GOTO_STATION) || point->IsType(OT_GOTO_WAYPOINT)) && point->GetDestination().ToStationID() == station) {
+						std::string name = GetString(point->IsType(OT_GOTO_WAYPOINT) ? STR_WAYPOINT_NAME : STR_STATION_NAME, station);
+						return GetString(STR_ORDER_INDEX, i + 1) + name;
+					}
+				}
+				if (Waypoint::IsValidID(station)) return GetString(STR_WAYPOINT_NAME, station);
+				if (Station::IsValidID(station)) return GetString(STR_STATION_NAME, station);
+				return GetString(STR_ORDER_COUPLE_CHECK_MISSING);
+			}
+
 			case WID_CPO_SLOT_GROUP: {
 				const uint16_t slot_group = this->order->GetCoupleSlotGroup().base();
 				if (slot_group != INVALID_TRACE_RESTRICT_SLOT_GROUP.base()) {
@@ -1505,6 +1546,10 @@ public:
 		}
 
 		switch (widget) {
+			case WID_CPO_CHECK_POINT:
+				ShowDropDownList(this, this->BuildCheckPointList(), -1, WID_CPO_CHECK_POINT, 0,
+						{DropDownOption::Filterable, DropDownOption::ClickOnly}, DDSF_SHARED);
+				return;
 			case WID_CPO_SLOT_GROUP:
 				ShowDropDownList(this, this->BuildSlotGroupList(), -1, WID_CPO_SLOT_GROUP, 0);
 				return;
@@ -1535,6 +1580,17 @@ public:
 		if (!this->CheckOrderStillValid()) return;
 
 		switch (widget) {
+			case WID_CPO_CHECK_POINT: {
+				/* Recheck eligibility after edits from another window or a network client. */
+				bool valid = index == 0;
+				for (uint i = 0; !valid && i < this->order_id; ++i) {
+					const Order *point = this->target.GetOrder(i);
+					valid = point != nullptr && (point->IsType(OT_GOTO_STATION) || point->IsType(OT_GOTO_WAYPOINT)) && point->GetDestination().base() + 1 == index;
+				}
+				if (valid) this->ModifyOrder(MOF_COUPLE_CHECK_POINT, static_cast<uint16_t>(index));
+				break;
+			}
+
 			case WID_CPO_SLOT_GROUP:
 				/* The dropdown result is the raw slot group id; the order stores group id + 1
 				 * with 0 meaning "any". */
@@ -1607,6 +1663,10 @@ static constexpr NWidgetPart _nested_couple_options_widgets[] = {
 	EndContainer(),
 	NWidget(WWT_PANEL, Colours::Grey),
 		NWidget(NWID_HORIZONTAL),
+			NWidget(WWT_TEXT, Colours::Invalid, WID_CPO_CHECK_POINT_LABEL), SetFill(1, 0), SetResize(1, 0), SetStringTip(STR_ORDER_COUPLE_CHECK_LABEL, STR_NULL),
+			NWidget(WWT_DROPDOWN, Colours::Grey, WID_CPO_CHECK_POINT), SetFill(0, 0), SetResize(0, 0),
+		EndContainer(),
+		NWidget(NWID_HORIZONTAL),
 			NWidget(WWT_TEXT, Colours::Invalid, WID_CPO_SLOT_GROUP_LABEL), SetFill(1, 0), SetResize(1, 0), SetStringTip(STR_ORDER_COUPLE_SLOT_GROUP_LABEL, STR_NULL),
 			NWidget(WWT_DROPDOWN, Colours::Grey, WID_CPO_SLOT_GROUP), SetFill(0, 0), SetResize(0, 0),
 		EndContainer(),
@@ -1635,7 +1695,7 @@ static constexpr NWidgetPart _nested_couple_options_widgets[] = {
 
 /** Window description of the coupling criteria window. */
 static WindowDesc _couple_options_desc(__FILE__, __LINE__,
-	WindowPosition::Automatic, "couple_criteria", 240, 130,
+	WindowPosition::Automatic, "couple_criteria", 240, 143,
 	WindowClass::VehicleCoupleCriteria, WindowClass::VehicleOrders,
 	WindowDefaultFlag::Construction,
 	_nested_couple_options_widgets
@@ -5467,11 +5527,6 @@ public:
 					list.push_back(MakeDropDownListDividerItem());
 					list.push_back(MakeDropDownListCheckedItem(order->GetCoupleUseWaitingSchedule(), STR_ORDER_COUPLE_USE_WAITING_SCHEDULE, 0x600, false));
 					list.push_back(MakeDropDownListDividerItem());
-					std::string current = GetString(STR_ORDER_COUPLE_CHECK_NONE);
-					if (order->HasCoupleCheckPoint()) current = GetCoupleCheckPointLabel(this->Target(), (int)this->OrderGetSel(), *order);
-					auto check_item = MakeDropDownListStringItem(GetString(STR_ORDER_COUPLE_CHECK_SELECT, current), 0x800, false);
-					check_item->colour_flags.Set(ExtendedTextColourFlag::Forced);
-					list.push_back(std::move(check_item));
 				}
 
 				/* Standalone lists act like trains here: every per-order option is available,
@@ -6602,44 +6657,6 @@ public:
 				}
 				if (index >= 0x300 && index <= 0x300 + to_underlying(DiagDirection::Invalid)) {
 					this->ModifyOrder(this->OrderGetSel(), MOF_RV_TRAVEL_DIR, index & 0xFF);
-					break;
-				}
-				if (index == 0x800) {
-					const Order *order = OrderAt(this->OrderGetSel());
-					if (order == nullptr || !order->IsType(OT_GOTO_COUPLE)) break;
-					DropDownList list;
-					int selected = 0x10000;
-					auto none_item = MakeDropDownListCheckedItem(!order->HasCoupleCheckPoint(), STR_ORDER_COUPLE_CHECK_NONE, 0x10000, false);
-					none_item->colour_flags.Set(ExtendedTextColourFlag::Forced);
-					list.push_back(std::move(none_item));
-					for (VehicleOrderID i = 0; i < this->OrderGetSel(); ++i) {
-						const Order *point = OrderAt(i);
-						if (point == nullptr || (!point->IsType(OT_GOTO_STATION) && !point->IsType(OT_GOTO_WAYPOINT))) continue;
-						const StationID station = point->GetDestination().ToStationID();
-						const int result = 0x10001 + station.base();
-						const bool checked = order->HasCoupleCheckPoint() && order->GetCoupleCheckPoint() == station;
-						if (checked) selected = result;
-						std::string name = GetString(point->IsType(OT_GOTO_WAYPOINT) ? STR_WAYPOINT_NAME : STR_STATION_NAME, station);
-						auto item = MakeDropDownListCheckedItem(checked, GetString(STR_ORDER_COUPLE_CHECK_ITEM, GetString(STR_ORDER_INDEX, i + 1), name), result, false);
-						/* Embedded station/string colours must not hide text on the selected background. */
-						item->colour_flags.Set(ExtendedTextColourFlag::Forced);
-						list.push_back(std::move(item));
-					}
-					ShowDropDownList(this, std::move(list), selected, widget, 0, {DropDownOption::Filterable, DropDownOption::ClickOnly}, DDSF_SHARED);
-					break;
-				}
-				if (index >= 0x10000 && index < 0x20000) {
-					const Order *order = OrderAt(this->OrderGetSel());
-					if (order == nullptr || !order->IsType(OT_GOTO_COUPLE)) break;
-					/* Keep stable destination IDs while the list is open, and recheck eligibility
-					 * after edits from another window or a network client. */
-					const uint32_t value = index - 0x10000;
-					bool valid = value == 0;
-					for (VehicleOrderID i = 0; !valid && i < this->OrderGetSel(); ++i) {
-						const Order *point = OrderAt(i);
-						valid = point != nullptr && (point->IsType(OT_GOTO_STATION) || point->IsType(OT_GOTO_WAYPOINT)) && point->GetDestination().base() + 1 == value;
-					}
-					if (valid) this->ModifyOrder(this->OrderGetSel(), MOF_COUPLE_CHECK_POINT, value);
 					break;
 				}
 				if (index == RVDD_RV_WAIT || index == RVDD_RV_UNLOAD) {
