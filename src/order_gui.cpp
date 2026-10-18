@@ -2200,6 +2200,34 @@ static void AppendRVTransportOrderSummary(format_buffer &line, const Order &orde
  * @param middle X position between order index and order text
  * @param right Right border for text drawing
  */
+/**
+ * Build the "order index: name" label of a couple order's early check point.
+ * Looks for the station/waypoint order before the couple order that references
+ * the check point, so the label tracks the list like the selection dropdown.
+ * Falls back to the bare station/waypoint name, and to a "missing" note when
+ * neither the owning order nor the location exists anymore.
+ * @param orders the order list being displayed (may be nullptr for standalone use).
+ * @param order_index index of the displayed couple order within \a orders.
+ * @param order the GOTO_COUPLE order to label.
+ * @return formatted parameter for STR_ORDER_COUPLE_CHECK_AT.
+ */
+static std::string GetCoupleCheckPointLabel(const OrderList *orders, int order_index, const Order &order)
+{
+	const StationID station = order.GetCoupleCheckPoint();
+	if (orders != nullptr) {
+		for (int i = 0; i < order_index; ++i) {
+			const Order *point = orders->GetOrderAt(i);
+			if (point == nullptr || (!point->IsType(OT_GOTO_STATION) && !point->IsType(OT_GOTO_WAYPOINT))) continue;
+			if (point->GetDestination().ToStationID() != station) continue;
+			std::string name = GetString(point->IsType(OT_GOTO_WAYPOINT) ? STR_WAYPOINT_NAME : STR_STATION_NAME, station);
+			return GetString(STR_ORDER_INDEX, i + 1) + name;
+		}
+	}
+	if (Waypoint::IsValidID(station)) return GetString(STR_WAYPOINT_NAME, station);
+	if (Station::IsValidID(station)) return GetString(STR_STATION_NAME, station);
+	return GetString(STR_ORDER_COUPLE_CHECK_MISSING);
+}
+
 void DrawOrderString(const Vehicle *v, const Order *order, int order_index, int y, bool selected, bool timetable, int left, int middle, int right, bool dispatch_enabled, const OrderList *orders)
 {
 	bool rtl = _current_text_dir == TD_RTL;
@@ -2835,7 +2863,7 @@ void DrawOrderString(const Vehicle *v, const Order *order, int order_index, int 
 			if (order->GetCoupleUseWaitingSchedule()) {
 				AppendStringInPlace(line, STR_ORDER_COUPLE_USE_WAITING_SCHEDULE_SUFFIX);
 			}
-			if (order->HasCoupleCheckPoint()) AppendStringInPlace(line, STR_ORDER_COUPLE_CHECK_AT, order->GetCoupleCheckPoint());
+			if (order->HasCoupleCheckPoint()) AppendStringInPlace(line, STR_ORDER_COUPLE_CHECK_AT, GetCoupleCheckPointLabel(orders, order_index, *order));
 			break;
 		}
 
@@ -5436,10 +5464,7 @@ public:
 					list.push_back(MakeDropDownListCheckedItem(order->GetCoupleUseWaitingSchedule(), STR_ORDER_COUPLE_USE_WAITING_SCHEDULE, 0x600, false));
 					list.push_back(MakeDropDownListDividerItem());
 					std::string current = GetString(STR_ORDER_COUPLE_CHECK_NONE);
-					if (order->HasCoupleCheckPoint()) {
-						const StationID station = order->GetCoupleCheckPoint();
-						current = GetString(Waypoint::IsValidID(station) ? STR_WAYPOINT_NAME : STR_STATION_NAME, station);
-					}
+					if (order->HasCoupleCheckPoint()) current = GetCoupleCheckPointLabel(this->Target(), (int)this->OrderGetSel(), *order);
 					auto check_item = MakeDropDownListStringItem(GetString(STR_ORDER_COUPLE_CHECK_SELECT, current), 0x800, false);
 					check_item->colour_flags.Set(ExtendedTextColourFlag::Forced);
 					list.push_back(std::move(check_item));

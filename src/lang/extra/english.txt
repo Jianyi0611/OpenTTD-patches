@@ -2112,7 +2112,8 @@ STR_ORDER_COUPLE_CHECK_SELECT                                   :{BLACK}Check lo
 STR_ORDER_COUPLE_CHECK_ITEM                                     :{BLACK}{RAW_STRING}{RAW_STRING}
 STR_ORDER_COUPLE_CHECK_NONE                                     :{BLACK}Check only when going to couple
 STR_ORDER_COUPLE_CHECK_MENU                                     :{BLACK}Check for partner at: {RAW_STRING}
-STR_ORDER_COUPLE_CHECK_AT                                       :; check at {STATION} first
+STR_ORDER_COUPLE_CHECK_AT                                       :; check at {RAW_STRING} first
+STR_ORDER_COUPLE_CHECK_MISSING                                  :; the check point is gone
 STR_ORDER_LIST_EDIT                                             :{BLACK}Edit
 STR_ORDER_LIST_DELETE                                           :{BLACK}Delete
 STR_ORDER_LIST_DELETE_TOOLTIP                                   :{BLACK}Delete the selected order list
