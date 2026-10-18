@@ -34,6 +34,7 @@
 #include "hotkeys.h"
 #include "aircraft.h"
 #include "train.h"
+#include "train_cmd.h"
 #include "vehicle_gui.h"
 #include "gui.h"
 #include "date_func.h"
@@ -3669,6 +3670,9 @@ private:
 		std::string report;
 		const Train *target = Train::GetIfValid(moving->couple_target);
 		bool active = moving->current_order.IsType(OT_GOTO_COUPLE) && moving->cur_implicit_order_index == this->OrderGetSel();
+		/* The early check at a checkpoint runs the couple order before it becomes
+		 * the executing order; a held train is still running this order. */
+		if (!active) active = IsCoupleCheckpointEngaged(moving, order);
 		if (active && target != nullptr) {
 			report = GetString(STR_COUPLE_DIAGNOSTIC_TARGET, target->Primary()->index);
 			const Train *claimant = GetCoupleClaimant(target);
