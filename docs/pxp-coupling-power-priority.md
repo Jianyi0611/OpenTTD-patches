@@ -32,7 +32,7 @@ These reduce work in coupling arbitration; they are not a measured claim of an o
 - Targeted train_cmd.cpp AddressSanitizer: 10 coupling-priority cases / 637 assertions passed.
 - Real-rail fixtures cover disabled caller and competitor checks, either bound and source mode, speed before power, equal-gap preference, unreachable/stopped/rejecting matching locomotives, ordinary fallback, live claims, route/ID ties, search budgets, checkpoint arrival and reversal. They check random state, reservations, vehicle tile hashes and retained active orders/stacks.
 
-Diagnostic hooks stay outside the repository and player package. This work is local only; no GitHub upload is authorized.
+Diagnostic hooks stay outside the repository and player package.
 
 - Local diagnostic server plus two native clients: 42 and 36 matching same-tick samples; no differences or invalid vehicle hashes. Compared vehicle positions, speed/power, orders/stacks/claims, aircraft and two custom airports, plus random seeds. Both clients stayed active until controlled shutdown; server exit code 0.
 - This save did not trigger a new eligible priority contest (diagnostic counters remained zero). Contest behaviour is covered by real-rail regression scenarios rather than this multiplayer save. This does not establish absence of every possible desync.

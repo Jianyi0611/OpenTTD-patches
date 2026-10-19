@@ -16,7 +16,6 @@ The blueprint clipboard/set/autosave format is now version 6. Versions 3, 4 and 
 - Complete suite: 293 cases / 7013 assertions passed.
 - Regression tests cover deletion of the source before paste, command payload transport, real signal construction, relocated operands, independent second paste, labels, all eight rotations/reflections, malformed programs, relocation misuse, old v5 import, dry-run behaviour, preservation of existing restrictions, and owned/public/private slots.
 
-This remains a local change; no GitHub upload.
 
 - Targeted AddressSanitizer build instruments blueprint.cpp and tracerestrict.cpp: all 41 blueprint cases / 717 assertions passed.
 - Local dedicated server and two native clients: 42 and 36 matching same-tick samples, no state differences or invalid vehicle tile hashes. The server posted a format-6 blueprint paste with a restriction label through the normal network command path. Compared program words, labels, mapping references, vehicle state, orders, claims, random state and two custom airports. Both clients remained active until controlled shutdown; server exited with code 0. This is bounded regression coverage, not proof against every possible desync.
