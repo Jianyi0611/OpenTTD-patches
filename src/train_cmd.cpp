@@ -7102,6 +7102,8 @@ static bool CoupleClaimBlocks(const Train *carrier, const Train *moving, [[maybe
 	return true;
 }
 
+static Train *SelectPowerCoupleClaimant(Train *moving, Train *carrier, Train *&contact, uint32_t &claim_cost);
+
 void ClaimCoupleTarget(Train *moving, Train *carrier, uint32_t claim_cost)
 {
 	Train *prim = moving->Primary();
@@ -7114,6 +7116,13 @@ void ClaimCoupleTarget(Train *moving, Train *carrier, uint32_t claim_cost)
 	}
 	if (claimant != nullptr) return;
 
+	/* Only the first claim is arbitrated; never take a live claim from a train. */
+	Train *contact = Train::GetIfValid(prim->couple_target);
+	Train *selected = SelectPowerCoupleClaimant(prim, carrier, contact, claim_cost);
+	if (selected != prim) {
+		selected->couple_target = contact->index;
+		prim = selected;
+	}
 	carrier->couple_claimant = prim->index;
 	carrier->couple_claim_cost = claim_cost;
 }
@@ -7191,6 +7200,81 @@ CoupleCandidateResult GetCoupleCandidateResult(const Train *moving, const Order 
 	if (volatile_result != CoupleCandidateResult::Valid) return volatile_result;
 	if (!IsCoupleArrangementValid(const_cast<Train *>(moving), rep)) return CoupleCandidateResult::Arrangement;
 	return CoupleCandidateResult::Valid;
+}
+
+/** Only compete before departure, after loading/reversal is complete. */
+static const Order *GetReadyPowerCoupleOrder(const Train *train)
+{
+	if (!train->IsPrimaryVehicle() || train->IsVirtualOrCarried() || !IsValidTile(train->tile) ||
+			!IsValidTile(train->GetMovingFront()->tile) || !train->railtypes.Any() ||
+			train->cur_speed != 0 || train->IsInDepot() || train->reverse_distance != 0 ||
+			train->vehstatus.Any({VehState::Stopped, VehState::Crashed}) ||
+			train->flags.Any({VehicleRailFlag::ConsistBreakdown, VehicleRailFlag::Reversing}) || train->gcache.cached_power == 0) return nullptr;
+	/* The checkpoint flag is set only once its arrival and reversal work has
+	 * completed and it is actually waiting for a partner, not while loading. */
+	if (train->current_order.IsType(OT_GOTO_COUPLE)) return &train->current_order;
+	if (!train->flags.Test(VehicleRailFlag::CoupleCheckReservationReleased)) return nullptr;
+	const Order *couple = GetClaimCoupleOrder(train);
+	const Order *current = train->orders != nullptr ? train->GetOrder(train->cur_real_order_index) : nullptr;
+	if (couple == nullptr || current == nullptr || !couple->HasCoupleCheckPoint() ||
+			(!current->IsType(OT_GOTO_STATION) && !current->IsType(OT_GOTO_WAYPOINT)) ||
+			current->GetDestination() != couple->GetCoupleCheckPoint()) return nullptr;
+	const Train *front = train->GetMovingFront();
+	if ((IsRailStationTile(front->tile) || IsRailWaypointTile(front->tile)) && GetStationIndex(front->tile) == couple->GetCoupleCheckPoint()) return couple;
+	if (train->current_order.IsAnyLoadingType() && train->last_station_visited == couple->GetCoupleCheckPoint()) return couple;
+	return nullptr;
+}
+
+/** Resolve same-speed competitors without changing their orders, claims or reservations. */
+static Train *SelectPowerCoupleClaimant(Train *moving, Train *carrier, Train *&contact, uint32_t &claim_cost)
+{
+	const Order *order = GetReadyPowerCoupleOrder(moving);
+	if (order == nullptr || contact == nullptr || contact->Primary() != carrier) return moving;
+	std::vector<Train *> candidates;
+	for (Train *other : Train::Iterate()) {
+		if (other == moving || other->GetDisplayMaxSpeed() != moving->GetDisplayMaxSpeed() || other->gcache.cached_power < moving->gcache.cached_power) continue;
+		const Order *criteria = GetReadyPowerCoupleOrder(other);
+		if (criteria == nullptr || GetClaimedCoupleTarget(other) != nullptr) continue;
+		if (GetCoupleVolatileConditionResult(other, *criteria, carrier->First(), contact->tile) != CoupleCandidateResult::Valid) continue;
+		candidates.push_back(other);
+	}
+	if (candidates.empty()) return moving;
+	std::sort(candidates.begin(), candidates.end(), [carrier](const Train *a, const Train *b) {
+		if (a->gcache.cached_power != b->gcache.cached_power) return a->gcache.cached_power > b->gcache.cached_power;
+		const uint da = DistanceManhattan(a->tile, carrier->tile);
+		const uint db = DistanceManhattan(b->tile, carrier->tile);
+		if (da != db) return da < db;
+		return a->index < b->index;
+	});
+
+	/* Priority is a bounded bonus, not an unbounded fleet-wide route search.
+	 * Failure or budget exhaustion must leave the original caller eligible. */
+	static constexpr uint MAX_PROBES = 16;
+	static constexpr uint MAX_QUERY_NODES = 1024;
+	Train *best = moving;
+	bool best_route_known = claim_cost != 0;
+	uint probes = 0;
+	for (Train *other : candidates) {
+		if (other->gcache.cached_power < best->gcache.cached_power || probes++ >= MAX_PROBES) break;
+		if (other->gcache.cached_power == best->gcache.cached_power && !best_route_known) {
+			Train *own_end = nullptr;
+			uint32_t own_cost = 0;
+			if (YapfTrainCoupleTrack(best, true, &own_end, &own_cost, order, carrier, MAX_QUERY_NODES) == INVALID_TRACK || own_end == nullptr) break;
+			claim_cost = own_cost;
+			best_route_known = true;
+		}
+		Train *end = nullptr;
+		uint32_t cost = 0;
+		/* Explicit criteria avoid temporarily changing a checkpoint's active order. */
+		if (YapfTrainCoupleTrack(other, true, &end, &cost, GetReadyPowerCoupleOrder(other), carrier, MAX_QUERY_NODES) == INVALID_TRACK || end == nullptr) continue;
+		if (other->gcache.cached_power == best->gcache.cached_power && std::tie(cost, other->index) >= std::tie(claim_cost, best->index)) continue;
+		best = other;
+		contact = end;
+		claim_cost = cost;
+		best_route_known = true;
+	}
+
+	return best;
 }
 
 /** Bounded soft preference, in tiles: matching speed never makes another valid partner ineligible. */
@@ -7284,9 +7368,9 @@ bool TrainShouldWaitForCoupleAtCheckpoint(Train *moving, bool *at_checkpoint, St
 }
 
 Train *ValidateCoupleCandidate(const Train *moving, Train *rep, TileIndex contact_tile,
-		bool respect_claim, uint32_t claim_cost)
+		bool respect_claim, uint32_t claim_cost, const Order *criteria)
 {
-	const Order &order = moving->Primary()->current_order;
+	const Order &order = criteria != nullptr ? *criteria : moving->Primary()->current_order;
 	if (GetCoupleCandidateResult(moving, order, rep, contact_tile, respect_claim, claim_cost) != CoupleCandidateResult::Valid) return nullptr;
 
 	/* The waiting train's closest end to the contact point is met first. */
@@ -7306,7 +7390,7 @@ Train *ValidateCoupleCandidate(const Train *moving, Train *rep, TileIndex contac
  * @return contact-end vehicle of a waiting train, or nullptr.
  */
 Train *ResolveCoupleTargetStation(const Train *moving, TileIndex tile, Trackdir td,
-		bool respect_claim, uint32_t claim_cost)
+		bool respect_claim, uint32_t claim_cost, const Order *criteria, const Train *only_target)
 {
 	if (!IsRailStationTile(tile)) return nullptr;
 
@@ -7317,12 +7401,13 @@ Train *ResolveCoupleTargetStation(const Train *moving, TileIndex tile, Trackdir 
 	for (TileIndex st_tile = tile; IsCompatibleTrainStationTile(st_tile, tile); st_tile += diff) {
 		for (Train *t : VehiclesOnTile<VehicleType::Train>(st_tile)) {
 			if (t->vehstatus.Test(VehState::Crashed)) continue;
+			if (only_target != nullptr && t->Primary() != only_target->Primary()) continue;
 			/* A long waiting consist can occupy many platform tiles. Trial surgery
 			 * and approach probing must run once per consist, not once per wagon. */
 			const VehicleID id = t->Primary()->index;
 			if (std::find(seen.begin(), seen.end(), id) != seen.end()) continue;
 			seen.push_back(id);
-			Train *target = ValidateCoupleCandidate(moving, t->First(), st_tile, respect_claim, claim_cost);
+			Train *target = ValidateCoupleCandidate(moving, t->First(), st_tile, respect_claim, claim_cost, criteria);
 			if (target != nullptr) {
 				/* A candidate whose approach is blocked by another consist is not
 				 * reachable; keep looking for a waiting train we can reach. */

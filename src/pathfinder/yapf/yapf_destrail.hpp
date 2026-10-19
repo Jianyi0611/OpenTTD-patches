@@ -298,6 +298,7 @@ public:
 
 protected:
 	Order dest_order;
+	const Train *couple_target_filter = nullptr;
 	bool prefer_matching_speed = true;
 	bool speed_preference_applied = false;
 
@@ -311,9 +312,10 @@ public:
 		return *static_cast<Tpf *>(this);
 	}
 
-	void SetDestination(const Train *v)
+	void SetDestination(const Train *v, const Order *criteria = nullptr, const Train *only_target = nullptr)
 	{
-		dest_order.AssignOrder(v->current_order);
+		dest_order.AssignOrder(criteria != nullptr ? *criteria : v->current_order);
+		this->couple_target_filter = only_target != nullptr ? only_target->Primary() : nullptr;
 		this->CYapfDestinationRailBase::SetDestination(v);
 	}
 
@@ -348,16 +350,16 @@ public:
 			 * that arrived via block signals do not leave reservations.
 			 * All order/permission/validity checks live in the shared resolver.
 			 * A waiting train already claimed by another approaching consist is
-			 * not a destination unless this consist's path is cheaper. */
-			return ResolveCoupleTargetStation(Yapf().GetVehicle(), tile, td, true, claim_cost);
+			 * not a destination unless the claim belongs to this consist. */
+			return ResolveCoupleTargetStation(Yapf().GetVehicle(), tile, td, true, claim_cost, &this->dest_order, this->couple_target_filter);
 		}
 
 		/* Non-station tiles: require reservation as usual. */
 		TrackdirBits tdb = TrackdirToTrackdirBits(td);
 		if (!HasReservedTracks(tile, TrackdirBitsToTrackBits(tdb))) return nullptr;
 		Train *t = GetTrainForReservation(tile, TrackdirToTrack(td));
-		if (t == nullptr) return nullptr;
-		return ValidateCoupleCandidate(Yapf().GetVehicle(), t->First(), tile, true, claim_cost);
+		if (t == nullptr || (this->couple_target_filter != nullptr && t->Primary() != this->couple_target_filter)) return nullptr;
+		return ValidateCoupleCandidate(Yapf().GetVehicle(), t->First(), tile, true, claim_cost, &this->dest_order);
 	}
 
 	/** @copydoc CYapfBaseT::PfCalcEstimateFunc */
