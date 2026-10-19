@@ -7203,18 +7203,22 @@ CoupleCandidateResult GetCoupleCandidateResult(const Train *moving, const Order 
 }
 
 /** Only compete before departure, after loading/reversal is complete. */
-static const Order *GetReadyPowerCoupleOrder(const Train *train)
+static const Order *GetReadyPowerCoupleOrder(const Train *train, bool arriving_at_checkpoint = false)
 {
 	if (!train->IsPrimaryVehicle() || train->IsVirtualOrCarried() || !IsValidTile(train->tile) ||
 			!IsValidTile(train->GetMovingFront()->tile) || !train->railtypes.Any() ||
-			train->cur_speed != 0 || train->IsInDepot() || train->reverse_distance != 0 ||
+			train->IsInDepot() || train->GetMovingFront()->IsInDepot() || train->reverse_distance != 0 ||
 			train->vehstatus.Any({VehState::Stopped, VehState::Crashed}) ||
 			train->flags.Any({VehicleRailFlag::ConsistBreakdown, VehicleRailFlag::Reversing}) || train->gcache.cached_power == 0) return nullptr;
 	/* The checkpoint flag is set only once its arrival and reversal work has
 	 * completed and it is actually waiting for a partner, not while loading. */
-	if (train->current_order.IsType(OT_GOTO_COUPLE)) return &train->current_order;
-	if (!train->flags.Test(VehicleRailFlag::CoupleCheckReservationReleased)) return nullptr;
+	if (train->current_order.IsType(OT_GOTO_COUPLE)) return train->cur_speed == 0 ? &train->current_order : nullptr;
+	if (!arriving_at_checkpoint && (train->cur_speed != 0 || !train->flags.Test(VehicleRailFlag::CoupleCheckReservationReleased))) return nullptr;
 	const Order *couple = GetClaimCoupleOrder(train);
+	if (couple == nullptr || !couple->HasCoupleCheckPoint()) return nullptr;
+	/* Passing the entire reverse waypoint can advance the order index. The
+	 * pending flag still identifies the completed checkpoint until departure. */
+	if (train->flags.Test(VehicleRailFlag::CoupleCheckReversePending)) return couple;
 	const Order *current = train->orders != nullptr ? train->GetOrder(train->cur_real_order_index) : nullptr;
 	if (couple == nullptr || current == nullptr || !couple->HasCoupleCheckPoint() ||
 			(!current->IsType(OT_GOTO_STATION) && !current->IsType(OT_GOTO_WAYPOINT)) ||
@@ -7228,7 +7232,7 @@ static const Order *GetReadyPowerCoupleOrder(const Train *train)
 /** Resolve same-speed competitors without changing their orders, claims or reservations. */
 static Train *SelectPowerCoupleClaimant(Train *moving, Train *carrier, Train *&contact, uint32_t &claim_cost)
 {
-	const Order *order = GetReadyPowerCoupleOrder(moving);
+	const Order *order = GetReadyPowerCoupleOrder(moving, true);
 	if (order == nullptr || contact == nullptr || contact->Primary() != carrier) return moving;
 	std::vector<Train *> candidates;
 	for (Train *other : Train::Iterate()) {

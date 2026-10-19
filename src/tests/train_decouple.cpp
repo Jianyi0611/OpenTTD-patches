@@ -1148,3 +1148,50 @@ TEST_CASE_METHOD(CouplePowerFixture, "Couple power - checkpoint contenders must 
 		CHECK(GetRailReservationTrackBits(TileXY(x, 12)) == TRACK_BIT_NONE);
 	}
 }
+
+
+TEST_CASE_METHOD(CouplePowerFixture, "Couple power - an arriving checkpoint caller still considers a ready stronger locomotive")
+{
+	Station *checkpoint = Station::Create(low->tile);
+	checkpoint->owner = _current_company;
+	checkpoint->facilities = {StationFacility::Train};
+	checkpoint->train_station = TileArea(checkpoint->xy, 1, 1);
+	checkpoint->rect.BeforeAddTile(checkpoint->xy, StationRect::ADD_FORCE);
+	MakeRailStation(checkpoint->xy, _current_company, checkpoint->index, Axis::X, 0, RAILTYPE_RAIL);
+	Order point;
+	point.MakeGoToStation(checkpoint->index);
+	Order couple(low->current_order);
+	couple.SetCoupleCheckPoint(checkpoint->index);
+	low->orders = OrderList::Create(Order(point), low);
+	low->orders->InsertOrderAt(std::move(couple), 1);
+	low->primary_order = low->orders->index;
+	low->current_order = point;
+	low->cur_speed = 50;
+	low->couple_target = waiting->index;
+	REQUIRE(!low->flags.Test(VehicleRailFlag::CoupleCheckReservationReleased));
+	ClaimCoupleTarget(low, waiting, 0);
+	CHECK(GetCoupleClaimant(waiting) == strong);
+	CHECK(low->current_order.IsType(OT_GOTO_STATION));
+}
+
+TEST_CASE_METHOD(CouplePowerFixture, "Couple power - a completed reverse checkpoint remains eligible after index advance")
+{
+	Order point;
+	point.MakeGoToStation(station->index);
+	Order couple(strong->current_order);
+	couple.SetCoupleCheckPoint(station->index);
+	strong->orders = OrderList::Create(Order(point), strong);
+	strong->orders->InsertOrderAt(Order(point), 1);
+	strong->orders->InsertOrderAt(std::move(couple), 2);
+	strong->primary_order = strong->orders->index;
+	strong->cur_real_order_index = strong->cur_implicit_order_index = 1;
+	strong->current_order = point;
+	strong->flags.Set({VehicleRailFlag::CoupleCheckReversePending, VehicleRailFlag::CoupleCheckReservationReleased});
+	strong->reverse_distance = GENERATE(0, 16);
+	low->couple_target = waiting->index;
+	ClaimCoupleTarget(low, waiting, 0);
+	CHECK(GetCoupleClaimant(waiting) == (strong->reverse_distance == 0 ? strong : low));
+	CHECK(strong->cur_real_order_index == 1);
+	CHECK(strong->cur_implicit_order_index == 1);
+	CHECK(strong->current_order.IsType(OT_GOTO_STATION));
+}
