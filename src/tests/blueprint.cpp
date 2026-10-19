@@ -12,6 +12,9 @@
 #include "../3rdparty/catch2/catch.hpp"
 
 #include "../air_map.h"
+#include "../airport_cmd.h"
+#include "../settings_type.h"
+#include "../newgrf_airport.h"
 #include "../air.h"
 #include "../depot_base.h"
 #include "../aircraft.h"
@@ -21,6 +24,8 @@
 #include "../blueprint.h"
 #include "../blueprint_cmd.h"
 #include "../company_func.h"
+#include "../company_base.h"
+#include "../tracerestrict.h"
 #include "../map_func.h"
 #include "../rail_map.h"
 #include "../station_base.h"
@@ -1096,4 +1101,324 @@ TEST_CASE("Airport - edited hangar targets resolve stations before colliding dep
 	target->UpdateAirportDataStructure();
 	CHECK(target->airport.hangar == nullptr);
 	CHECK(GetOrderHangar(v->current_order) == nullptr);
+}
+
+TEST_CASE("Airport - invalid edit arguments fail without modifying map or random state")
+{
+	AllocateMap(64, 64);
+	auto cleanup = scope_guard([] { DeallocateMap(); });
+	AutoRestoreBackup enabled(_settings_game.station.allow_modify_airports, true);
+	const TileIndex tile = TileXY(10, 10);
+	MakeAirport(tile, OWNER_BEGIN, StationID{0}, 0, WaterClass::Invalid);
+	SetAirType(tile, AIRTYPE_ASPHALT);
+	SetAirportTileType(tile, ATT_SIMPLE_TRACK);
+	SetAirGfxType(tile, true);
+	const auto before = std::make_tuple(Tile(tile).m3(), Tile(tile).m4(), Tile(tile).m6(), Tile(tile).m8());
+	GameRandomSeedChecker random_checker;
+	for (DoCommandFlags flags : {DoCommandFlags{}, DoCommandFlags{DoCommandFlag::Execute}}) {
+		for (AirportTileType type : {ATT_WAITING_POINT, ATT_SIMPLE_TRACK, ATT_RUNWAY_MIDDLE, ATT_APRON_BUILTIN_HELIPORT, static_cast<AirportTileType>(9), static_cast<AirportTileType>(255)}) {
+			CHECK(CmdChangeAirportTiles(flags, tile, tile, AIRTYPE_ASPHALT, type, ATTG_DEFAULT_GFX, DiagDirection::NE, true, false).Failed());
+		}
+		CHECK(CmdChangeAirportTiles(flags, tile, tile, INVALID_AIRTYPE, ATT_APRON_NORMAL, ATTG_DEFAULT_GFX, DiagDirection::NE, true, false).Failed());
+		CHECK(CmdChangeAirportTiles(flags, tile, tile, AIRTYPE_ASPHALT, ATT_APRON_NORMAL, ATTG_DEFAULT_GFX, static_cast<DiagDirection>(255), true, false).Failed());
+		CHECK(CmdChangeAirportTiles(flags, tile, tile, AIRTYPE_ASPHALT, ATT_APRON_NORMAL, static_cast<AirportTiles>(255), DiagDirection::NE, true, false).Failed());
+		CHECK(CmdAddRemoveTracksToAirport(flags, tile, tile, AIRTYPE_ASPHALT, true, static_cast<Track>(255)).Failed());
+		CHECK(CmdAirportChangeTrackGFX(flags, tile, tile, AIRTYPE_ASPHALT, 255, false).Failed());
+		CHECK(CmdChangeAirType(flags, INVALID_TILE, AIRTYPE_ASPHALT).Failed());
+		CHECK(CmdChangeAirportTiles(flags, tile, INVALID_TILE, AIRTYPE_ASPHALT, ATT_APRON_NORMAL, ATTG_DEFAULT_GFX, DiagDirection::NE, true, false).Failed());
+		CHECK(CmdAirportToggleGround(flags, INVALID_TILE, tile, AIRTYPE_ASPHALT, false).Failed());
+		CHECK(CmdAddRemoveAirportTiles(flags, tile, INVALID_TILE, true, AIRTYPE_ASPHALT, StationID::Invalid(), false).Failed());
+		CHECK(CmdBuildAirport(flags, tile, 255, 0, AIRTYPE_ASPHALT, DiagDirection::NE, StationID::Invalid(), false).Failed());
+		CHECK(CmdBuildAirport(flags, tile, 0, 255, AIRTYPE_ASPHALT, DiagDirection::NE, StationID::Invalid(), false).Failed());
+		CHECK(before == std::make_tuple(Tile(tile).m3(), Tile(tile).m4(), Tile(tile).m6(), Tile(tile).m8()));
+		CHECK(random_checker.Check());
+	}
+}
+
+TEST_CASE("Airport - duplicate legacy hangars resolve identically for server and joining client")
+{
+	AllocateMap(64, 64);
+	REQUIRE(Station::GetNumItems() == 0);
+	REQUIRE(Depot::GetNumItems() == 0);
+	auto cleanup = scope_guard([] { _station_pool.CleanPool(); _depot_pool.CleanPool(); DeallocateMap(); });
+	const TileIndex tile = TileXY(10, 10);
+	Station *st = Station::Create(tile);
+	st->rect.BeforeAddTile(tile, StationRect::ADD_FORCE);
+	st->airport.type = AT_CUSTOM;
+	MakeAirport(tile, OWNER_BEGIN, st->index, 0, WaterClass::Invalid);
+	SetAirType(tile, AIRTYPE_ASPHALT);
+	SetAirportTileType(tile, ATT_HANGAR_STANDARD);
+	SetHangarDirection(tile, DiagDirection::NE);
+	SetAirportTileTracks(tile, TRACK_BIT_X);
+	REQUIRE(Depot::CanAllocateItem(2));
+	Depot *first = Depot::Create(tile);
+	Depot *second = Depot::Create(tile);
+	first->name = "Original hangar";
+	st->airport.hangar = second;
+	st->UpdateAirportDataStructure();
+	CHECK(st->airport.hangar == first);
+	st->airport.hangar = nullptr;
+	st->UpdateAirportDataStructure();
+	CHECK(st->airport.hangar == first);
+	CHECK(st->airport.hangar->name == "Original hangar");
+	CHECK(Depot::GetNumItems() == 2); // Do not delete another persistent identity while rebuilding caches.
+}
+
+TEST_CASE("Blueprint - raw custom runways must be complete including crossing branches")
+{
+	BlueprintAirport airport{{0, 0}, AT_CUSTOM, 0, 0, AIRTYPE_ASPHALT, 5, 5, StationID{0}, {}};
+	auto add = [&](int x, int y, AirportTileType type, uint direction) {
+		airport.tiles.push_back({{static_cast<int16_t>(x), static_cast<int16_t>(y)}, 0, static_cast<uint8_t>(type << 4), 0, static_cast<uint16_t>(direction << 12)});
+	};
+	add(0, 2, ATT_RUNWAY_START_ALLOW_LANDING, to_underlying(DiagDirection::SW));
+	add(1, 2, ATT_RUNWAY_MIDDLE, to_underlying(Direction::SW));
+	add(2, 2, ATT_RUNWAY_MIDDLE, to_underlying(Direction::S)); // Crossing requires both branches.
+	add(3, 2, ATT_RUNWAY_MIDDLE, to_underlying(Direction::SW));
+	add(4, 2, ATT_RUNWAY_END, to_underlying(DiagDirection::SW));
+	CHECK_FALSE(IsBlueprintAirportLayoutValid(airport));
+	add(2, 0, ATT_RUNWAY_START_NO_LANDING, to_underlying(DiagDirection::SE));
+	add(2, 1, ATT_RUNWAY_MIDDLE, to_underlying(Direction::SE));
+	add(2, 3, ATT_RUNWAY_MIDDLE, to_underlying(Direction::SE));
+	add(2, 4, ATT_RUNWAY_END, to_underlying(DiagDirection::SE));
+	CHECK(IsBlueprintAirportLayoutValid(airport));
+	airport.tiles.pop_back();
+	CHECK_FALSE(IsBlueprintAirportLayoutValid(airport));
+	airport.tiles.clear();
+	add(1, 1, ATT_RUNWAY_END, 0);
+	CHECK_FALSE(IsBlueprintAirportLayoutValid(airport));
+	airport.tiles.clear();
+	add(1, 1, ATT_SIMPLE_TRACK, 0);
+	CHECK(IsBlueprintAirportLayoutValid(airport));
+	airport.tiles.push_back(airport.tiles.front());
+	CHECK_FALSE(IsBlueprintAirportLayoutValid(airport));
+}
+
+TEST_CASE("Blueprint - incomplete runway payload fails before map changes")
+{
+	AllocateMap(64, 64);
+	auto cleanup = scope_guard([] { DeallocateMap(); });
+	const TileIndex tile = TileXY(10, 10);
+	const TileType before = GetTileType(tile);
+	BlueprintPasteData data;
+	data.blueprint.width = data.blueprint.height = 1;
+	BlueprintAirport airport{{0, 0}, AT_CUSTOM, 0, 0, AIRTYPE_ASPHALT, 1, 1, StationID{0}, {}};
+	airport.tiles.push_back({{0, 0}, 0, static_cast<uint8_t>(ATT_RUNWAY_START_ALLOW_LANDING << 4), 0, 0});
+	data.blueprint.airports.push_back(airport);
+	GameRandomSeedChecker random_checker;
+	CHECK(CmdPasteBlueprint({}, tile, data).Failed());
+	CHECK(CmdPasteBlueprint(DoCommandFlag::Execute, tile, data).Failed());
+	CHECK(GetTileType(tile) == before);
+	CHECK(random_checker.Check());
+}
+
+static uint32_t BlueprintRestrictionItem(TraceRestrictItemType type, uint16_t value = 0)
+{
+	TraceRestrictInstructionItem item{0};
+	item.SetType(type);
+	item.SetValue(value);
+	return item.base();
+}
+
+class BlueprintRestrictionFixture {
+protected:
+	AutoRestoreBackup<uint16_t> styles{_enabled_new_signal_styles_mask, uint16_t{1}};
+	AutoRestoreBackup<CompanyID> company_backup{_current_company, AutoRestoreBackupNoNewValueTag{}};
+	AutoRestoreBackup<CompanyID> local_backup{_local_company, AutoRestoreBackupNoNewValueTag{}};
+	TileIndex source;
+	BlueprintRestrictionFixture()
+	{
+		REQUIRE(Company::GetNumItems() == 0);
+		REQUIRE(_tracerestrictprogram_mapping.empty());
+		AllocateMap(64, 64);
+		_current_company = _local_company = Company::Create()->index;
+		Company::Get(_current_company)->money = 1000000;
+		source = TileXY(10, 10);
+		MakeSignal(source);
+	}
+	~BlueprintRestrictionFixture()
+	{
+		ClearTraceRestrictMapping();
+		_tracerestrictprogram_pool.CleanPool();
+		_company_pool.CleanPool();
+		DeallocateMap();
+	}
+	void MakeSignal(TileIndex tile)
+	{
+		MakeRailNormal(tile, _current_company, TRACK_BIT_X, RAILTYPE_RAIL);
+		SB(_m[tile].m5, 6, 2, to_underlying(RailTileType::Signals));
+		SetPresentSignals(tile, SignalAlongTrackdir(TrackToTrackdir(TRACK_X)));
+		SetSignalType(tile, TRACK_X, SignalType::Path);
+	}
+	TraceRestrictProgram *InstallSource()
+	{
+		auto *program = GetTraceRestrictProgram(MakeTraceRestrictRefId(source, TRACK_X), true);
+		program->items = {
+			TraceRestrictProgramItem{BlueprintRestrictionItem(TRIT_GUI_LABEL, 0)},
+			TraceRestrictProgramItem{BlueprintRestrictionItem(TRIT_COND_PBS_ENTRY_SIGNAL)},
+			TraceRestrictProgramItem{TileXY(11, 10).base()},
+			TraceRestrictProgramItem{BlueprintRestrictionItem(TRIT_PF_PENALTY, 500)},
+			TraceRestrictProgramItem{BlueprintRestrictionItem(TRIT_COND_ENDIF)},
+		};
+		program->texts = std::make_unique<TraceRestrictProgramTexts>();
+		program->texts->labels = {"Route note"};
+		REQUIRE(program->Validate().Succeeded());
+		return program;
+	}
+};
+
+TEST_CASE_METHOD(BlueprintRestrictionFixture, "Blueprint - restriction snapshot survives source deletion and payload transport")
+{
+	InstallSource();
+	BlueprintPasteData data;
+	CopyAreaToBlueprint(TileArea(source, 2, 1), data.blueprint);
+	REQUIRE(data.blueprint.signals.size() == 1);
+	const auto &signal = data.blueprint.signals.front();
+	REQUIRE(signal.restriction_tiles.size() == 1);
+	CHECK(signal.restriction_tiles.front().item == 2);
+	CHECK(data.blueprint.width == 2);
+	CHECK(signal.restriction_labels == std::vector<std::string>{"Route note"});
+	TraceRestrictRemoveProgramMapping(MakeTraceRestrictRefId(source, TRACK_X));
+	std::vector<uint8_t> bytes;
+	data.Serialise(BufferSerialisationRef(bytes));
+	BlueprintPasteData transported;
+	DeserialisationBuffer reader(bytes.data(), bytes.size());
+	REQUIRE(transported.Deserialise(reader, {}));
+	CHECK(transported.blueprint.signals.front().restriction_items == signal.restriction_items);
+	CHECK(transported.blueprint.signals.front().restriction_labels == signal.restriction_labels);
+	const TileIndex target = TileXY(20, 20);
+	MakeRailNormal(target, _current_company, TRACK_BIT_X, RAILTYPE_RAIL);
+	GameRandomSeedChecker random_checker;
+	auto paste_result = CmdPasteBlueprint(DoCommandFlag::Execute, target, transported);
+	INFO("Paste error " << paste_result.GetErrorMessage());
+	REQUIRE(paste_result.Succeeded());
+	auto *pasted = GetTraceRestrictProgram(MakeTraceRestrictRefId(target, TRACK_X), false);
+	REQUIRE(pasted != nullptr);
+	CHECK(pasted->items[2].base() == TileXY(21, 20).base());
+	CHECK(pasted->items[3].base() == signal.restriction_items[3]);
+	CHECK(pasted->GetLabel(0) == "Route note");
+	CHECK(IsRestrictedSignal(target));
+	const TileIndex second = TileXY(30, 30);
+	MakeRailNormal(second, _current_company, TRACK_BIT_X, RAILTYPE_RAIL);
+	REQUIRE(CmdPasteBlueprint(DoCommandFlag::Execute, second, transported).Succeeded());
+	auto *independent = GetTraceRestrictProgram(MakeTraceRestrictRefId(second, TRACK_X), false);
+	REQUIRE(independent != nullptr);
+	CHECK(independent != pasted);
+	pasted->items[3] = TraceRestrictProgramItem{BlueprintRestrictionItem(TRIT_PF_PENALTY, 100)};
+	CHECK(independent->items[3].base() == signal.restriction_items[3]);
+	BlueprintUndoData undo;
+	undo.built.width = undo.built.height = 1;
+	undo.built.signals.push_back({{0, 0}, TRACK_X, SignalType::Path, SignalVariant::Electric, true, false});
+	REQUIRE(CmdUndoBlueprintPaste(DoCommandFlag::Execute, target, undo).Succeeded());
+	CHECK(GetTraceRestrictProgram(MakeTraceRestrictRefId(target, TRACK_X), false) == nullptr);
+	CHECK(GetTraceRestrictProgram(MakeTraceRestrictRefId(second, TRACK_X), false) == independent);
+	CHECK(random_checker.Check());
+}
+
+TEST_CASE_METHOD(BlueprintRestrictionFixture, "Blueprint - restriction directions and local references follow all eight transforms")
+{
+	auto *program = InstallSource();
+	program->items.push_back(TraceRestrictProgramItem{BlueprintRestrictionItem(TRIT_COND_ENTRY_DIRECTION, 0)});
+	program->items.push_back(TraceRestrictProgramItem{BlueprintRestrictionItem(TRIT_PF_DENY)});
+	program->items.push_back(TraceRestrictProgramItem{BlueprintRestrictionItem(TRIT_COND_ENDIF)});
+	Blueprint bp;
+	CopyAreaToBlueprint(TileArea(source, 2, 1), bp);
+	for (uint8_t rotation = 0; rotation < 4; ++rotation) for (bool mirror : {false, true}) {
+		Blueprint transformed = TransformBlueprint(bp, rotation, mirror);
+		const auto &signal = transformed.signals.front();
+		const auto expected = TransformBlueprintPoint({1, 0}, 2, 1, rotation, mirror);
+		CHECK(signal.restriction_tiles.front().offset.x == expected.x);
+		CHECK(signal.restriction_tiles.front().offset.y == expected.y);
+		CHECK(TraceRestrictInstructionItem{signal.restriction_items[5]}.GetValue() == to_underlying(TransformBlueprintDiagDir(DiagDirection::NE, rotation, mirror)));
+		CHECK(signal.restriction_labels == bp.signals.front().restriction_labels);
+	}
+}
+
+TEST_CASE_METHOD(BlueprintRestrictionFixture, "Blueprint - malformed restrictions fail before terrain changes")
+{
+	InstallSource();
+	BlueprintPasteData data;
+	CopyAreaToBlueprint(TileArea(source, 2, 1), data.blueprint);
+	auto &signal = data.blueprint.signals.front();
+	SECTION("truncated double instruction") { signal.restriction_items.resize(2); }
+	SECTION("unbalanced conditional") { signal.restriction_items.pop_back(); }
+	SECTION("missing label") { signal.restriction_labels.clear(); }
+	SECTION("relocation points at action") { signal.restriction_tiles.front().item = 3; }
+	SECTION("duplicate relocation") { signal.restriction_tiles.push_back(signal.restriction_tiles.front()); }
+	SECTION("relocation outside bounds") { signal.restriction_tiles.front().offset.x = 2; }
+	data.terraform_mode = BlueprintTerraformMode::Full;
+	data.height_offset = 3;
+	data.blueprint.corner_heights.assign(6, 0);
+	const TileIndex target = TileXY(20, 20);
+	const auto before = TileHeight(target);
+	CHECK(CmdPasteBlueprint(DoCommandFlag::Execute, target, data).Failed());
+	CHECK(TileHeight(target) == before);
+	CHECK(GetTraceRestrictProgram(MakeTraceRestrictRefId(target, TRACK_X), false) == nullptr);
+}
+
+TEST_CASE_METHOD(BlueprintRestrictionFixture, "Blueprint - restriction install tests are read only and preserve existing programs")
+{
+	const auto *original = InstallSource();
+	std::vector<TraceRestrictProgramItem> items{TraceRestrictProgramItem{BlueprintRestrictionItem(TRIT_PF_DENY)}};
+	TileIndex target = TileXY(20, 20);
+	MakeSignal(target);
+	CHECK(ApplyTraceRestrictProgramSnapshot({}, target, TRACK_X, items, {}).Succeeded());
+	CHECK(GetTraceRestrictProgram(MakeTraceRestrictRefId(target, TRACK_X), false) == nullptr);
+	CHECK(ApplyTraceRestrictProgramSnapshot(DoCommandFlag::Execute, source, TRACK_X, items, {}).Succeeded());
+	CHECK(GetTraceRestrictProgram(MakeTraceRestrictRefId(source, TRACK_X), false) == original);
+	CHECK(original->items.size() == 5);
+	CHECK(ApplyTraceRestrictProgramSnapshot(DoCommandFlag::Execute, target, TRACK_X, items, {}).Succeeded());
+	CHECK(GetTraceRestrictProgram(MakeTraceRestrictRefId(target, TRACK_X), false) != original);
+}
+
+TEST_CASE("Blueprint - version five imports without restriction section")
+{
+	Blueprint bp;
+	bp.width = bp.height = 1;
+	bp.signals.push_back({{0, 0}, TRACK_X, SignalType::Path, SignalVariant::Electric, true, false});
+	std::vector<uint8_t> bytes;
+	SerialiseBlueprint(BufferSerialisationRef(bytes), bp);
+	bytes[0] = uint8_t((UINT16_MAX - 1) & 0xFF);
+	bytes[1] = uint8_t((UINT16_MAX - 1) >> 8);
+	bytes.resize(bytes.size() - 3); // Three varuint zero counts for the single signal.
+	DeserialisationBuffer reader(bytes.data(), bytes.size());
+	Blueprint restored;
+	REQUIRE(DeserialiseBlueprint(reader, restored, {}));
+	REQUIRE(restored.signals.size() == 1);
+	CHECK(restored.signals.front().restriction_items.empty());
+}
+
+TEST_CASE_METHOD(BlueprintRestrictionFixture, "Blueprint - restriction snapshot respects slot ownership and public access")
+{
+	REQUIRE(TraceRestrictSlot::GetNumItems() == 0);
+	auto cleanup = scope_guard([] { _tracerestrictslot_pool.CleanPool(); });
+	auto *own = TraceRestrictSlot::Create(_current_company);
+	auto *public_slot = TraceRestrictSlot::Create(CompanyID{1});
+	public_slot->flags.Set(TraceRestrictSlot::Flag::Public);
+	auto *private_slot = TraceRestrictSlot::Create(CompanyID{1});
+	std::vector<TraceRestrictProgramItem> items;
+	for (const auto *slot : {own, public_slot, private_slot}) items.emplace_back(BlueprintRestrictionItem(TRIT_SLOT, slot->index.base()));
+	REQUIRE(ApplyTraceRestrictProgramSnapshot(DoCommandFlag::Execute, source, TRACK_X, items, {}).Succeeded());
+	auto *program = GetTraceRestrictProgram(MakeTraceRestrictRefId(source, TRACK_X), false);
+	REQUIRE(program != nullptr);
+	CHECK(TraceRestrictInstructionItem{program->items[0].base()}.GetValue() == own->index.base());
+	CHECK(TraceRestrictInstructionItem{program->items[1].base()}.GetValue() == public_slot->index.base());
+	CHECK(TraceRestrictInstructionItem{program->items[2].base()}.GetValue() == INVALID_TRACE_RESTRICT_SLOT_ID.base());
+}
+
+TEST_CASE("Blueprint - restriction payload rejects truncation and excessive list counts")
+{
+	Blueprint bp;
+	bp.width = bp.height = 1;
+	bp.signals.push_back({{0, 0}, TRACK_X, SignalType::Path, SignalVariant::Electric, true, false});
+	std::vector<uint8_t> bytes;
+	SerialiseBlueprint(BufferSerialisationRef(bytes), bp);
+	SECTION("truncated snapshot section") { bytes.pop_back(); }
+	SECTION("excessive instruction list") {
+		bytes.resize(bytes.size() - 3);
+		BufferSerialisationRef writer(bytes);
+		writer.Send_generic_integer(uint32_t{MAX_BLUEPRINT_VECTOR_LENGTH + 1});
+	}
+	DeserialisationBuffer reader(bytes.data(), bytes.size());
+	Blueprint restored;
+	CHECK_FALSE(DeserialiseBlueprint(reader, restored, {}));
 }

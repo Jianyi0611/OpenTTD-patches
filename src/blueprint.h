@@ -118,6 +118,12 @@ struct BlueprintSpecRef {
 	bool operator==(const BlueprintSpecRef &) const = default;
 };
 
+/** A tile operand inside the copied area, relocated with the blueprint. */
+struct BlueprintSignalTileRef {
+	uint32_t item;
+	TileIndexDiffC offset;
+};
+
 /** Signals on one track piece. */
 struct BlueprintSignal {
 	TileIndexDiffC offset;  ///< Tile offset relative to the blueprint origin.
@@ -127,6 +133,9 @@ struct BlueprintSignal {
 	bool along;             ///< Signal along the track direction of #track.
 	bool against;           ///< Signal against the track direction of #track.
 	BlueprintSpecRef spec{}; ///< Explicit NewGRF signal style, independent of the game's style slot.
+	std::vector<uint32_t> restriction_items; ///< Independent snapshot, not a live source program ID.
+	std::vector<std::string> restriction_labels;
+	std::vector<BlueprintSignalTileRef> restriction_tiles;
 };
 
 /** One complete NewGRF object, anchored at the northern tile of its footprint. */
@@ -423,6 +432,7 @@ DiagDirection TransformBlueprintDiagDir(DiagDirection dir, uint8_t rotation, boo
 Direction TransformBlueprintDirection(Direction dir, uint8_t rotation, bool reflected);
 Axis TransformBlueprintAxis(Axis axis, uint8_t rotation);
 RoadBits TransformBlueprintRoadBits(RoadBits bits, uint8_t rotation, bool reflected);
+bool IsBlueprintAirportLayoutValid(const BlueprintAirport &airport);
 void ClearBlueprintAirportReservations(BlueprintAirportTile &apt);
 void TransformBlueprintAirportTile(BlueprintAirportTile &apt, uint8_t rotation, bool reflected);
 Blueprint TransformBlueprint(const Blueprint &blueprint, uint8_t rotation, bool reflected);

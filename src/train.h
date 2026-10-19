@@ -136,15 +136,20 @@ enum class CoupleCandidateResult : uint8_t {
 	Group,
 	Station,
 	Platform,
+	Slower,
+	Faster,
+	SpeedRange,
 	Arrangement,
 };
 
 CoupleCandidateResult GetCoupleCandidateResult(const Train *moving, const Order &order,
 		Train *waiting_first, TileIndex contact_tile, bool respect_claim = true, uint32_t claim_cost = 0);
+uint GetCoupleSpeedPreferencePenalty(const Train *moving, const Train *waiting);
+Train *FindBestCoupleCheckpointTarget(Train *moving, const Order &couple);
 Train *ValidateCoupleCandidate(const Train *moving, Train *waiting_first, TileIndex contact_tile,
-		bool respect_claim = true, uint32_t claim_cost = 0);
+		bool respect_claim = true, uint32_t claim_cost = 0, const Order *criteria = nullptr);
 Train *ResolveCoupleTargetStation(const Train *moving, TileIndex tile, Trackdir td,
-		bool respect_claim = true, uint32_t claim_cost = 0);
+		bool respect_claim = true, uint32_t claim_cost = 0, const Order *criteria = nullptr, const Train *only_target = nullptr);
 void ClaimCoupleTarget(Train *moving, Train *carrier, uint32_t claim_cost);
 const Train *GetCoupleClaimant(const Train *carrier);
 Train *GetDecoupleVehicleForCount(Train *v, uint num_keep);

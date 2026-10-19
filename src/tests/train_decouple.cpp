@@ -9,6 +9,13 @@
 #include "../3rdparty/catch2/catch.hpp"
 #include "../train.h"
 #include "../train_cmd.h"
+#include "../company_base.h"
+#include "../company_func.h"
+#include "../core/pool_func.hpp"
+#include "../station_base.h"
+#include "../pathfinder/yapf/yapf.h"
+#include "../pbs.h"
+#include "../pathfinder/follow_track.hpp"
 #include "../aircraft.h"
 #include "../engine_base.h"
 #include "../newgrf.h"
@@ -24,6 +31,7 @@
 #include "../gfx_type.h"
 #include "../sl/saveload.h"
 #include "../sl/saveload_filter.h"
+#include "../strings_func.h"
 
 extern std::string _savegame_format;
 extern bool ValidateVehicleTileHash(const Vehicle *v);
@@ -247,6 +255,12 @@ TEST_CASE_METHOD(TrainDecoupleFixture, "Couple - network snapshot preserves wide
 	const SaveLoadResult result = SaveWithFilter(snapshot, false, SMF_NET_SERVER);
 	DeallocateMap();
 	REQUIRE(result == SaveLoadResult::Ok);
+	/* Older clients must reject snapshots whose coupling criteria they cannot enforce. */
+	for (const std::string field : {"current_order.couple_speed_value1", "current_order.couple_speed_value2", "current_order.couple_speed_unit1", "current_order.couple_speed_unit2"}) {
+		CHECK(std::search(snapshot->bytes.begin(), snapshot->bytes.end(), field.begin(), field.end()) != snapshot->bytes.end());
+	}
+	const std::string speed_feature = "couple_speed_filter";
+	CHECK(std::search(snapshot->bytes.begin(), snapshot->bytes.end(), speed_feature.begin(), speed_feature.end()) != snapshot->bytes.end());
 	const std::array<uint8_t, 8> frames{0, 0x12, 0, 0x34, 0, 0x56, 0, 0x78};
 	CHECK(std::search(snapshot->bytes.begin(), snapshot->bytes.end(), frames.begin(), frames.end()) != snapshot->bytes.end());
 	const std::array<uint8_t, 4> marker{'C', 'P', 'L', 'M'};
@@ -677,4 +691,575 @@ TEST_CASE_METHOD(TrainDecoupleFixture, "Vehicle tile hash - loading repairs stal
 	CHECK(ValidateVehicleTileHash(front));
 	_vehicle_pool.CleanPool();
 	DeallocateMap();
+}
+
+TEST_CASE_METHOD(TrainDecoupleFixture, "Couple - maximum speed filters apply to selection and existing claims")
+{
+	AllocateMap(64, 64);
+	auto map_cleanup = scope_guard([]() { DeallocateMap(); });
+	Train *moving = MakeTrain();
+	Train *waiting = MakeTrain();
+	moving->current_order.MakeGoToCouple();
+	moving->current_order.SetCoupleSlot(TraceRestrictSlotID::Invalid());
+	waiting->current_order.MakeWaitCouple();
+	moving->vcache.cached_max_speed = GENERATE(100, 120, 140);
+	waiting->vcache.cached_max_speed = 120;
+	/* A stationary target and a shunting approach must still compare capabilities. */
+	moving->cur_speed = 32;
+	waiting->cur_speed = 0;
+	moving->current_order.SetCoupleRejectSlower(GENERATE(false, true));
+	moving->current_order.SetCoupleRejectFaster(GENERATE(false, true));
+	const bool slower = moving->current_order.GetCoupleRejectSlower() && moving->vcache.cached_max_speed < 120;
+	const bool faster = moving->current_order.GetCoupleRejectFaster() && moving->vcache.cached_max_speed > 120;
+	const auto expected = slower ? CoupleCandidateResult::Slower : (faster ? CoupleCandidateResult::Faster : CoupleCandidateResult::Platform);
+	waiting->tile = TileXY(1, 1);
+	MakeRailNormal(waiting->tile, OWNER_NONE, TRACK_BIT_X, RAILTYPE_RAIL);
+	GameRandomSeedChecker random_checker;
+	/* Both routing selection and physical contact use the same speed check. */
+	CHECK(GetCoupleCandidateResult(moving, moving->current_order, waiting, waiting->tile, true) == expected);
+	CHECK(GetCoupleCandidateResult(moving, moving->current_order, waiting, waiting->tile, false) == expected);
+	MakeRailStation(waiting->tile, OWNER_NONE, StationID{0}, Axis::X, 0, RAILTYPE_RAIL);
+	moving->couple_target = waiting->index;
+	waiting->couple_claimant = moving->index;
+	waiting->couple_claim_cost = 42;
+	CHECK(GetCoupleClaimant(waiting) == ((slower || faster) ? nullptr : moving));
+	/* Inspecting invalid claims must not mutate simulation state from GUI scope. */
+	CHECK(moving->couple_target == waiting->index);
+	CHECK(waiting->couple_claimant == moving->index);
+	CHECK(waiting->couple_claim_cost == 42);
+	CHECK(random_checker.Check());
+}
+
+TEST_CASE("Couple - speed filters survive copying independently of other order flags")
+{
+	Order order;
+	order.MakeGoToCouple();
+	CHECK_FALSE(order.GetCoupleRejectSlower());
+	CHECK_FALSE(order.GetCoupleRejectFaster());
+	order.SetCoupleUseWaitingSchedule(true);
+	order.SetCoupleLoad(ODC_IS_EMPTY);
+	order.SetCoupleRejectSlower(true);
+	order.SetCoupleRejectFaster(true);
+	Order copy(order);
+	CHECK(copy.GetCoupleRejectSlower());
+	CHECK(copy.GetCoupleRejectFaster());
+	copy.SetCoupleRejectSlower(false);
+	CHECK_FALSE(copy.GetCoupleRejectSlower());
+	CHECK(copy.GetCoupleRejectFaster());
+	CHECK(copy.GetCoupleUseWaitingSchedule());
+	CHECK(copy.GetCoupleLoad() == ODC_IS_EMPTY);
+	CHECK(order.GetCoupleRejectSlower());
+}
+
+TEST_CASE_METHOD(TrainDecoupleFixture, "Couple - speed filtering uses the order carrier of each consist")
+{
+	AllocateMap(64, 64);
+	auto map_cleanup = scope_guard([]() { DeallocateMap(); });
+	Train *moving_front = MakeTrain();
+	Train *moving = MakeTrain();
+	Train *waiting_front = MakeTrain();
+	Train *waiting = MakeTrain();
+	moving_front->SetNext(moving);
+	waiting_front->SetNext(waiting);
+	moving_front->SetPrimary(moving);
+	moving->SetPrimary(moving);
+	waiting_front->SetPrimary(waiting);
+	waiting->SetPrimary(waiting);
+	moving->current_order.MakeGoToCouple();
+	moving->current_order.SetCoupleSlot(TraceRestrictSlotID::Invalid());
+	moving->current_order.SetCoupleRejectSlower(true);
+	waiting->current_order.MakeWaitCouple();
+	moving->vcache.cached_max_speed = 100;
+	waiting->vcache.cached_max_speed = 120;
+	/* Deliberately distinct values expose accidentally inspecting a wagon's cache. */
+	moving_front->vcache.cached_max_speed = 200;
+	waiting_front->vcache.cached_max_speed = 50;
+	CHECK(GetCoupleCandidateResult(moving_front, moving->current_order, waiting_front, TileXY(1, 1), false) == CoupleCandidateResult::Slower);
+}
+
+TEST_CASE_METHOD(TrainDecoupleFixture, "Couple - custom speed comparisons filter candidates and claims")
+{
+	AllocateMap(64, 64);
+	auto map_cleanup = scope_guard([]() { DeallocateMap(); });
+	Train *moving = MakeTrain();
+	Train *waiting = MakeTrain();
+	moving->current_order.MakeGoToCouple();
+	moving->current_order.SetCoupleSlot(TraceRestrictSlotID::Invalid());
+	const uint row = GENERATE(0, 1);
+	const uint8_t comparator = GENERATE(1, 2, 3, 4, 5, 6);
+	const uint16_t speed = GENERATE(79, 80, 81);
+	moving->current_order.SetCoupleSpeedComparator(row, comparator);
+	moving->current_order.SetCoupleSpeedValue(row, 80);
+	waiting->current_order.MakeWaitCouple();
+	waiting->vcache.cached_max_speed = speed;
+	waiting->cur_speed = 0;
+	const bool accepted = comparator == 1 ? speed == 80 : comparator == 2 ? speed != 80 : comparator == 3 ? speed < 80 : comparator == 4 ? speed <= 80 : comparator == 5 ? speed > 80 : speed >= 80;
+	waiting->tile = TileXY(1, 1);
+	MakeRailNormal(waiting->tile, OWNER_NONE, TRACK_BIT_X, RAILTYPE_RAIL);
+	GameRandomSeedChecker random_checker;
+	const auto expected = accepted ? CoupleCandidateResult::Platform : CoupleCandidateResult::SpeedRange;
+	CHECK(GetCoupleCandidateResult(moving, moving->current_order, waiting, waiting->tile, true) == expected);
+	CHECK(GetCoupleCandidateResult(moving, moving->current_order, waiting, waiting->tile, false) == expected);
+	MakeRailStation(waiting->tile, OWNER_NONE, StationID{0}, Axis::X, 0, RAILTYPE_RAIL);
+	moving->couple_target = waiting->index;
+	waiting->couple_claimant = moving->index;
+	CHECK(GetCoupleClaimant(waiting) == (accepted ? moving : nullptr));
+	CHECK(moving->couple_target == waiting->index);
+	CHECK(waiting->couple_claimant == moving->index);
+	CHECK(random_checker.Check());
+}
+
+TEST_CASE_METHOD(TrainDecoupleFixture, "Couple - both custom speed boundaries must match and disabled rows do not filter")
+{
+	AllocateMap(64, 64);
+	auto map_cleanup = scope_guard([]() { DeallocateMap(); });
+	Train *moving = MakeTrain();
+	Train *waiting = MakeTrain();
+	waiting->tile = TileXY(1, 1);
+	MakeRailNormal(waiting->tile, OWNER_NONE, TRACK_BIT_X, RAILTYPE_RAIL);
+	waiting->current_order.MakeWaitCouple();
+	Order order;
+	order.MakeGoToCouple();
+	order.SetCoupleSlot(TraceRestrictSlotID::Invalid());
+	CHECK(order.GetCoupleSpeedComparator(0) == 0);
+	CHECK(order.GetCoupleSpeedComparator(1) == 0);
+	order.SetCoupleSpeedComparator(0, 6); // >= 80
+	order.SetCoupleSpeedValue(0, 80);
+	order.SetCoupleSpeedComparator(1, 4); // <= 120
+	order.SetCoupleSpeedValue(1, 120);
+	waiting->vcache.cached_max_speed = GENERATE(0, 79, 80, 100, 120, 121, 65535);
+	bool accepted = waiting->vcache.cached_max_speed >= 80 && waiting->vcache.cached_max_speed <= 120;
+	CHECK(GetCoupleCandidateResult(moving, order, waiting, waiting->tile, false) == (accepted ? CoupleCandidateResult::Platform : CoupleCandidateResult::SpeedRange));
+	Order copy(order);
+	CHECK(copy.GetCoupleSpeedValue(0) == 80);
+	CHECK(copy.GetCoupleSpeedValue(1) == 120);
+	copy.SetCoupleSpeedComparator(0, 0);
+	copy.SetCoupleSpeedComparator(1, 0);
+	CHECK(GetCoupleCandidateResult(moving, copy, waiting, waiting->tile, false) == CoupleCandidateResult::Platform);
+	CHECK(order.GetCoupleSpeedComparator(0) == 6);
+}
+
+TEST_CASE_METHOD(TrainDecoupleFixture, "Couple - persisted speed units ignore client locale and match displayed speeds")
+{
+	AllocateMap(64, 64);
+	auto map_cleanup = scope_guard([]() { DeallocateMap(); });
+	AutoRestoreBackup units(_settings_game.locale.units_velocity, static_cast<uint8_t>(GENERATE(0, 1, 2, 3, 4)));
+	AutoRestoreBackup new_units(_settings_newgame.locale.units_velocity, _settings_game.locale.units_velocity);
+	Train *moving = MakeTrain();
+	Train *waiting = MakeTrain();
+	waiting->tile = TileXY(1, 1);
+	MakeRailNormal(waiting->tile, OWNER_NONE, TRACK_BIT_X, RAILTYPE_RAIL);
+	waiting->current_order.MakeWaitCouple();
+	waiting->vcache.cached_max_speed = 120;
+	Order order;
+	order.MakeGoToCouple();
+	order.SetCoupleSlot(TraceRestrictSlotID::Invalid());
+	order.SetCoupleSpeedComparator(0, 1);
+	for (auto [unit, value] : {std::pair{0, 75}, std::pair{1, 120}, std::pair{2, 33}, std::pair{3, 4}, std::pair{4, 65}, std::pair{5, 2}}) {
+		order.SetCoupleSpeedUnit(0, unit);
+		order.SetCoupleSpeedValue(0, value);
+		CHECK(ConvertKmhishSpeedToIntegerDisplaySpeed(120, static_cast<uint8_t>(unit)) == value);
+		CHECK(GetCoupleCandidateResult(moving, order, waiting, waiting->tile, false) == CoupleCandidateResult::Platform);
+		CHECK(ConvertVelocityUnitValue(value, unit, unit) == value);
+		order.SetCoupleSpeedValue(0, value + 1);
+		CHECK(GetCoupleCandidateResult(moving, order, waiting, waiting->tile, false) == CoupleCandidateResult::SpeedRange);
+	}
+}
+
+TEST_CASE_METHOD(TrainDecoupleFixture, "Couple - checkpoint speed preference is soft and preserves existing claims")
+{
+	AutoRestoreBackup length_limit(_settings_game.vehicle.max_train_length, uint8_t{8});
+	AllocateMap(64, 64);
+	auto map_cleanup = scope_guard([] { DeallocateMap(); });
+	Train *moving = MakeTrain();
+	Train *slow = MakeTrain();
+	Train *matching = MakeTrain();
+	for (Train *train : {moving, slow, matching}) train->SetFrontEngine();
+	moving->tile = TileXY(10, 10);
+	moving->vcache.cached_max_speed = matching->vcache.cached_max_speed = 120;
+	slow->vcache.cached_max_speed = 80;
+	moving->current_order.MakeGoToCouple();
+	moving->current_order.SetCoupleSlot(TraceRestrictSlotID::Invalid());
+	for (Train *train : {slow, matching}) {
+		train->current_order.MakeWaitCouple();
+		train->tile = TileXY(11, 10);
+		MakeRailStation(train->tile, OWNER_NONE, StationID{0}, Axis::X, 0, RAILTYPE_RAIL);
+	}
+	CHECK(GetCoupleSpeedPreferencePenalty(moving, matching) == 0);
+	CHECK(GetCoupleSpeedPreferencePenalty(moving, slow) == 10);
+	GameRandomSeedChecker random_checker;
+	CHECK(FindBestCoupleCheckpointTarget(moving, moving->current_order) == matching);
+	/* Prefer the matching train across a moderate detour which outweighed the old score. */
+	matching->tile = TileXY(19, 10);
+	MakeRailStation(matching->tile, OWNER_NONE, StationID{0}, Axis::X, 0, RAILTYPE_RAIL);
+	CHECK(FindBestCoupleCheckpointTarget(moving, moving->current_order) == matching);
+	matching->vcache.cached_max_speed = UINT16_MAX;
+	CHECK(GetCoupleSpeedPreferencePenalty(moving, matching) <= 24); // Large gaps cannot impose an unbounded detour.
+	matching->vcache.cached_max_speed = 120;
+	matching->current_order.MakeDummy();
+	CHECK(FindBestCoupleCheckpointTarget(moving, moving->current_order) == slow);
+	matching->current_order.MakeWaitCouple();
+	matching->tile = TileXY(40, 10);
+	MakeRailStation(matching->tile, OWNER_NONE, StationID{0}, Axis::X, 0, RAILTYPE_RAIL);
+	CHECK(FindBestCoupleCheckpointTarget(moving, moving->current_order) == slow); // A large detour must not force a match.
+	moving->couple_target = slow->index;
+	slow->couple_claimant = moving->index;
+	CHECK(GetCoupleClaimant(slow) == moving);
+	CHECK(moving->couple_target == slow->index);
+	CHECK(random_checker.Check());
+}
+
+
+class CouplePowerFixture : public TrainDecoupleFixture {
+protected:
+	AutoRestoreBackup<CompanyID> company_backup{_current_company, AutoRestoreBackupNoNewValueTag{}};
+	AutoRestoreBackup<uint8_t> length_limit{_settings_game.vehicle.max_train_length, uint8_t{8}};
+	AutoRestoreBackup<RailTypes> rail_direct{const_cast<RailTypeInfo *>(GetRailTypeInfo(RAILTYPE_RAIL))->compatible_railtypes, RailTypes{RAILTYPE_RAIL}};
+	AutoRestoreBackup<RailTypes> rail_power{const_cast<RailTypeInfo *>(GetRailTypeInfo(RAILTYPE_RAIL))->powered_railtypes, RailTypes{RAILTYPE_RAIL}};
+	AutoRestoreBackup<RailTypes> rail_compatibility{const_cast<RailTypeInfo *>(GetRailTypeInfo(RAILTYPE_RAIL))->indirect_compatible_railtypes, RailTypes{RAILTYPE_RAIL}};
+	Train *low;
+	Train *strong;
+	Train *waiting;
+	Station *station;
+	CouplePowerFixture()
+	{
+		REQUIRE(Company::GetNumItems() == 0);
+		REQUIRE(Station::GetNumItems() == 0);
+		ResetVehicleHash();
+		AllocateMap(64, 64);
+		_current_company = Company::Create()->index;
+		for (uint x = 5; x <= 30; x++) MakeRailNormal(TileXY(x, 10), _current_company, TRACK_BIT_X, RAILTYPE_RAIL);
+		for (uint x = 5; x < 20; x++) {
+			MakeRailNormal(TileXY(x, 8), _current_company, TRACK_BIT_X, RAILTYPE_RAIL);
+			MakeRailNormal(TileXY(x, 12), _current_company, TRACK_BIT_X, RAILTYPE_RAIL);
+		}
+		MakeRailNormal(TileXY(20, 8), _current_company, TRACK_BIT_RIGHT, RAILTYPE_RAIL);
+		MakeRailNormal(TileXY(20, 9), _current_company, TRACK_BIT_Y, RAILTYPE_RAIL);
+		MakeRailNormal(TileXY(20, 10), _current_company, TRACK_BIT_X | TRACK_BIT_LEFT | TRACK_BIT_LOWER, RAILTYPE_RAIL);
+		MakeRailNormal(TileXY(20, 11), _current_company, TRACK_BIT_Y, RAILTYPE_RAIL);
+		MakeRailNormal(TileXY(20, 12), _current_company, TRACK_BIT_UPPER, RAILTYPE_RAIL);
+		station = Station::Create(TileXY(25, 10));
+		station->owner = _current_company;
+		station->facilities = {StationFacility::Train};
+		station->train_station = TileArea(station->xy, 1, 1);
+		station->rect.BeforeAddTile(station->xy, StationRect::ADD_FORCE);
+		MakeRailStation(station->xy, _current_company, station->index, Axis::X, 0, RAILTYPE_RAIL);
+		low = MakeTrain(); strong = MakeTrain(); waiting = MakeTrain();
+		Place(low, 8, 8); Place(strong, 12, 12); Place(waiting, 25);
+		for (Train *train : {low, strong, waiting}) {
+			train->SetFrontEngine();
+			train->owner = _current_company;
+			train->track = TRACK_BIT_X;
+			train->direction = Direction::SW;
+			train->compatible_railtypes.Set(RAILTYPE_RAIL);
+			train->railtypes.Set(RAILTYPE_RAIL);
+			train->vcache.cached_max_speed = 120;
+			train->gcache.cached_total_length = VEHICLE_LENGTH;
+			train->current_order.MakeGoToCouple();
+			train->current_order.SetCoupleSlot(TraceRestrictSlotID::Invalid());
+			train->current_order.SetCoupleSpeedBoundMode(1, CoupleSpeedBoundMode::Manual);
+			train->current_order.SetCoupleSpeedValue(1, UINT16_MAX);
+		}
+		low->gcache.cached_power = 1000;
+		strong->gcache.cached_power = 2000;
+		waiting->gcache.cached_power = 0;
+		waiting->current_order.MakeWaitCouple();
+		waiting->last_station_visited = station->index;
+	}
+	~CouplePowerFixture()
+	{
+		_vehicle_pool.CleanPool();
+		ResetVehicleHash();
+		_orderlist_pool.CleanPool();
+		_station_pool.CleanPool();
+		_company_pool.CleanPool();
+		ClearOrderDestinationRefcountMap();
+		DeallocateMap();
+	}
+	void Place(Train *train, uint x, uint y = 10)
+	{
+		train->tile = TileXY(x, y);
+		train->x_pos = x * TILE_SIZE + 8;
+		train->y_pos = y * TILE_SIZE + 8;
+		train->z_pos = 0;
+		UpdateVehicleTileHash(train, false);
+	}
+};
+
+TEST_CASE_METHOD(CouplePowerFixture, "Couple power - ready stronger same-speed locomotive wins before claim")
+{
+	GameRandomSeedChecker random_checker;
+	Train *contact = nullptr;
+	uint32_t cost = 0;
+	REQUIRE(YapfTrainCoupleTrack(strong, true, &contact, &cost, nullptr, waiting) != INVALID_TRACK);
+	REQUIRE(contact == waiting);
+	low->couple_target = waiting->index;
+	ClaimCoupleTarget(low, waiting, 0);
+	CHECK(GetCoupleClaimant(waiting) == strong);
+	CHECK(strong->couple_target == waiting->index);
+	CHECK(strong->current_order.IsType(OT_GOTO_COUPLE));
+	CHECK(strong->cur_speed == 0);
+	if (IsValidTile(strong->tile)) CHECK(GetRailReservationTrackBits(strong->tile) == TRACK_BIT_NONE);
+	CHECK(random_checker.Check());
+	for (Train *train : {low, strong, waiting}) CHECK(ValidateVehicleTileHash(train));
+}
+
+
+TEST_CASE_METHOD(CouplePowerFixture, "Couple power - unsuitable stronger locomotives never block normal claims")
+{
+	SECTION("query budget exhausted") {
+		AutoRestoreBackup limit(_settings_game.pf.yapf.max_search_nodes, uint32_t{1});
+		MakeRailNormal(TileXY(16, 12), _current_company, TRACK_BIT_X | TRACK_BIT_UPPER, RAILTYPE_RAIL);
+		MakeRailNormal(TileXY(16, 11), _current_company, TRACK_BIT_Y, RAILTYPE_RAIL);
+		low->couple_target = waiting->index;
+		ClaimCoupleTarget(low, waiting, 0);
+		CHECK(GetCoupleClaimant(waiting) == low);
+	}
+	SECTION("fleet query budget exhausted") {
+		for (uint i = 0; i < 16; i++) {
+			Train *other = MakeTrain();
+			Place(other, 10+i, 15);
+			MakeRailNormal(other->tile, _current_company, TRACK_BIT_X, RAILTYPE_RAIL);
+			other->SetFrontEngine();
+			other->owner = _current_company;
+			other->track = TRACK_BIT_X;
+			other->direction = Direction::SW;
+			other->compatible_railtypes.Set(RAILTYPE_RAIL);
+			other->railtypes.Set(RAILTYPE_RAIL);
+			other->vcache.cached_max_speed = 120;
+			other->gcache.cached_power = 5000;
+			other->current_order = strong->current_order;
+		}
+		low->couple_target = waiting->index;
+		ClaimCoupleTarget(low, waiting, 0);
+		CHECK(GetCoupleClaimant(waiting) == low);
+	}
+	SECTION("disconnected track") {
+		MakeRailNormal(TileXY(12, 15), _current_company, TRACK_BIT_X, RAILTYPE_RAIL);
+		Place(strong, 12, 15);
+	}
+	SECTION("virtual locomotive") { strong->SetVirtual(); UpdateVehicleTileHash(strong, false); }
+	SECTION("carried locomotive") { strong->rv_transport_flags |= Vehicle::RV_TRANSPORT_CARRIED; UpdateVehicleTileHash(strong, false); }
+	SECTION("invalid position") { UpdateVehicleTileHash(strong, true); strong->tile = INVALID_TILE; }
+	SECTION("no rail types") { strong->railtypes = {}; }
+	SECTION("manually stopped") { strong->vehstatus.Set(VehState::Stopped); }
+	SECTION("crashed") { strong->vehstatus.Set(VehState::Crashed); }
+	SECTION("breakdown") { strong->flags.Set(VehicleRailFlag::ConsistBreakdown); }
+	SECTION("reversal incomplete") { strong->reverse_distance = 16; }
+	SECTION("still moving") { strong->cur_speed = 10; }
+	SECTION("no power") { strong->gcache.cached_power = 0; }
+	SECTION("different maximum speed") { strong->vcache.cached_max_speed = 121; }
+	SECTION("order filters reject this partner") { strong->current_order.SetCoupleRejectFaster(true); waiting->vcache.cached_max_speed = 80; }
+	SECTION("still loading") { strong->current_order.MakeLoading(false); }
+	GameRandomSeedChecker random_checker;
+	low->couple_target = waiting->index;
+	ClaimCoupleTarget(low, waiting, 0);
+	CHECK(GetCoupleClaimant(waiting) == low);
+	CHECK(strong->couple_target == VehicleID::Invalid());
+	if (IsValidTile(strong->tile)) CHECK(GetRailReservationTrackBits(strong->tile) == TRACK_BIT_NONE);
+	CHECK(random_checker.Check());
+}
+
+TEST_CASE_METHOD(CouplePowerFixture, "Couple power - protect valid claims in both directions")
+{
+	SECTION("do not steal a weaker locomotive's active claim") {
+		low->couple_target = waiting->index;
+		waiting->couple_claimant = low->index;
+		REQUIRE(GetCoupleClaimant(waiting) == low);
+		strong->couple_target = waiting->index;
+		ClaimCoupleTarget(strong, waiting, 100);
+		CHECK(GetCoupleClaimant(waiting) == low);
+		CHECK(low->couple_target == waiting->index);
+	}
+	SECTION("do not reassign a stronger locomotive with another valid partner") {
+		Train *other = MakeTrain();
+		Place(other, 25, 12);
+		MakeRailStation(other->tile, _current_company, station->index, Axis::X, 0, RAILTYPE_RAIL);
+		other->SetFrontEngine();
+		other->track = TRACK_BIT_X;
+		other->owner = _current_company;
+		other->current_order.MakeWaitCouple();
+		other->last_station_visited = station->index;
+		strong->couple_target = other->index;
+		other->couple_claimant = strong->index;
+		REQUIRE(GetCoupleClaimant(other) == strong);
+		low->couple_target = waiting->index;
+		ClaimCoupleTarget(low, waiting, 0);
+		CHECK(GetCoupleClaimant(waiting) == low);
+		CHECK(GetCoupleClaimant(other) == strong);
+		CHECK(strong->couple_target == other->index);
+	}
+}
+
+TEST_CASE_METHOD(CouplePowerFixture, "Couple power - equal power uses route cost then stable vehicle ID")
+{
+	strong->gcache.cached_power = low->gcache.cached_power;
+	SECTION("closer route wins") {
+		low->couple_target = waiting->index;
+		ClaimCoupleTarget(low, waiting, 0);
+		CHECK(GetCoupleClaimant(waiting) == strong);
+	}
+	SECTION("equal route costs prefer lower ID regardless of first caller") {
+		Place(strong, 8, 12);
+		Train *contact = nullptr;
+		uint32_t low_cost = 0, strong_cost = 0;
+		REQUIRE(YapfTrainCoupleTrack(low, true, &contact, &low_cost, nullptr, waiting) != INVALID_TRACK);
+		REQUIRE(YapfTrainCoupleTrack(strong, true, &contact, &strong_cost, nullptr, waiting) != INVALID_TRACK);
+		REQUIRE(low_cost == strong_cost);
+		REQUIRE(low->index < strong->index);
+		strong->couple_target = waiting->index;
+		ClaimCoupleTarget(strong, waiting, strong_cost);
+		CHECK(GetCoupleClaimant(waiting) == low);
+	}
+}
+
+
+TEST_CASE_METHOD(CouplePowerFixture, "Couple power - checkpoint contenders must be ready and keep their active order")
+{
+	const bool ready = GENERATE(false, true);
+	Station *checkpoint = Station::Create(strong->tile);
+	checkpoint->owner = _current_company;
+	checkpoint->facilities = {StationFacility::Train};
+	checkpoint->train_station = TileArea(checkpoint->xy, 1, 1);
+	checkpoint->rect.BeforeAddTile(checkpoint->xy, StationRect::ADD_FORCE);
+	MakeRailStation(checkpoint->xy, _current_company, checkpoint->index, Axis::X, 0, RAILTYPE_RAIL);
+	Order point;
+	point.MakeGoToStation(checkpoint->index);
+	Order couple(strong->current_order);
+	couple.SetCoupleCheckPoint(checkpoint->index);
+	strong->orders = OrderList::Create(Order(point), strong);
+	strong->orders->InsertOrderAt(std::move(couple), 1);
+	strong->primary_order = strong->orders->index;
+	strong->current_order = point;
+	strong->cur_real_order_index = strong->cur_implicit_order_index = 0;
+	strong->flags.Set(VehicleRailFlag::CoupleCheckReservationReleased, ready);
+	const auto before_flags = strong->flags;
+	GameRandomSeedChecker random_checker;
+	low->couple_target = waiting->index;
+	ClaimCoupleTarget(low, waiting, 0);
+	CHECK(GetCoupleClaimant(waiting) == (ready ? strong : low));
+	CHECK(strong->current_order.IsType(OT_GOTO_STATION));
+	CHECK(strong->current_order.GetDestination() == checkpoint->index);
+	CHECK(strong->cur_real_order_index == 0);
+	CHECK(strong->cur_implicit_order_index == 0);
+	CHECK(strong->flags == before_flags);
+	CHECK(strong->execute_schedule_stack.empty());
+	CHECK(random_checker.Check());
+	for (uint x = 5; x <= 30; x++) {
+		CHECK(GetRailReservationTrackBits(TileXY(x, 10)) == TRACK_BIT_NONE);
+		CHECK(GetRailReservationTrackBits(TileXY(x, 12)) == TRACK_BIT_NONE);
+	}
+}
+
+
+TEST_CASE_METHOD(CouplePowerFixture, "Couple power - an arriving checkpoint caller still considers a ready stronger locomotive")
+{
+	Station *checkpoint = Station::Create(low->tile);
+	checkpoint->owner = _current_company;
+	checkpoint->facilities = {StationFacility::Train};
+	checkpoint->train_station = TileArea(checkpoint->xy, 1, 1);
+	checkpoint->rect.BeforeAddTile(checkpoint->xy, StationRect::ADD_FORCE);
+	MakeRailStation(checkpoint->xy, _current_company, checkpoint->index, Axis::X, 0, RAILTYPE_RAIL);
+	Order point;
+	point.MakeGoToStation(checkpoint->index);
+	Order couple(low->current_order);
+	couple.SetCoupleCheckPoint(checkpoint->index);
+	low->orders = OrderList::Create(Order(point), low);
+	low->orders->InsertOrderAt(std::move(couple), 1);
+	low->primary_order = low->orders->index;
+	low->current_order = point;
+	low->cur_speed = 50;
+	low->couple_target = waiting->index;
+	REQUIRE(!low->flags.Test(VehicleRailFlag::CoupleCheckReservationReleased));
+	ClaimCoupleTarget(low, waiting, 0);
+	CHECK(GetCoupleClaimant(waiting) == strong);
+	CHECK(low->current_order.IsType(OT_GOTO_STATION));
+}
+
+TEST_CASE_METHOD(CouplePowerFixture, "Couple power - a completed reverse checkpoint remains eligible after index advance")
+{
+	Order point;
+	point.MakeGoToStation(station->index);
+	Order couple(strong->current_order);
+	couple.SetCoupleCheckPoint(station->index);
+	strong->orders = OrderList::Create(Order(point), strong);
+	strong->orders->InsertOrderAt(Order(point), 1);
+	strong->orders->InsertOrderAt(std::move(couple), 2);
+	strong->primary_order = strong->orders->index;
+	strong->cur_real_order_index = strong->cur_implicit_order_index = 1;
+	strong->current_order = point;
+	strong->flags.Set({VehicleRailFlag::CoupleCheckReversePending, VehicleRailFlag::CoupleCheckReservationReleased});
+	strong->reverse_distance = GENERATE(0, 16);
+	low->couple_target = waiting->index;
+	ClaimCoupleTarget(low, waiting, 0);
+	CHECK(GetCoupleClaimant(waiting) == (strong->reverse_distance == 0 ? strong : low));
+	CHECK(strong->cur_real_order_index == 1);
+	CHECK(strong->cur_implicit_order_index == 1);
+	CHECK(strong->current_order.IsType(OT_GOTO_STATION));
+}
+
+TEST_CASE_METHOD(CouplePowerFixture, "Couple power - disabled speed checks keep ordinary claims")
+{
+	SECTION("caller disabled") { low->current_order.SetCoupleSpeedBoundMode(1, CoupleSpeedBoundMode::Disabled); }
+	SECTION("competitor disabled") { strong->current_order.SetCoupleSpeedBoundMode(1, CoupleSpeedBoundMode::Disabled); }
+	GameRandomSeedChecker random_checker;
+	low->couple_target = waiting->index;
+	ClaimCoupleTarget(low, waiting, 0);
+	CHECK(GetCoupleClaimant(waiting) == low);
+	CHECK(random_checker.Check());
+}
+
+TEST_CASE_METHOD(CouplePowerFixture, "Couple power - speed fit always precedes higher power")
+{
+	waiting->vcache.cached_max_speed = 80;
+	low->vcache.cached_max_speed = 80;
+	Train *caller = strong;
+	Train *expected = low;
+	SECTION("fast powerful caller yields to matching locomotive") { }
+	SECTION("matching caller keeps priority") { caller = low; }
+	SECTION("closer speed beats more power") { low->vcache.cached_max_speed = 90; }
+	SECTION("equal gap favours not overspeeding") {
+		waiting->vcache.cached_max_speed = 100;
+	}
+	SECTION("matching locomotive manually stopped") { low->vehstatus.Set(VehState::Stopped); expected = strong; }
+	SECTION("matching locomotive unreachable") {
+		Place(low, 8, 15);
+		MakeRailNormal(low->tile, _current_company, TRACK_BIT_X, RAILTYPE_RAIL);
+		expected = strong;
+	}
+	SECTION("matching locomotive rejects target") {
+		low->current_order.SetCoupleSpeedValue(1, 1);
+		expected = strong;
+	}
+	SECTION("existing fast claim remains exclusive") {
+		strong->couple_target = waiting->index;
+		waiting->couple_claimant = strong->index;
+		caller = low;
+		expected = strong;
+	}
+	GameRandomSeedChecker random_checker;
+	caller->couple_target = waiting->index;
+	ClaimCoupleTarget(caller, waiting, 0);
+	CHECK(GetCoupleClaimant(waiting) == expected);
+	CHECK(expected->couple_target == waiting->index);
+	CHECK(random_checker.Check());
+	for (Train *train : {low, strong, waiting}) {
+		CHECK(ValidateVehicleTileHash(train));
+		CHECK(GetRailReservationTrackBits(train->tile) == TRACK_BIT_NONE);
+	}
+}
+
+TEST_CASE_METHOD(CouplePowerFixture, "Couple power - either speed bound enables priority")
+{
+	const auto mode = GENERATE(CoupleSpeedBoundMode::OwnMax, CoupleSpeedBoundMode::Manual);
+	const uint row = GENERATE(0u, 1u);
+	for (Train *train : {low, strong}) {
+		train->current_order.SetCoupleSpeedBoundMode(0, CoupleSpeedBoundMode::Disabled);
+		train->current_order.SetCoupleSpeedBoundMode(1, CoupleSpeedBoundMode::Disabled);
+		train->current_order.SetCoupleSpeedBoundMode(row, mode);
+		train->current_order.SetCoupleSpeedValue(row, row == 0 ? 0 : UINT16_MAX);
+	}
+	low->couple_target = waiting->index;
+	ClaimCoupleTarget(low, waiting, 0);
+	CHECK(GetCoupleClaimant(waiting) == strong);
 }

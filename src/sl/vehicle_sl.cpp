@@ -1121,6 +1121,10 @@ NamedSaveLoadTable GetVehicleDescription(VehicleType vt)
 		/* Orders for version 5 and on */
 		NSL("current_order.type",        SLE_CONDVAR_X(Vehicle, current_order.type,        SLE_FILE_U8 | SLE_VAR_U16,   SLV_5, SL_MAX_VERSION, SlXvFeatureTest(XSLFTO_AND, XSLFI_ORDER_DECOUPLE, 0, 0))),
 		NSL("current_order.type",        SLE_CONDVAR_X(Vehicle, current_order.type,        SLE_UINT16,                  SLV_5, SL_MAX_VERSION, SlXvFeatureTest(XSLFTO_AND, XSLFI_ORDER_DECOUPLE, 1))),
+		NSL("current_order.couple_speed_unit1", SLE_CONDVAR_X(Vehicle, current_order.couple_speed_unit1, SLE_UINT8, SL_MIN_VERSION, SL_MAX_VERSION, SlXvFeatureTest(XSLFTO_AND, XSLFI_COUPLE_SPEED_FILTER, 2))),
+		NSL("current_order.couple_speed_unit2", SLE_CONDVAR_X(Vehicle, current_order.couple_speed_unit2, SLE_UINT8, SL_MIN_VERSION, SL_MAX_VERSION, SlXvFeatureTest(XSLFTO_AND, XSLFI_COUPLE_SPEED_FILTER, 2))),
+		NSL("current_order.couple_speed_value1", SLE_CONDVAR_X(Vehicle, current_order.couple_speed_value1, SLE_UINT16, SL_MIN_VERSION, SL_MAX_VERSION, SlXvFeatureTest(XSLFTO_AND, XSLFI_COUPLE_SPEED_FILTER, 2))),
+		NSL("current_order.couple_speed_value2", SLE_CONDVAR_X(Vehicle, current_order.couple_speed_value2, SLE_UINT16, SL_MIN_VERSION, SL_MAX_VERSION, SlXvFeatureTest(XSLFTO_AND, XSLFI_COUPLE_SPEED_FILTER, 2))),
 		NSL("current_order.flags",      SLE_CONDVAR_X(Vehicle, current_order.flags,       SLE_FILE_U8 | SLE_VAR_U16,  SLV_5, SL_MAX_VERSION, SlXvFeatureTest(XSLFTO_AND, XSLFI_ORDER_FLAGS_EXTRA, 0, 0))),
 		NSL("current_order.flags",      SLE_CONDVAR_X(Vehicle, current_order.flags,       SLE_UINT16,                 SLV_5, SL_MAX_VERSION, SlXvFeatureTest(XSLFTO_AND, XSLFI_ORDER_FLAGS_EXTRA, 1))),
 		NSL("current_order.dest",         SLE_CONDVAR(Vehicle, current_order.dest,        SLE_UINT16,                 SLV_5, SL_MAX_VERSION)),

@@ -191,3 +191,217 @@ TEST_CASE_METHOD(ScheduleGroupFixture, "Schedule groups - public schedules keep 
 	public_schedule->SetPublic(false);
 	CHECK(GetVisibleScheduleTree(other).empty());
 }
+
+TEST_CASE_METHOD(ScheduleGroupFixture, "Couple - speed filter commands validate and update shared current orders")
+{
+	OrderList *schedule = Create("Speed filtered coupling", OrderListID::Invalid(), false);
+	Order couple;
+	couple.MakeGoToCouple();
+	schedule->GetOrderVector().push_back(couple);
+	schedule->RecalculateDerivedCounters();
+	std::array<Train *, 2> trains;
+	for (Train *&train : trains) {
+		REQUIRE(Train::CanAllocateItem());
+		train = Train::Create();
+		train->SetEngine();
+		train->SetFrontEngine();
+		train->owner = owner;
+		train->orders = schedule;
+		schedule->AssignVehicle(train);
+		train->current_order = couple;
+	}
+	for (ModifyOrderFlags flag : {MOF_COUPLE_REJECT_SLOWER, MOF_COUPLE_REJECT_FASTER}) {
+		CHECK(CmdModifyOrder({}, OrderTargetType::OrderList, schedule->index.base(), 0, flag, 1, INVALID_CARGO, {}).Succeeded());
+		CHECK_FALSE(schedule->GetOrderAt(0)->GetCoupleRejectSlower());
+		CHECK_FALSE(schedule->GetOrderAt(0)->GetCoupleRejectFaster());
+		CHECK(CmdModifyOrder(DoCommandFlag::Execute, OrderTargetType::OrderList, schedule->index.base(), 0, flag, 2, INVALID_CARGO, {}).Failed());
+	}
+	CHECK(CmdModifyOrder(DoCommandFlag::Execute, OrderTargetType::OrderList, schedule->index.base(), 0, MOF_COUPLE_REJECT_SLOWER, 1, INVALID_CARGO, {}).Succeeded());
+	for (Train *train : trains) {
+		CHECK(train->current_order.GetCoupleRejectSlower());
+		CHECK_FALSE(train->current_order.GetCoupleRejectFaster());
+	}
+	CHECK(CmdModifyOrder(DoCommandFlag::Execute, OrderTargetType::Vehicle, trains[0]->index.base(), 0, MOF_COUPLE_REJECT_FASTER, 1, INVALID_CARGO, {}).Succeeded());
+	CHECK(schedule->GetOrderAt(0)->GetCoupleRejectSlower());
+	CHECK(schedule->GetOrderAt(0)->GetCoupleRejectFaster());
+	for (Train *train : trains) {
+		CHECK(train->current_order.GetCoupleRejectSlower());
+		CHECK(train->current_order.GetCoupleRejectFaster());
+	}
+	CHECK(CmdModifyOrder(DoCommandFlag::Execute, OrderTargetType::OrderList, schedule->index.base(), 0, MOF_COUPLE_REJECT_SLOWER, 0, INVALID_CARGO, {}).Succeeded());
+	for (Train *train : trains) {
+		CHECK_FALSE(train->current_order.GetCoupleRejectSlower());
+		CHECK(train->current_order.GetCoupleRejectFaster());
+	}
+	for (ModifyOrderFlags flag : {MOF_COUPLE_SPEED_COMPARATOR1, MOF_COUPLE_SPEED_COMPARATOR2}) {
+		CHECK(CmdModifyOrder(DoCommandFlag::Execute, OrderTargetType::OrderList, schedule->index.base(), 0, flag, 7, INVALID_CARGO, {}).Failed());
+	}
+	CHECK(CmdModifyOrder({}, OrderTargetType::OrderList, schedule->index.base(), 0, MOF_COUPLE_SPEED_VALUE1, 80, static_cast<CargoType>(1), {}).Succeeded());
+	CHECK(schedule->GetOrderAt(0)->GetCoupleSpeedValue(0) == 0);
+	for (auto [flag, value] : {std::pair{MOF_COUPLE_SPEED_COMPARATOR1, 6}, std::pair{MOF_COUPLE_SPEED_VALUE1, 80}, std::pair{MOF_COUPLE_SPEED_COMPARATOR2, 4}, std::pair{MOF_COUPLE_SPEED_VALUE2, 120}}) {
+		CHECK(CmdModifyOrder(DoCommandFlag::Execute, OrderTargetType::OrderList, schedule->index.base(), 0, flag, value, (flag == MOF_COUPLE_SPEED_VALUE1 || flag == MOF_COUPLE_SPEED_VALUE2) ? static_cast<CargoType>(1) : INVALID_CARGO, {}).Succeeded());
+	}
+	for (Train *train : trains) {
+		CHECK(train->current_order.GetCoupleSpeedComparator(0) == 6);
+		CHECK(train->current_order.GetCoupleSpeedValue(0) == 80);
+		CHECK(train->current_order.GetCoupleSpeedComparator(1) == 4);
+		CHECK(train->current_order.GetCoupleSpeedValue(1) == 120);
+		CHECK(train->current_order.GetCoupleSpeedUnit(0) == 1);
+		CHECK(train->current_order.GetCoupleSpeedUnit(1) == 1);
+	}
+	CHECK(CmdModifyOrder(DoCommandFlag::Execute, OrderTargetType::Vehicle, trains[0]->index.base(), 0, MOF_COUPLE_SPEED_VALUE2, 65535, static_cast<CargoType>(1), {}).Succeeded());
+	for (Train *train : trains) CHECK(train->current_order.GetCoupleSpeedValue(1) == 65535);
+	CHECK(CmdModifyOrder(DoCommandFlag::Execute, OrderTargetType::OrderList, schedule->index.base(), 0, MOF_COUPLE_SPEED_VALUE1, 75, static_cast<CargoType>(6), {}).Failed());
+	CHECK(CmdModifyOrder(DoCommandFlag::Execute, OrderTargetType::OrderList, schedule->index.base(), 0, MOF_COUPLE_SPEED_VALUE1, 75, static_cast<CargoType>(0), {}).Succeeded());
+	for (Train *train : trains) {
+		CHECK(train->current_order.GetCoupleSpeedValue(0) == 75);
+		CHECK(train->current_order.GetCoupleSpeedUnit(0) == 0);
+	}
+	schedule->GetOrderAt(0)->MakeWaitCouple();
+	CHECK(CmdModifyOrder(DoCommandFlag::Execute, OrderTargetType::OrderList, schedule->index.base(), 0, MOF_COUPLE_REJECT_FASTER, 1, INVALID_CARGO, {}).Failed());
+}
+
+
+TEST_CASE_METHOD(ScheduleGroupFixture, "Decouple - moving shared trains survive order vector reallocation")
+{
+	const bool edit_list = GENERATE(false, true);
+	OrderList *schedule = Create("Moving split", OrderListID::Invalid(), false);
+	Order station;
+	station.MakeGoToStation(StationID{123});
+	schedule->GetOrderVector() = std::vector<Order>{station};
+	schedule->RecalculateDerivedCounters();
+	std::array<Train *, 2> trains;
+	for (Train *&train : trains) {
+		train = Train::Create();
+		train->SetEngine();
+		train->SetFrontEngine();
+		train->owner = owner;
+		train->orders = schedule;
+		schedule->AssignVehicle(train);
+		train->current_order = station;
+		train->cur_real_order_index = train->cur_implicit_order_index = 0;
+		train->cur_speed = 80;
+	}
+	const auto target = edit_list ? OrderTargetType::OrderList : OrderTargetType::Vehicle;
+	const uint32_t id = edit_list ? schedule->index.base() : trains[0]->index.base();
+	const Order *old_address = schedule->GetOrderAt(0);
+	REQUIRE(schedule->GetOrderVector().capacity() == 1);
+	CHECK(CmdModifyOrder({}, target, id, 0, MOF_DECOUPLE, 1, static_cast<CargoType>(0), {}).Succeeded());
+	CHECK(schedule->GetNumOrders() == 1);
+	CHECK(schedule->GetOrderAt(0)->GetDecouple() == ODF_NOTHING);
+	REQUIRE(CmdModifyOrder(DoCommandFlag::Execute, target, id, 0, MOF_DECOUPLE, 1, static_cast<CargoType>(0), {}).Succeeded());
+	REQUIRE(schedule->GetNumOrders() == 2);
+	CHECK(schedule->GetOrderAt(0) != old_address);
+	CHECK(schedule->GetOrderAt(0)->GetDecouple() == ODF_DECOUPLE);
+	CHECK(schedule->GetOrderAt(1)->IsType(OT_DECOUPLE));
+	for (Train *train : trains) {
+		CHECK(train->current_order.IsType(OT_GOTO_STATION));
+		CHECK(train->current_order.GetDecouple() == ODF_DECOUPLE);
+		CHECK(train->cur_real_order_index == 0);
+		CHECK(train->cur_implicit_order_index == 0);
+		CHECK(train->cur_speed == 80);
+	}
+	REQUIRE(CmdModifyOrder(DoCommandFlag::Execute, target, id, 0, MOF_DECOUPLE, 0, static_cast<CargoType>(0), {}).Succeeded());
+	CHECK(schedule->GetNumOrders() == 1);
+	for (Train *train : trains) CHECK(train->current_order.GetDecouple() == ODF_NOTHING);
+}
+
+TEST_CASE_METHOD(ScheduleGroupFixture, "Decouple - insertion failure leaves station and active order unchanged")
+{
+	const bool edit_list = GENERATE(false, true);
+	OrderList *schedule = Create("Full split", OrderListID::Invalid(), false);
+	Order station;
+	station.MakeGoToStation(StationID{123});
+	schedule->GetOrderVector().assign(MAX_VEH_ORDER_ID, station);
+	schedule->RecalculateDerivedCounters();
+	Train *train = Train::Create();
+	train->SetEngine();
+	train->SetFrontEngine();
+	train->owner = owner;
+	train->orders = schedule;
+	schedule->AssignVehicle(train);
+	train->current_order = station;
+	const auto target = edit_list ? OrderTargetType::OrderList : OrderTargetType::Vehicle;
+	const uint32_t id = edit_list ? schedule->index.base() : train->index.base();
+	for (DoCommandFlags flags : {DoCommandFlags{}, DoCommandFlags{DoCommandFlag::Execute}}) {
+		CHECK(CmdModifyOrder(flags, target, id, 0, MOF_DECOUPLE, 1, static_cast<CargoType>(0), {}).Failed());
+		CHECK(schedule->GetNumOrders() == MAX_VEH_ORDER_ID);
+		CHECK(schedule->GetOrderAt(0)->GetDecouple() == ODF_NOTHING);
+		CHECK(train->current_order.GetDecouple() == ODF_NOTHING);
+	}
+}
+
+TEST_CASE_METHOD(ScheduleGroupFixture, "Decouple - disabling a missing marker preserves other orders and sharing")
+{
+	const bool has_successor = GENERATE(false, true);
+	OrderList *schedule = Create("Legacy split", OrderListID::Invalid(), false);
+	Order station;
+	station.MakeGoToStation(StationID{123});
+	station.SetDecouple(ODF_DECOUPLE);
+	schedule->GetOrderVector().push_back(station);
+	if (has_successor) schedule->GetOrderVector().push_back(station);
+	schedule->RecalculateDerivedCounters();
+	Train *train = Train::Create();
+	train->SetEngine();
+	train->SetFrontEngine();
+	train->owner = owner;
+	train->orders = schedule;
+	schedule->AssignVehicle(train);
+	train->current_order = station;
+	CHECK(CmdModifyOrder(DoCommandFlag::Execute, OrderTargetType::Vehicle, train->index.base(), 0, MOF_DECOUPLE, 2, static_cast<CargoType>(0), {}).Failed());
+	REQUIRE(CmdModifyOrder(DoCommandFlag::Execute, OrderTargetType::Vehicle, train->index.base(), 0, MOF_DECOUPLE, 0, static_cast<CargoType>(0), {}).Succeeded());
+	CHECK(train->orders == schedule);
+	CHECK(schedule->GetNumOrders() == (has_successor ? 2 : 1));
+	CHECK(schedule->GetOrderAt(0)->GetDecouple() == ODF_NOTHING);
+	if (has_successor) CHECK(schedule->GetOrderAt(1)->GetDecouple() == ODF_DECOUPLE);
+}
+
+
+TEST_CASE_METHOD(ScheduleGroupFixture, "Couple - speed bound sources switch atomically and synchronise active orders")
+{
+	const bool edit_list = GENERATE(false, true);
+	OrderList *schedule = Create("Speed bounds", OrderListID::Invalid(), false);
+	Order couple;
+	couple.MakeGoToCouple();
+	couple.SetCoupleSpeedValue(0, 80);
+	couple.SetCoupleSpeedValue(1, 120);
+	couple.SetCoupleSpeedUnit(0, 0);
+	schedule->GetOrderVector().push_back(couple);
+	schedule->RecalculateDerivedCounters();
+	std::array<Train *, 2> trains;
+	for (Train *&train : trains) {
+		train = Train::Create();
+		train->SetEngine();
+		train->SetFrontEngine();
+		train->owner = owner;
+		train->orders = schedule;
+		schedule->AssignVehicle(train);
+		train->current_order = couple;
+	}
+	const auto target = edit_list ? OrderTargetType::OrderList : OrderTargetType::Vehicle;
+	const uint32_t id = edit_list ? schedule->index.base() : trains[0]->index.base();
+	for (uint row = 0; row < 2; row++) {
+		const ModifyOrderFlags mof = row == 0 ? MOF_COUPLE_SPEED_MIN_MODE : MOF_COUPLE_SPEED_MAX_MODE;
+		for (CoupleSpeedBoundMode mode : {CoupleSpeedBoundMode::OwnMax, CoupleSpeedBoundMode::Manual, CoupleSpeedBoundMode::Disabled}) {
+			const auto before = schedule->GetOrderAt(0)->GetCoupleSpeedBoundMode(row);
+			CHECK(CmdModifyOrder({}, target, id, 0, mof, to_underlying(mode), INVALID_CARGO, {}).Succeeded());
+			CHECK(schedule->GetOrderAt(0)->GetCoupleSpeedBoundMode(row) == before);
+			REQUIRE(CmdModifyOrder(DoCommandFlag::Execute, target, id, 0, mof, to_underlying(mode), INVALID_CARGO, {}).Succeeded());
+			for (const Order *order : {schedule->GetOrderAt(0), &trains[0]->current_order, &trains[1]->current_order}) {
+				CHECK(order->GetCoupleSpeedBoundMode(row) == mode);
+				CHECK(order->GetCoupleSpeedComparator(row) == (mode == CoupleSpeedBoundMode::Manual ? to_underlying(row == 0 ? OrderConditionComparator::MoreThanOrEqual : OrderConditionComparator::LessThanOrEqual) + 1 : 0));
+				CHECK((row == 0 ? order->GetCoupleRejectFaster() : order->GetCoupleRejectSlower()) == (mode == CoupleSpeedBoundMode::OwnMax));
+				CHECK(order->GetCoupleSpeedBoundMode(1 - row) == CoupleSpeedBoundMode::Disabled);
+				CHECK(order->GetCoupleSpeedValue(0) == 80);
+				CHECK(order->GetCoupleSpeedValue(1) == 120);
+				CHECK(order->GetCoupleSpeedUnit(0) == 0);
+			}
+		}
+		CHECK(CmdModifyOrder(DoCommandFlag::Execute, target, id, 0, mof, 3, INVALID_CARGO, {}).Failed());
+	}
+	Order legacy;
+	legacy.MakeGoToCouple();
+	legacy.SetCoupleSpeedComparator(0, 2); // Existing not-equal criteria remain unchanged until edited.
+	CHECK(legacy.GetCoupleSpeedBoundMode(0) == CoupleSpeedBoundMode::Manual);
+	CHECK(legacy.GetCoupleSpeedComparator(0) == 2);
+}

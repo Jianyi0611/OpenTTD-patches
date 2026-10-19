@@ -539,17 +539,37 @@ public:
 		return 't';
 	}
 
-	static Trackdir stFindNearestCoupleTrain(const Train *v, bool dont_reserve, Train **couple_target, uint32_t *couple_cost)
+	static Trackdir stFindNearestCoupleTrain(const Train *v, bool dont_reserve, Train **couple_target, uint32_t *couple_cost, const Order *criteria, const Train *only_target, uint32_t max_nodes)
 	{
 		/* Create pathfinder instance */
 		Tpf pf1;
 		pf1.DisableCache(true);
-		Trackdir ret = pf1.FindNearestCoupleTrain(v, dont_reserve);
+		if (only_target != nullptr) pf1.SetCoupleSpeedPreference(false);
+		if (max_nodes != 0) {
+			const uint32_t configured = _settings_game.pf.yapf.max_search_nodes;
+			pf1.SetMaxSearchNodes(configured != 0 ? std::min(max_nodes, configured) : max_nodes);
+		}
+		Trackdir ret = pf1.FindNearestCoupleTrain(v, dont_reserve, criteria, only_target);
+		Tpf *result = &pf1;
+		std::unique_ptr<Tpf> fallback;
+		/* If scoring exhausted the node budget or could not reserve its route,
+		 * retain the original nearest-reachable search as a compatibility fallback. */
+		if (ret == INVALID_TRACKDIR && pf1.HasCoupleSpeedPreference()) {
+			fallback = std::make_unique<Tpf>();
+			fallback->DisableCache(true);
+			fallback->SetCoupleSpeedPreference(false);
+			if (max_nodes != 0) {
+				const uint32_t configured = _settings_game.pf.yapf.max_search_nodes;
+				fallback->SetMaxSearchNodes(configured != 0 ? std::min(max_nodes, configured) : max_nodes);
+			}
+			ret = fallback->FindNearestCoupleTrain(v, dont_reserve, criteria, only_target);
+			result = fallback.get();
+		}
 		if (couple_target != nullptr) {
-			*couple_target = (ret != INVALID_TRACKDIR) ? pf1.couple_target_found : nullptr;
+			*couple_target = (ret != INVALID_TRACKDIR) ? result->couple_target_found : nullptr;
 		}
 		if (couple_cost != nullptr) {
-			*couple_cost = (ret != INVALID_TRACKDIR) ? pf1.couple_cost_found : 0;
+			*couple_cost = (ret != INVALID_TRACKDIR) ? result->couple_cost_found : 0;
 		}
 		return ret;
 	}
@@ -557,14 +577,14 @@ public:
 	Train *couple_target_found = nullptr; ///< Contact-end vehicle of the waiting train found at the best node
 	uint32_t couple_cost_found = 0;       ///< Path cost of the best node the couple target was found at
 
-	Trackdir FindNearestCoupleTrain(const Train *v, bool dont_reserve)
+	Trackdir FindNearestCoupleTrain(const Train *v, bool dont_reserve, const Order *criteria, const Train *only_target)
 	{
 		this->couple_target_found = nullptr;
 
 		PBSTileInfo origin = FollowTrainReservation(v, nullptr, FollowTrainReservationFlag::IgnoreLookahead);
 		/* Set origin and destination. */
 		Yapf().SetOrigin(origin.tile, origin.trackdir);
-		Yapf().SetDestination(v);
+		Yapf().SetDestination(v, criteria, only_target);
 
 		bool path_found = Yapf().FindPath(v);
 		if (!path_found) return INVALID_TRACKDIR;
@@ -574,19 +594,8 @@ public:
 		this->SetReservationTarget(pNode, pNode->GetLastTile(), pNode->GetLastTrackdir());
 		this->couple_cost_found = static_cast<uint32_t>(pNode->GetCost());
 
-		/* Resolve the concrete coupling target at the chosen destination so the
-		 * caller can brake for the exact contact point. The claim of another
-		 * approaching consist on a waiting train makes the train re-select. */
-		{
-			TileIndex dest_tile = pNode->GetLastTile();
-			Trackdir dest_td = pNode->GetLastTrackdir();
-			Train *target = ResolveCoupleTargetStation(v, dest_tile, dest_td, true, this->couple_cost_found);
-			if (target == nullptr && !IsRailStationTile(dest_tile)) {
-				target = GetTrainForReservation(dest_tile, TrackdirToTrack(dest_td));
-				if (target != nullptr) target = ValidateCoupleCandidate(v, target->First(), dest_tile, true, this->couple_cost_found);
-			}
-			this->couple_target_found = target;
-		}
+		/* Use the same criteria and target restriction as the destination search. */
+		this->couple_target_found = Yapf().GetCoupleDestination(pNode->GetLastTile(), pNode->GetLastTrackdir(), this->couple_cost_found);
 
 		/* Walk through the path back to the origin. */
 		Trackdir next_trackdir = INVALID_TRACKDIR;
@@ -1078,15 +1087,20 @@ struct CYapfCoupleRailNo90 : CYapfRailBase<CYapfRail_TypesT<CYapfCoupleRailNo90,
  * Find the track to take when approaching another train to couple with.
  * @param v The train to find a track for.
  * @param dont_reserve Whether to skip making a reservation.
+ * @param couple_target Contact-end vehicle found, if requested.
+ * @param couple_cost Physical route cost, if requested.
+ * @param criteria Optional future coupling order; never replaces the vehicle's active order.
+ * @param only_target Optional exclusive destination for a read-only comparison query.
+ * @param max_nodes Optional additional node limit; zero uses the normal setting.
  * @return The track to take, or #INVALID_TRACK if no path was found.
  */
-Track YapfTrainCoupleTrack(const Train *v, bool dont_reserve, Train **couple_target, uint32_t *couple_cost)
+Track YapfTrainCoupleTrack(const Train *v, bool dont_reserve, Train **couple_target, uint32_t *couple_cost, const Order *criteria, const Train *only_target, uint32_t max_nodes)
 {
 	if (couple_target != nullptr) *couple_target = nullptr;
 	if (couple_cost != nullptr) *couple_cost = 0;
 	Trackdir ret = _settings_game.pf.forbid_90_deg
-		? CYapfCoupleRailNo90::stFindNearestCoupleTrain(v, dont_reserve, couple_target, couple_cost)
-		: CYapfCoupleRail::stFindNearestCoupleTrain(v, dont_reserve, couple_target, couple_cost);
+		? CYapfCoupleRailNo90::stFindNearestCoupleTrain(v, dont_reserve, couple_target, couple_cost, criteria, only_target, max_nodes)
+		: CYapfCoupleRail::stFindNearestCoupleTrain(v, dont_reserve, couple_target, couple_cost, criteria, only_target, max_nodes);
 
 	return (ret != INVALID_TRACKDIR) ? TrackdirToTrack(ret) : INVALID_TRACK;
 }

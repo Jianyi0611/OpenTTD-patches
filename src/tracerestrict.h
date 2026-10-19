@@ -1030,6 +1030,9 @@ public:
 	std::string_view GetLabel(uint16_t id) const;
 };
 
+CommandCost ApplyTraceRestrictProgramSnapshot(DoCommandFlags flags, TileIndex tile, Track track,
+		std::span<const TraceRestrictProgramItem> items, const std::vector<std::string> &labels);
+
 bool TraceRestrictProgramsEquivalent(const TraceRestrictProgram *a, const TraceRestrictProgram *b);
 
 /**
