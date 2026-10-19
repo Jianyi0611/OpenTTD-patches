@@ -7229,38 +7229,63 @@ static const Order *GetReadyPowerCoupleOrder(const Train *train, bool arriving_a
 	return nullptr;
 }
 
-/** Resolve same-speed competitors without changing their orders, claims or reservations. */
+/** Power arbitration is opt-in through either speed bound of this coupling order. */
+static bool HasCoupleSpeedCheck(const Order &order)
+{
+	return order.GetCoupleRejectSlower() || order.GetCoupleRejectFaster() ||
+			order.GetCoupleSpeedComparator(0) != 0 || order.GetCoupleSpeedComparator(1) != 0;
+}
+
+/** Speed fit precedes power; equal gaps favour the locomotive that does not overspeed the wagons. */
+static auto GetCoupleClaimPriority(const Train *train, uint waiting_speed)
+{
+	const uint speed = train->GetDisplayMaxSpeed();
+	const uint gap = speed > waiting_speed ? speed - waiting_speed : waiting_speed - speed;
+	return std::make_tuple(gap, speed > waiting_speed, UINT32_MAX - train->gcache.cached_power);
+}
+
+/** Resolve ready competitors without changing their orders, claims or reservations. */
 static Train *SelectPowerCoupleClaimant(Train *moving, Train *carrier, Train *&contact, uint32_t &claim_cost)
 {
 	const Order *order = GetReadyPowerCoupleOrder(moving, true);
-	if (order == nullptr || contact == nullptr || contact->Primary() != carrier) return moving;
-	std::vector<Train *> candidates;
+	/* Disabled orders keep ordinary coupling and avoid a fleet scan entirely. */
+	if (order == nullptr || !HasCoupleSpeedCheck(*order) || contact == nullptr || contact->Primary() != carrier) return moving;
+	const uint waiting_speed = carrier->GetDisplayMaxSpeed();
+	const auto original_priority = GetCoupleClaimPriority(moving, waiting_speed);
+	struct Candidate {
+		Train *train;
+		const Order *criteria;
+		std::tuple<uint, bool, uint32_t> priority;
+		uint distance;
+	};
+	std::vector<Candidate> candidates;
 	for (Train *other : Train::Iterate()) {
-		if (other == moving || other->GetDisplayMaxSpeed() != moving->GetDisplayMaxSpeed() || other->gcache.cached_power < moving->gcache.cached_power) continue;
+		if (other == moving || !other->IsPrimaryVehicle()) continue;
+		const auto priority = GetCoupleClaimPriority(other, waiting_speed);
+		if (priority > original_priority) continue;
 		const Order *criteria = GetReadyPowerCoupleOrder(other);
-		if (criteria == nullptr || GetClaimedCoupleTarget(other) != nullptr) continue;
+		if (criteria == nullptr || !HasCoupleSpeedCheck(*criteria) || GetClaimedCoupleTarget(other) != nullptr) continue;
 		if (GetCoupleVolatileConditionResult(other, *criteria, carrier->First(), contact->tile) != CoupleCandidateResult::Valid) continue;
-		candidates.push_back(other);
+		candidates.push_back({other, criteria, priority, DistanceManhattan(other->tile, carrier->tile)});
 	}
 	if (candidates.empty()) return moving;
-	std::sort(candidates.begin(), candidates.end(), [carrier](const Train *a, const Train *b) {
-		if (a->gcache.cached_power != b->gcache.cached_power) return a->gcache.cached_power > b->gcache.cached_power;
-		const uint da = DistanceManhattan(a->tile, carrier->tile);
-		const uint db = DistanceManhattan(b->tile, carrier->tile);
-		if (da != db) return da < db;
-		return a->index < b->index;
-	});
-
-	/* Priority is a bounded bonus, not an unbounded fleet-wide route search.
-	 * Failure or budget exhaustion must leave the original caller eligible. */
+	/* Only the first bounded set will be searched. Partial sorting preserves the
+	 * same deterministic winners without sorting the unused fleet tail. */
 	static constexpr uint MAX_PROBES = 16;
 	static constexpr uint MAX_QUERY_NODES = 1024;
+	const size_t count = std::min<size_t>(candidates.size(), MAX_PROBES);
+	std::partial_sort(candidates.begin(), candidates.begin() + count, candidates.end(), [](const Candidate &a, const Candidate &b) {
+		return std::tie(a.priority, a.distance, a.train->index) < std::tie(b.priority, b.distance, b.train->index);
+	});
+
 	Train *best = moving;
+	auto best_priority = original_priority;
 	bool best_route_known = claim_cost != 0;
-	uint probes = 0;
-	for (Train *other : candidates) {
-		if (other->gcache.cached_power < best->gcache.cached_power || probes++ >= MAX_PROBES) break;
-		if (other->gcache.cached_power == best->gcache.cached_power && !best_route_known) {
+	for (size_t i = 0; i < count; ++i) {
+		const Candidate &candidate = candidates[i];
+		Train *other = candidate.train;
+		if (candidate.priority > best_priority) break;
+		if (candidate.priority == best_priority && !best_route_known) {
 			Train *own_end = nullptr;
 			uint32_t own_cost = 0;
 			if (YapfTrainCoupleTrack(best, true, &own_end, &own_cost, order, carrier, MAX_QUERY_NODES) == INVALID_TRACK || own_end == nullptr) break;
@@ -7270,9 +7295,10 @@ static Train *SelectPowerCoupleClaimant(Train *moving, Train *carrier, Train *&c
 		Train *end = nullptr;
 		uint32_t cost = 0;
 		/* Explicit criteria avoid temporarily changing a checkpoint's active order. */
-		if (YapfTrainCoupleTrack(other, true, &end, &cost, GetReadyPowerCoupleOrder(other), carrier, MAX_QUERY_NODES) == INVALID_TRACK || end == nullptr) continue;
-		if (other->gcache.cached_power == best->gcache.cached_power && std::tie(cost, other->index) >= std::tie(claim_cost, best->index)) continue;
+		if (YapfTrainCoupleTrack(other, true, &end, &cost, candidate.criteria, carrier, MAX_QUERY_NODES) == INVALID_TRACK || end == nullptr) continue;
+		if (candidate.priority == best_priority && std::tie(cost, other->index) >= std::tie(claim_cost, best->index)) continue;
 		best = other;
+		best_priority = candidate.priority;
 		contact = end;
 		claim_cost = cost;
 		best_route_known = true;

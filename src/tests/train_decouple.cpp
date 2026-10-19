@@ -957,6 +957,8 @@ protected:
 			train->gcache.cached_total_length = VEHICLE_LENGTH;
 			train->current_order.MakeGoToCouple();
 			train->current_order.SetCoupleSlot(TraceRestrictSlotID::Invalid());
+			train->current_order.SetCoupleSpeedBoundMode(1, CoupleSpeedBoundMode::Manual);
+			train->current_order.SetCoupleSpeedValue(1, UINT16_MAX);
 		}
 		low->gcache.cached_power = 1000;
 		strong->gcache.cached_power = 2000;
@@ -1194,4 +1196,70 @@ TEST_CASE_METHOD(CouplePowerFixture, "Couple power - a completed reverse checkpo
 	CHECK(strong->cur_real_order_index == 1);
 	CHECK(strong->cur_implicit_order_index == 1);
 	CHECK(strong->current_order.IsType(OT_GOTO_STATION));
+}
+
+TEST_CASE_METHOD(CouplePowerFixture, "Couple power - disabled speed checks keep ordinary claims")
+{
+	SECTION("caller disabled") { low->current_order.SetCoupleSpeedBoundMode(1, CoupleSpeedBoundMode::Disabled); }
+	SECTION("competitor disabled") { strong->current_order.SetCoupleSpeedBoundMode(1, CoupleSpeedBoundMode::Disabled); }
+	GameRandomSeedChecker random_checker;
+	low->couple_target = waiting->index;
+	ClaimCoupleTarget(low, waiting, 0);
+	CHECK(GetCoupleClaimant(waiting) == low);
+	CHECK(random_checker.Check());
+}
+
+TEST_CASE_METHOD(CouplePowerFixture, "Couple power - speed fit always precedes higher power")
+{
+	waiting->vcache.cached_max_speed = 80;
+	low->vcache.cached_max_speed = 80;
+	Train *caller = strong;
+	Train *expected = low;
+	SECTION("fast powerful caller yields to matching locomotive") { }
+	SECTION("matching caller keeps priority") { caller = low; }
+	SECTION("closer speed beats more power") { low->vcache.cached_max_speed = 90; }
+	SECTION("equal gap favours not overspeeding") {
+		waiting->vcache.cached_max_speed = 100;
+	}
+	SECTION("matching locomotive manually stopped") { low->vehstatus.Set(VehState::Stopped); expected = strong; }
+	SECTION("matching locomotive unreachable") {
+		Place(low, 8, 15);
+		MakeRailNormal(low->tile, _current_company, TRACK_BIT_X, RAILTYPE_RAIL);
+		expected = strong;
+	}
+	SECTION("matching locomotive rejects target") {
+		low->current_order.SetCoupleSpeedValue(1, 1);
+		expected = strong;
+	}
+	SECTION("existing fast claim remains exclusive") {
+		strong->couple_target = waiting->index;
+		waiting->couple_claimant = strong->index;
+		caller = low;
+		expected = strong;
+	}
+	GameRandomSeedChecker random_checker;
+	caller->couple_target = waiting->index;
+	ClaimCoupleTarget(caller, waiting, 0);
+	CHECK(GetCoupleClaimant(waiting) == expected);
+	CHECK(expected->couple_target == waiting->index);
+	CHECK(random_checker.Check());
+	for (Train *train : {low, strong, waiting}) {
+		CHECK(ValidateVehicleTileHash(train));
+		CHECK(GetRailReservationTrackBits(train->tile) == TRACK_BIT_NONE);
+	}
+}
+
+TEST_CASE_METHOD(CouplePowerFixture, "Couple power - either speed bound enables priority")
+{
+	const auto mode = GENERATE(CoupleSpeedBoundMode::OwnMax, CoupleSpeedBoundMode::Manual);
+	const uint row = GENERATE(0u, 1u);
+	for (Train *train : {low, strong}) {
+		train->current_order.SetCoupleSpeedBoundMode(0, CoupleSpeedBoundMode::Disabled);
+		train->current_order.SetCoupleSpeedBoundMode(1, CoupleSpeedBoundMode::Disabled);
+		train->current_order.SetCoupleSpeedBoundMode(row, mode);
+		train->current_order.SetCoupleSpeedValue(row, row == 0 ? 0 : UINT16_MAX);
+	}
+	low->couple_target = waiting->index;
+	ClaimCoupleTarget(low, waiting, 0);
+	CHECK(GetCoupleClaimant(waiting) == strong);
 }
