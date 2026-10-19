@@ -1263,14 +1263,12 @@ enum CoupleCriteriaWidgets : WidgetID {
 	WID_CPO_VALUE_LABEL,      ///< Label of the unit count criterion.
 	WID_CPO_VALUE,            ///< Unit count criterion (opens a query).
 	WID_CPO_SPEED_LABEL,
-	WID_CPO_SPEED_VALUE_SELECT1,
-	WID_CPO_SPEED_VALUE_SELECT2,
 	WID_CPO_SPEED_LABEL1,
 	WID_CPO_SPEED_MIN_MODE,
-	WID_CPO_SPEED_VALUE1,
+	WID_CPO_SPEED_VALUE1, ///< Virtual widget id used to route the manual value text query of row 0.
 	WID_CPO_SPEED_LABEL2,
 	WID_CPO_SPEED_MAX_MODE,
-	WID_CPO_SPEED_VALUE2,
+	WID_CPO_SPEED_VALUE2, ///< Virtual widget id used to route the manual value text query of row 1.
 	WID_CPO_CLOSE,            ///< Close button.
 };
 
@@ -1361,10 +1359,18 @@ private:
 		this->GetWidget<NWidgetCore>(WID_CPO_CARGO)->SetString(STR_ORDER_COUPLE_ANY_CARGO);
 		for (uint row = 0; row < 2; row++) {
 			const auto mode = this->order->GetCoupleSpeedBoundMode(row);
+			/* Manual mode text ("value unit") is resolved per render by #GetWidgetString. */
 			this->GetWidget<NWidgetCore>(row == 0 ? WID_CPO_SPEED_MIN_MODE : WID_CPO_SPEED_MAX_MODE)->SetString(
 					mode == CoupleSpeedBoundMode::OwnMax ? STR_ORDER_COUPLE_SPEED_OWN_MAX : mode == CoupleSpeedBoundMode::Manual ? STR_ORDER_COUPLE_SPEED_MANUAL : STR_ORDER_COUPLE_SPEED_DISABLED);
-			this->GetWidget<NWidgetStacked>(row == 0 ? WID_CPO_SPEED_VALUE_SELECT1 : WID_CPO_SPEED_VALUE_SELECT2)->SetDisplayedPlane(mode == CoupleSpeedBoundMode::Manual ? 0 : SZSP_NONE);
 		}
+	}
+
+	/** Open the manual value text query for \a row. */
+	void ShowSpeedValueQuery(uint row)
+	{
+		this->query_text_widget = row == 0 ? WID_CPO_SPEED_VALUE1 : WID_CPO_SPEED_VALUE2;
+		ShowQueryString(GetString(STR_JUST_INT, ConvertVelocityUnitValue(this->order->GetCoupleSpeedValue(row), this->order->GetCoupleSpeedUnit(row), GetVelocityUnitCode(VehicleType::Train))),
+				GetEncodedString(STR_ORDER_COUPLE_SPEED_QUERY, GetVelocityUnitName(VehicleType::Train)), 7, this, CS_NUMERAL, {});
 	}
 
 	/** Is the edited order still there? */
@@ -1566,16 +1572,20 @@ public:
 			case WID_CPO_SPEED_LABEL2:
 				return GetString(widget == WID_CPO_SPEED_LABEL1 ? STR_ORDER_COUPLE_SPEED_LABEL1 : STR_ORDER_COUPLE_SPEED_LABEL2);
 
-			case WID_CPO_SPEED_VALUE1:
-			case WID_CPO_SPEED_VALUE2: {
-				const uint row = widget == WID_CPO_SPEED_VALUE1 ? 0 : 1;
-				std::string value = GetString(STR_ORDER_COUPLE_SPEED_VALUE, this->order->GetCoupleSpeedValue(row), GetVelocityUnitNameForCode(this->order->GetCoupleSpeedUnit(row)));
-				const uint8_t comparator = this->order->GetCoupleSpeedComparator(row);
-				const uint8_t bound = to_underlying(row == 0 ? OrderConditionComparator::MoreThanOrEqual : OrderConditionComparator::LessThanOrEqual) + 1;
-				/* Do not silently reinterpret an older saved comparison on opening the window. */
-				if (comparator >= 1 && comparator <= 6 && comparator != bound) value = GetString(STR_TRACE_RESTRICT_CONDITIONAL_COMPARATOR_EQUALS + comparator - 1) + value;
-				if (row == 0 ? this->order->GetCoupleRejectFaster() : this->order->GetCoupleRejectSlower()) value += " *";
-				return value;
+			case WID_CPO_SPEED_MIN_MODE:
+			case WID_CPO_SPEED_MAX_MODE: {
+				const uint row = widget == WID_CPO_SPEED_MIN_MODE ? 0 : 1;
+				const auto mode = this->order->GetCoupleSpeedBoundMode(row);
+				if (mode == CoupleSpeedBoundMode::Manual) {
+					const uint8_t comparator = this->order->GetCoupleSpeedComparator(row);
+					const uint8_t bound = to_underlying(row == 0 ? OrderConditionComparator::MoreThanOrEqual : OrderConditionComparator::LessThanOrEqual) + 1;
+					std::string value = GetString(STR_ORDER_COUPLE_SPEED_VALUE, this->order->GetCoupleSpeedValue(row), GetVelocityUnitNameForCode(this->order->GetCoupleSpeedUnit(row)));
+					/* Do not silently reinterpret an older saved comparison on opening the window. */
+					if (comparator >= 1 && comparator <= 6 && comparator != bound) value = GetString(STR_TRACE_RESTRICT_CONDITIONAL_COMPARATOR_EQUALS + comparator - 1) + value;
+					if (row == 0 ? this->order->GetCoupleRejectFaster() : this->order->GetCoupleRejectSlower()) value += " *";
+					return value;
+				}
+				return GetString(mode == CoupleSpeedBoundMode::OwnMax ? STR_ORDER_COUPLE_SPEED_OWN_MAX : STR_ORDER_COUPLE_SPEED_DISABLED);
 			}
 
 			default:
@@ -1627,9 +1637,7 @@ public:
 			}
 			case WID_CPO_SPEED_VALUE1:
 			case WID_CPO_SPEED_VALUE2:
-				this->query_text_widget = widget;
-				ShowQueryString(GetString(STR_JUST_INT, ConvertVelocityUnitValue(this->order->GetCoupleSpeedValue(widget == WID_CPO_SPEED_VALUE1 ? 0 : 1), this->order->GetCoupleSpeedUnit(widget == WID_CPO_SPEED_VALUE1 ? 0 : 1), GetVelocityUnitCode(VehicleType::Train))),
-						GetEncodedString(STR_ORDER_COUPLE_SPEED_QUERY, GetVelocityUnitName(VehicleType::Train)), 7, this, CS_NUMERAL, {});
+				this->ShowSpeedValueQuery(widget == WID_CPO_SPEED_VALUE1 ? 0 : 1);
 				return;
 
 			case WID_CPO_CLOSE:
@@ -1661,7 +1669,8 @@ public:
 			case WID_CPO_SPEED_MAX_MODE:
 				if (index >= 0 && index <= 2) {
 					this->ModifyOrder(widget == WID_CPO_SPEED_MIN_MODE ? MOF_COUPLE_SPEED_MIN_MODE : MOF_COUPLE_SPEED_MAX_MODE, index);
-					if (index == to_underlying(CoupleSpeedBoundMode::Manual)) this->OnClick({}, widget == WID_CPO_SPEED_MIN_MODE ? WID_CPO_SPEED_VALUE1 : WID_CPO_SPEED_VALUE2, 1);
+					/* Manual asks for the numeric value right away; the mode dropdown shows it after the edit. */
+					if (index == to_underlying(CoupleSpeedBoundMode::Manual)) this->ShowSpeedValueQuery(widget == WID_CPO_SPEED_MIN_MODE ? 0 : 1);
 				}
 				break;
 			case WID_CPO_SLOT_GROUP:
@@ -1770,14 +1779,8 @@ static constexpr NWidgetPart _nested_couple_options_widgets[] = {
 			NWidget(WWT_TEXT, Colours::Invalid, WID_CPO_SPEED_LABEL), SetStringTip(STR_ORDER_COUPLE_SPEED_LABEL, STR_ORDER_COUPLE_SPEED_RANGE_TOOLTIP),
 			NWidget(WWT_TEXT, Colours::Invalid, WID_CPO_SPEED_LABEL1), SetStringTip(STR_ORDER_COUPLE_SPEED_LABEL1, STR_ORDER_COUPLE_SPEED_RANGE_TOOLTIP),
 			NWidget(WWT_DROPDOWN, Colours::Grey, WID_CPO_SPEED_MIN_MODE), SetStringTip(STR_ORDER_COUPLE_SPEED_DISABLED, STR_ORDER_COUPLE_SPEED_RANGE_TOOLTIP),
-			NWidget(NWID_SELECTION, Colours::Invalid, WID_CPO_SPEED_VALUE_SELECT1),
-				NWidget(WWT_PUSHTXTBTN, Colours::Grey, WID_CPO_SPEED_VALUE1), SetStringTip(STR_JUST_VELOCITY, STR_ORDER_COUPLE_SPEED_RANGE_TOOLTIP),
-			EndContainer(),
 			NWidget(WWT_TEXT, Colours::Invalid, WID_CPO_SPEED_LABEL2), SetStringTip(STR_ORDER_COUPLE_SPEED_LABEL2, STR_ORDER_COUPLE_SPEED_RANGE_TOOLTIP),
 			NWidget(WWT_DROPDOWN, Colours::Grey, WID_CPO_SPEED_MAX_MODE), SetStringTip(STR_ORDER_COUPLE_SPEED_DISABLED, STR_ORDER_COUPLE_SPEED_RANGE_TOOLTIP),
-			NWidget(NWID_SELECTION, Colours::Invalid, WID_CPO_SPEED_VALUE_SELECT2),
-				NWidget(WWT_PUSHTXTBTN, Colours::Grey, WID_CPO_SPEED_VALUE2), SetStringTip(STR_JUST_VELOCITY, STR_ORDER_COUPLE_SPEED_RANGE_TOOLTIP),
-			EndContainer(),
 		EndContainer(),
 	EndContainer(),
 	NWidget(NWID_HORIZONTAL),
