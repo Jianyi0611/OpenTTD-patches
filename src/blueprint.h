@@ -118,6 +118,12 @@ struct BlueprintSpecRef {
 	bool operator==(const BlueprintSpecRef &) const = default;
 };
 
+/** A tile operand inside the copied area, relocated with the blueprint. */
+struct BlueprintSignalTileRef {
+	uint32_t item;
+	TileIndexDiffC offset;
+};
+
 /** Signals on one track piece. */
 struct BlueprintSignal {
 	TileIndexDiffC offset;  ///< Tile offset relative to the blueprint origin.
@@ -127,6 +133,9 @@ struct BlueprintSignal {
 	bool along;             ///< Signal along the track direction of #track.
 	bool against;           ///< Signal against the track direction of #track.
 	BlueprintSpecRef spec{}; ///< Explicit NewGRF signal style, independent of the game's style slot.
+	std::vector<uint32_t> restriction_items; ///< Independent snapshot, not a live source program ID.
+	std::vector<std::string> restriction_labels;
+	std::vector<BlueprintSignalTileRef> restriction_tiles;
 };
 
 /** One complete NewGRF object, anchored at the northern tile of its footprint. */
