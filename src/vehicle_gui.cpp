@@ -3487,6 +3487,7 @@ struct VehicleDetailsWindow : Window {
 	{
 		std::vector<TraceRestrictSlotID> slots;
 		TraceRestrictGetVehicleSlots(v->index, slots);
+		std::erase_if(slots, [](TraceRestrictSlotID id) { return TraceRestrictSlot::Get(id)->automatic_yield_area != 0; });
 
 		std::sort(slots.begin(), slots.end(), [&](TraceRestrictSlotID a, TraceRestrictSlotID b) -> bool {
 			int r = StrNaturalCompare(TraceRestrictSlot::Get(a)->name, TraceRestrictSlot::Get(b)->name);

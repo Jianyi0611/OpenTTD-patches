@@ -223,6 +223,7 @@ enum SlXvFeatureIndex {
 	XSLFI_WAIT_COUPLE_TARGET,                     ///< Wait-for-couple orders may travel to a selected station first
 	XSLFI_COUPLE_CHECK_POINT,                      ///< Go-to-couple orders may check for a partner at an earlier schedule stop
 	XSLFI_COUPLE_SPEED_FILTER,                    ///< Coupling selection can compare consist maximum speeds
+	XSLFI_AUTOMATIC_YIELD,                        ///< Automatic trace-restriction areas and internal claims.
 	XSLFI_SIZE,                                   ///< Total count of features, including null feature
 };
 

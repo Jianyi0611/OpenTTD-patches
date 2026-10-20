@@ -6495,3 +6495,39 @@ STR_ERROR_BRIDGE_TOO_LOW_FOR_TRAIN_DEPOT                        :桥梁对列车
 STR_ERROR_BRIDGE_TOO_LOW_FOR_ROADVEH_DEPOT                      :桥梁对汽车车库而言低了 {HEIGHT}
 STR_ERROR_BRIDGE_TOO_LOW_FOR_SHIP_DEPOT                         :桥梁对船坞而言低了 {HEIGHT}
 STR_ERROR_BRIDGE_TOO_LOW_FOR_OBJECT                             :桥梁对物体而言低了 {HEIGHT}
+
+
+STR_TRACE_RESTRICT_AUTO_APPROACH                                : 自动待避：接近检测
+STR_TRACE_RESTRICT_AUTO_MAIN                                    : 自动待避：正线控制
+STR_TRACE_RESTRICT_AUTO_SIDING                                  : 自动待避：旧版股道入口
+STR_TRACE_RESTRICT_AUTO_EXIT                                    : 自动待避：待避股道出口
+STR_TRACE_RESTRICT_AUTO_CLEAR                                   : 自动待避：车尾清除点
+STR_TRACE_RESTRICT_AUTO_FASTER                                  : 后方快车需要本车让行
+STR_TRACE_RESTRICT_AUTO_NEEDS_SIDING                            : 本车需要进入待避股道
+STR_TRACE_RESTRICT_AUTO_FREE                                    : 有适合本车的空闲待避股道
+STR_TRACE_RESTRICT_AUTO_WAIT                                    : 本车仍需等待快车通过
+STR_TRACE_RESTRICT_AUTO_FULL                                    : 没有适合本车的可用待避股道
+STR_TRACE_RESTRICT_AUTO_EVACUATE                                : 本车需要腾出待避股道
+STR_TRACE_RESTRICT_AUTO_LEAVE                                   : 本车可以结束待避
+STR_TRACE_RESTRICT_AUTO_INSTRUCTION                             : {STRING}：路签 {STRING}（速度差 {NUM}%）
+STR_TRACE_RESTRICT_AUTO_CLEAR_INSTRUCTION                       :车尾通过后，退出路签：{STRING}
+STR_TRACE_RESTRICT_AUTO_CONDITION                               : {STRING}{STRING}（路签 {STRING}）
+STR_TRACE_RESTRICT_AUTO_CONDITION_NOT                           : {STRING}不满足：{STRING}（路签 {STRING}）
+STR_CONFIG_SETTING_AUTOMATIC_YIELD                              :寻路限制自动待避：{STRING}
+STR_CONFIG_SETTING_AUTOMATIC_YIELD_HELPTEXT                     :使用同一路签关联接近检测、正线控制、待避股道出口和车尾清除点。车头经过接近点领取路签，车尾经过清除点退出；手动取消路签可解除该车的待避条件和股道认领。路签容量需容纳参与列车。默认关闭，通行仍遵守原有寻路和信号规则。同一路签支持 1～16 个正线控制点，线路需汇入同一个车尾清除点
+
+STR_TRACE_RESTRICT_AUTO_PERCENT                                :速度差：{NUM}%
+STR_TRACE_RESTRICT_AUTO_PERCENT_CAPTION                        :最小速度差（百分比）
+
+STR_TRACE_RESTRICT_AUTO_ROLE_INSTRUCTION                       : {STRING}：路签 {STRING}
+STR_TRACE_RESTRICT_AUTO_LANE_ORDINARY                           :普通待避线
+STR_TRACE_RESTRICT_AUTO_LANE_PLATFORM                           :站台股道
+STR_TRACE_RESTRICT_AUTO_PLATFORM_ROLE_INSTRUCTION              : {STRING}：路签 {STRING}（站台股道）
+STR_TRACE_RESTRICT_AUTO_LANE_TOOLTIP                           :{BLACK}待避股道类型；设置在股道出口。不停本站的列车优先使用可用普通待避线；没有合适普通线时，可使用能安全进出的空站台股道。保留正常停站和连接任务。
+
+STR_TRACE_RESTRICT_AUTO_SPEED_INSTRUCTION                      :{STRING}：路签 {STRING}（速度差 {NUM}%，{STRING}）
+STR_TRACE_RESTRICT_AUTO_SPEED_CAP_RAIL                         :检测上限：铁轨限速
+STR_TRACE_RESTRICT_AUTO_SPEED_CAP_MANUAL                       :检测上限：{VELOCITY}
+STR_TRACE_RESTRICT_AUTO_SPEED_CAP_INPUT                        :手动输入
+STR_TRACE_RESTRICT_AUTO_SPEED_CAP_CAPTION                      :检测速度上限（当前速度单位）
+STR_TRACE_RESTRICT_AUTO_SPEED_CAP_TOOLTIP                      :{BLACK}只影响快慢车比较，不改变实际车速。默认采用检测点铁轨类型的限速；铁轨无限速时不封顶。同一路签有多个检测点时取最低上限，快慢车判断、等待和腾位统一使用封顶后的速度。 封顶后同速时，实际载有乘客的列车优先；空客车不额外优先。

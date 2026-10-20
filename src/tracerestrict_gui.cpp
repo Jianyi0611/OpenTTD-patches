@@ -12,6 +12,7 @@
 
 #include "stdafx.h"
 #include "tracerestrict.h"
+#include "tracerestrict_overtaking.h"
 #include "tracerestrict_backup.h"
 #include "tracerestrict_cmd.h"
 #include "command_func.h"
@@ -293,6 +294,14 @@ static const uint _deny_value_val[] = {
 static const TraceRestrictDropDownListSet _deny_value = {
 	_deny_value_str, _deny_value_val,
 };
+
+static const StringID _auto_speed_cap_value_str[] = { STR_TRACE_RESTRICT_AUTO_SPEED_CAP_RAIL, STR_TRACE_RESTRICT_AUTO_SPEED_CAP_INPUT };
+static const uint _auto_speed_cap_value_val[] = { 0, 1 };
+static const TraceRestrictDropDownListSet _auto_speed_cap_value = { _auto_speed_cap_value_str, _auto_speed_cap_value_val };
+
+static const StringID _auto_lane_value_str[] = { STR_TRACE_RESTRICT_AUTO_LANE_ORDINARY, STR_TRACE_RESTRICT_AUTO_LANE_PLATFORM };
+static const uint _auto_lane_value_val[] = { 0, 1 };
+static const TraceRestrictDropDownListSet _auto_lane_value = { _auto_lane_value_str, _auto_lane_value_val };
 
 static const StringID _reserve_through_value_str[] = {
 	STR_TRACE_RESTRICT_RESERVE_THROUGH,
@@ -631,6 +640,11 @@ struct TraceRestrictDropDownListItem {
 static std::span<const TraceRestrictDropDownListItem> GetActionDropDownListItems()
 {
 	static const TraceRestrictDropDownListItem actions[] = {
+		{ TRIT_AUTO_YIELD_AREA,          STR_TRACE_RESTRICT_AUTO_APPROACH,            TRDDLIF_NONE },
+		{ TRIT_AUTO_YIELD_AREA | (1 << 16), STR_TRACE_RESTRICT_AUTO_MAIN,             TRDDLIF_NONE },
+		{ TRIT_AUTO_YIELD_AREA | (2 << 16), STR_TRACE_RESTRICT_AUTO_SIDING,           TRDDLIF_HIDDEN },
+		{ TRIT_AUTO_YIELD_AREA | (3 << 16), STR_TRACE_RESTRICT_AUTO_EXIT,             TRDDLIF_NONE },
+		{ TRIT_AUTO_YIELD_CLEAR,         STR_TRACE_RESTRICT_AUTO_CLEAR,               TRDDLIF_NONE },
 		{ TRIT_PF_DENY,                  STR_TRACE_RESTRICT_PF_DENY,                  TRDDLIF_NONE },
 		{ TRIT_PF_PENALTY,               STR_TRACE_RESTRICT_PF_PENALTY,               TRDDLIF_NONE },
 		{ TRIT_RESERVE_THROUGH,          STR_TRACE_RESTRICT_RESERVE_THROUGH,          TRDDLIF_NONE },
@@ -653,6 +667,13 @@ static std::span<const TraceRestrictDropDownListItem> GetActionDropDownListItems
 static std::span<const TraceRestrictDropDownListItem> GetConditionDropDownListItems()
 {
 	static const TraceRestrictDropDownListItem conditions[] = {
+		{ TRIT_COND_AUTO_YIELD_FASTER,                              STR_TRACE_RESTRICT_AUTO_FASTER,                       TRDDLIF_NONE },
+		{ TRIT_COND_AUTO_YIELD_SIDING,                              STR_TRACE_RESTRICT_AUTO_NEEDS_SIDING,                 TRDDLIF_NONE },
+		{ TRIT_COND_AUTO_YIELD_FREE,                                STR_TRACE_RESTRICT_AUTO_FREE,                         TRDDLIF_NONE },
+		{ TRIT_COND_AUTO_YIELD_WAIT,                                STR_TRACE_RESTRICT_AUTO_WAIT,                         TRDDLIF_NONE },
+		{ TRIT_COND_AUTO_YIELD_FULL,                                STR_TRACE_RESTRICT_AUTO_FULL,                         TRDDLIF_NONE },
+		{ TRIT_COND_AUTO_YIELD_EVACUATE,                            STR_TRACE_RESTRICT_AUTO_EVACUATE,                     TRDDLIF_NONE },
+		{ TRIT_COND_AUTO_YIELD_LEAVE,                               STR_TRACE_RESTRICT_AUTO_LEAVE,                        TRDDLIF_NONE },
 		{ TRIT_COND_UNDEFINED,                                        STR_TRACE_RESTRICT_VARIABLE_UNDEFINED,                 TRDDLIF_HIDDEN },
 		{ TRIT_COND_TRAIN_LENGTH,                                     STR_TRACE_RESTRICT_VARIABLE_TRAIN_LENGTH,              TRDDLIF_NONE },
 		{ TRIT_COND_MAX_SPEED,                                        STR_TRACE_RESTRICT_VARIABLE_MAX_SPEED,                 TRDDLIF_NONE },
@@ -938,6 +959,7 @@ static void GetSlotDropDownListIntlCommon(DropDownList &dlist, Owner owner, int 
 	robin_hood::unordered_set<TraceRestrictSlotGroupID> seen_parents;
 
 	for (const TraceRestrictSlot *slot : TraceRestrictSlot::Iterate()) {
+		if (slot->automatic_yield_area != 0) continue;
 		if (slot->owner != owner) continue;
 		if (!show_other_types && slot->vehicle_type != vehtype) continue;
 		if (public_only && !slot->flags.Test(TraceRestrictSlot::Flag::Public)) continue;
@@ -1624,6 +1646,10 @@ static void FillInstructionString(format_buffer &instruction_string, const Trace
 			}
 		} else if (item.GetType() == TRIT_COND_UNDEFINED) {
 			set_instruction(STR_TRACE_RESTRICT_CONDITIONAL_COMPARE_UNDEFINED, _program_cond_type[item.GetCondFlags()]);
+		} else if (item.GetType() >= TRIT_COND_AUTO_YIELD_FASTER && item.GetType() <= TRIT_COND_AUTO_YIELD_LEAVE) {
+			set_instruction(item.GetCondOp() == TRCO_IS ? STR_TRACE_RESTRICT_AUTO_CONDITION : STR_TRACE_RESTRICT_AUTO_CONDITION_NOT,
+					_program_cond_type[item.GetCondFlags()], GetTypeString(item),
+					item.GetValueAsSlot() == INVALID_TRACE_RESTRICT_SLOT_ID ? STR_TRACE_RESTRICT_VARIABLE_UNDEFINED_RED : STR_TRACE_RESTRICT_SLOT_NAME, item.GetValue());
 		} else {
 			auto insert_warning = [&](StringParameter &param, StringID warning) {
 				_temp_special_strings[0] = GetStringWithArgs(warning, std::span(&param, 1));
@@ -1946,6 +1972,22 @@ static void FillInstructionString(format_buffer &instruction_string, const Trace
 		}
 	} else {
 		switch (item.GetType()) {
+			case TRIT_AUTO_YIELD_AREA:
+				if (item.GetAuxField() == to_underlying(AutoYieldRole::Approach)) {
+					set_instruction(STR_TRACE_RESTRICT_AUTO_SPEED_INSTRUCTION, GetTypeString(item),
+							item.GetValueAsSlot() == INVALID_TRACE_RESTRICT_SLOT_ID ? STR_TRACE_RESTRICT_VARIABLE_UNDEFINED_RED : STR_TRACE_RESTRICT_SLOT_NAME,
+							item.GetValue(), instruction_record.secondary >> 16,
+							(instruction_record.secondary & 0xFFFF) ? STR_TRACE_RESTRICT_AUTO_SPEED_CAP_MANUAL : STR_TRACE_RESTRICT_AUTO_SPEED_CAP_RAIL,
+							PackVelocity(instruction_record.secondary & 0xFFFF, VehicleType::Train));
+				} else {
+					set_instruction((instruction_record.secondary & AUTO_YIELD_PLATFORM) ? STR_TRACE_RESTRICT_AUTO_PLATFORM_ROLE_INSTRUCTION : STR_TRACE_RESTRICT_AUTO_ROLE_INSTRUCTION, GetTypeString(item),
+							item.GetValueAsSlot() == INVALID_TRACE_RESTRICT_SLOT_ID ? STR_TRACE_RESTRICT_VARIABLE_UNDEFINED_RED : STR_TRACE_RESTRICT_SLOT_NAME, item.GetValue());
+				}
+				break;
+			case TRIT_AUTO_YIELD_CLEAR:
+				set_instruction(STR_TRACE_RESTRICT_AUTO_CLEAR_INSTRUCTION,
+						item.GetValueAsSlot() == INVALID_TRACE_RESTRICT_SLOT_ID ? STR_TRACE_RESTRICT_VARIABLE_UNDEFINED_RED : STR_TRACE_RESTRICT_SLOT_NAME, item.GetValue());
+				break;
 			case TRIT_NULL:
 				switch (item.GetValue()) {
 					case TRNTSV_START:
@@ -2315,6 +2357,8 @@ class TraceRestrictWindow : public Window {
 		QSM_NEW_SLOT,
 		QSM_NEW_COUNTER,
 		QSM_SET_TEXT,
+		QSM_AUTO_YIELD_PERCENT,
+		QSM_AUTO_YIELD_SPEED_CAP,
 	};
 	QuerySubMode query_submode = QSM_DEFAULT;                                   ///< sub-mode for query strings
 
@@ -2563,6 +2607,10 @@ public:
 
 			case TR_WIDGET_COMPARATOR: {
 				TraceRestrictInstructionItem item = this->GetSelected().instruction;
+				if (item.GetType() == TRIT_AUTO_YIELD_AREA && item.GetAuxField() == to_underlying(AutoYieldRole::Approach)) {
+					this->ShowDropDownListWithValue(&_auto_speed_cap_value, (this->GetSelected().secondary & 0xFFFF) ? 1 : 0, false, TR_WIDGET_COMPARATOR, 0, 0);
+					break;
+				}
 				const TraceRestrictDropDownListSet *list_set = GetCondOpDropDownListSet(GetTraceRestrictTypeProperties(item));
 				if (list_set != nullptr) {
 					this->ShowDropDownListWithValue(list_set, item.GetCondOp(), false, TR_WIDGET_COMPARATOR, 0, 0);
@@ -2735,6 +2783,15 @@ public:
 
 			case TR_WIDGET_LEFT_AUX_DROPDOWN: {
 				TraceRestrictInstructionItem item = this->GetSelected().instruction;
+				if (item.GetType() == TRIT_AUTO_YIELD_AREA && IsAutoYieldLaneRole(static_cast<AutoYieldRole>(item.GetAuxField()))) {
+					this->ShowDropDownListWithValue(&_auto_lane_value, (this->GetSelected().secondary & AUTO_YIELD_PLATFORM) ? 1 : 0, false, TR_WIDGET_LEFT_AUX_DROPDOWN, 0, 0);
+					break;
+				}
+				if (item.GetType() == TRIT_AUTO_YIELD_AREA && item.GetAuxField() == to_underlying(AutoYieldRole::Approach)) {
+					const uint32_t config = this->GetSelected().secondary;
+					this->TraceRestrictShowQueryString(std::to_string(config >> 16), STR_TRACE_RESTRICT_AUTO_PERCENT_CAPTION, 5, CS_NUMERAL, {}, QSM_AUTO_YIELD_PERCENT);
+					break;
+				}
 				switch (GetTraceRestrictTypeProperties(item).value_type) {
 					case TRVT_SLOT_INDEX_INT: {
 						int selected;
@@ -2940,6 +2997,23 @@ public:
 				}
 				return;
 
+			case QSM_AUTO_YIELD_SPEED_CAP: {
+				if (item.GetType() != TRIT_AUTO_YIELD_AREA || item.GetAuxField() != to_underlying(AutoYieldRole::Approach)) return;
+				auto value = ParseInteger<uint>(*str);
+				if (!value || *value == 0 || *value > ConvertIntegerValue(TRVT_SPEED, UINT16_MAX, true)) return;
+				const uint speed = ConvertIntegerValue(TRVT_SPEED, *value, false);
+				if (speed == 0 || speed > UINT16_MAX) return;
+				this->PostInstructionCommand(TRDCT_MODIFY_DUAL_ITEM, (this->GetSelected().secondary & 0xFFFF0000u) | speed, STR_TRACE_RESTRICT_ERROR_CAN_T_MODIFY_ITEM);
+				return;
+			}
+			case QSM_AUTO_YIELD_PERCENT: {
+				if (item.GetType() != TRIT_AUTO_YIELD_AREA || item.GetAuxField() != to_underlying(AutoYieldRole::Approach)) return;
+				auto value = ParseInteger<uint>(*str);
+				if (!value || *value > 1000) return;
+				const uint32_t config = this->GetSelected().secondary;
+				this->PostInstructionCommand(TRDCT_MODIFY_DUAL_ITEM, (*value << 16) | (config & 0xFFFF), STR_TRACE_RESTRICT_ERROR_CAN_T_MODIFY_ITEM);
+				return;
+			}
 			case QSM_SET_TEXT:
 				if (type == TRVT_LABEL_INDEX) {
 					this->PostInstructionCommand(TRDCT_SET_TEXT, 0, STR_TRACE_RESTRICT_ERROR_CAN_T_MODIFY_ITEM, *str);
@@ -2990,6 +3064,25 @@ public:
 		if (item == 0 || index < 0 || this->selected_instruction < 1) {
 			return;
 		}
+		if (widget == TR_WIDGET_COMPARATOR && item.GetType() == TRIT_AUTO_YIELD_AREA && item.GetAuxField() == to_underlying(AutoYieldRole::Approach)) {
+			const uint32_t config = this->GetSelected().secondary;
+			if (index == 0) {
+				this->PostInstructionCommand(TRDCT_MODIFY_DUAL_ITEM, config & 0xFFFF0000u, STR_TRACE_RESTRICT_ERROR_CAN_T_MODIFY_ITEM);
+			} else if (index == 1) {
+				uint speed = config & 0xFFFF;
+				if (speed == 0) speed = GetRailTypeInfo(GetRailTypeByTrack(this->tile, this->track))->max_speed;
+				if (speed == 0) speed = 160;
+				this->TraceRestrictShowQueryString(std::to_string(ConvertIntegerValue(TRVT_SPEED, speed, true)), STR_TRACE_RESTRICT_AUTO_SPEED_CAP_CAPTION, 7, CS_NUMERAL, {}, QSM_AUTO_YIELD_SPEED_CAP);
+			}
+			return;
+		}
+		if (widget == TR_WIDGET_LEFT_AUX_DROPDOWN && item.GetType() == TRIT_AUTO_YIELD_AREA &&
+				IsAutoYieldLaneRole(static_cast<AutoYieldRole>(item.GetAuxField()))) {
+			if (index > 1) return;
+			const uint32_t config = this->GetSelected().secondary;
+			this->PostInstructionCommand(TRDCT_MODIFY_DUAL_ITEM, (config & ~AUTO_YIELD_PLATFORM) | (index ? AUTO_YIELD_PLATFORM : 0), STR_TRACE_RESTRICT_ERROR_CAN_T_MODIFY_ITEM);
+			return;
+		}
 
 		if (widget == TR_WIDGET_VALUE_DROPDOWN || widget == TR_WIDGET_LEFT_AUX_DROPDOWN) {
 			TraceRestrictTypePropertySet type = GetTraceRestrictTypeProperties(item);
@@ -3034,8 +3127,9 @@ public:
 
 		if (widget == TR_WIDGET_INSERT) {
 			TraceRestrictInstructionItem insert_item{};
-
-			SetTraceRestrictTypeAndNormalise(insert_item, static_cast<TraceRestrictItemType>(index & 0xFFFF));
+			const TraceRestrictItemType type = static_cast<TraceRestrictItemType>(index & 0xFFFF);
+			const uint8_t aux_data = IsTraceRestrictTypeAuxSubtype(type) ? static_cast<uint8_t>(index >> 16) : 0;
+			SetTraceRestrictTypeAndNormalise(insert_item, type, aux_data);
 			if (insert_item.IsConditional()) {
 				/* Inserting an if/elif/orif/else */
 				insert_item.SetCondFlags(static_cast<TraceRestrictCondFlags>(index >> 16)); // this needs to happen after calling SetTraceRestrictTypeAndNormalise
@@ -3431,6 +3525,14 @@ public:
 		}
 
 		switch (widget) {
+			case TR_WIDGET_COMPARATOR: {
+				const auto item = this->GetSelected().instruction;
+				if (item.GetType() == TRIT_AUTO_YIELD_AREA && item.GetAuxField() == to_underlying(AutoYieldRole::Approach)) {
+					const uint cap = this->GetSelected().secondary & 0xFFFF;
+					return cap ? GetString(STR_TRACE_RESTRICT_AUTO_SPEED_CAP_MANUAL, PackVelocity(cap, VehicleType::Train)) : GetString(STR_TRACE_RESTRICT_AUTO_SPEED_CAP_RAIL);
+				}
+				return this->Window::GetWidgetString(widget, stringid);
+			}
 			case TR_WIDGET_VALUE_INT: {
 				StringID str = STR_JUST_COMMA;
 				TraceRestrictInstructionRecord record = this->GetSelected();
@@ -3485,6 +3587,11 @@ public:
 				if (this->current_left_aux_plane != DPLA_DROPDOWN) return {}; // Not currently shown, return empty to avoid parameter errors with stale strings
 				TraceRestrictInstructionItem item = this->GetSelected().instruction;
 				TraceRestrictTypePropertySet type = GetTraceRestrictTypeProperties(item);
+				if (item.GetType() == TRIT_AUTO_YIELD_AREA) {
+					const uint32_t config = this->GetSelected().secondary;
+					if (IsAutoYieldLaneRole(static_cast<AutoYieldRole>(item.GetAuxField()))) return GetString((config & AUTO_YIELD_PLATFORM) ? STR_TRACE_RESTRICT_AUTO_LANE_PLATFORM : STR_TRACE_RESTRICT_AUTO_LANE_ORDINARY);
+					return GetString(STR_TRACE_RESTRICT_AUTO_PERCENT, config >> 16);
+				}
 				if (type.value_type == TRVT_SLOT_INDEX_INT || type.value_type == TRVT_COUNTER_INDEX_INT || type.value_type == TRVT_TIME_DATE_INT) {
 					return GetString(stringid, item.GetValue());
 				}
@@ -3506,6 +3613,14 @@ public:
 	bool OnTooltip(Point pt, WidgetID widget, TooltipCloseCondition close_cond) override
 	{
 		switch (widget) {
+			case TR_WIDGET_COMPARATOR: {
+				const auto item = this->GetSelected().instruction;
+				if (item.GetType() == TRIT_AUTO_YIELD_AREA && item.GetAuxField() == to_underlying(AutoYieldRole::Approach)) {
+					GuiShowTooltips(this, GetEncodedString(STR_TRACE_RESTRICT_AUTO_SPEED_CAP_TOOLTIP), close_cond);
+					return true;
+				}
+				return false;
+			}
 			case TR_WIDGET_SHARE: {
 				GuiShowTooltips(this, GetEncodedString(STR_TRACE_RESTRICT_SHARE_TOOLTIP_EXTRA, STR_TRACE_RESTRICT_SHARE_TOOLTIP), close_cond);
 				return true;
@@ -3542,6 +3657,11 @@ public:
 			}
 
 			case TR_WIDGET_LEFT_AUX_DROPDOWN: {
+				const auto item = this->GetSelected().instruction;
+				if (item.GetType() == TRIT_AUTO_YIELD_AREA && IsAutoYieldLaneRole(static_cast<AutoYieldRole>(item.GetAuxField()))) {
+					GuiShowTooltips(this, GetEncodedString(STR_TRACE_RESTRICT_AUTO_LANE_TOOLTIP), close_cond);
+					return true;
+				}
 				switch (GetTraceRestrictTypeProperties(this->GetSelected().instruction).value_type) {
 					case TRVT_SLOT_INDEX_INT:
 					case TRVT_COUNTER_INDEX_INT:
@@ -4074,13 +4194,24 @@ private:
 
 						case TRVT_SLOT_INDEX: {
 							right_sel->SetDisplayedPlane(DPR_VALUE_DROPDOWN);
-							if (!item.IsConditional()) {
+							if (item.GetType() == TRIT_SLOT) {
 								middle_sel->SetDisplayedPlane(DPM_SLOT_OP);
 								this->EnableWidget(TR_WIDGET_SLOT_OP);
+								this->GetWidget<NWidgetCore>(TR_WIDGET_SLOT_OP)->SetString(GetDropDownStringByValue(&_slot_op_subtypes, item.GetCombinedAuxCondOpField()));
+							} else if (item.GetType() == TRIT_AUTO_YIELD_AREA && item.GetAuxField() == to_underlying(AutoYieldRole::Approach)) {
+								left_aux_sel->SetDisplayedPlane(DPLA_DROPDOWN);
+								this->EnableWidget(TR_WIDGET_LEFT_AUX_DROPDOWN);
+								this->GetWidget<NWidgetCore>(TR_WIDGET_LEFT_AUX_DROPDOWN)->SetString(STR_TRACE_RESTRICT_AUTO_PERCENT);
+								middle_sel->SetDisplayedPlane(DPM_COMPARATOR);
+								this->EnableWidget(TR_WIDGET_COMPARATOR);
+								this->GetWidget<NWidgetCore>(TR_WIDGET_COMPARATOR)->SetString((this->GetSelected().secondary & 0xFFFF) ? STR_TRACE_RESTRICT_AUTO_SPEED_CAP_MANUAL : STR_TRACE_RESTRICT_AUTO_SPEED_CAP_RAIL);
+							} else if (item.GetType() == TRIT_AUTO_YIELD_AREA && IsAutoYieldLaneRole(static_cast<AutoYieldRole>(item.GetAuxField()))) {
+								left_aux_sel->SetDisplayedPlane(DPLA_DROPDOWN);
+								this->EnableWidget(TR_WIDGET_LEFT_AUX_DROPDOWN);
+								this->GetWidget<NWidgetCore>(TR_WIDGET_LEFT_AUX_DROPDOWN)->SetString((this->GetSelected().secondary & AUTO_YIELD_PLATFORM) ? STR_TRACE_RESTRICT_AUTO_LANE_PLATFORM : STR_TRACE_RESTRICT_AUTO_LANE_ORDINARY);
 							}
 							this->EnableWidget(TR_WIDGET_VALUE_DROPDOWN);
 
-							this->GetWidget<NWidgetCore>(TR_WIDGET_SLOT_OP)->SetString(GetDropDownStringByValue(&_slot_op_subtypes, item.GetCombinedAuxCondOpField()));
 							if (item.GetValueAsSlot() == INVALID_TRACE_RESTRICT_SLOT_ID) {
 								this->GetWidget<NWidgetCore>(TR_WIDGET_VALUE_DROPDOWN)->SetString(STR_TRACE_RESTRICT_VARIABLE_UNDEFINED);
 							} else {
@@ -4676,6 +4807,7 @@ private:
 		std::vector<ListItem> list;
 
 		for (const TraceRestrictSlot *slot : TraceRestrictSlot::Iterate()) {
+		if (slot->automatic_yield_area != 0) continue;
 			if (slot->owner == owner && slot->vehicle_type == this->vli.vtype) {
 				list.push_back({ SlotItem::Make<SlotItemType::Slot>(slot->index), slot->parent_group, &(slot->name) });
 			}

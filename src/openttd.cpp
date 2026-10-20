@@ -8,6 +8,7 @@
 /** @file openttd.cpp Functions related to starting OpenTTD. */
 
 #include "stdafx.h"
+#include "tracerestrict_overtaking.h"
 
 #include "blitter/factory.hpp"
 #include "sound/sound_driver.hpp"
@@ -1556,6 +1557,8 @@ void StateGameLoop()
 #endif
 		return;
 	}
+
+	if (_game_mode == GameMode::Normal) AutoYieldGameTick();
 
 	PerformanceMeasurer framerate(PerformanceElement::GameLoop);
 	PerformanceAccumulator::Reset(PerformanceElement::GameLoopLandscape);
