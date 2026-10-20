@@ -4771,7 +4771,7 @@ public:
 
 				case OT_WAIT_COUPLE:
 					text_colour = TextColour::LightBlue;
-					if (v->type == VehicleType::Train && TrainFitStation(Train::From(v))) {
+					if (v->type == VehicleType::Train && GetTrainCouplingStation(Train::From(v)) != StationID::Invalid()) {
 						append(STR_VEHICLE_STATUS_WAITING_FOR_COUPLE);
 					} else {
 						append(STR_VEHICLE_STATUS_WAITING_FOR_COUPLE_WRONG);

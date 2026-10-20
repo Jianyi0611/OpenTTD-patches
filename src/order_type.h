@@ -313,6 +313,9 @@ enum class OrderConditionComparator : uint8_t {
 };
 
 
+/** Source of an inclusive coupling speed bound; stored using existing speed flags. */
+enum class CoupleSpeedBoundMode : uint8_t { Disabled, OwnMax, Manual };
+
 /**
  * Enumeration for the data to set in #CmdModifyOrder.
  */
@@ -350,6 +353,7 @@ enum ModifyOrderFlags : uint8_t {
 	MOF_COUPLE_SLOT,    ///< Change trace restrict slot to couple with.
 	MOF_COUPLE_STATION, ///< Change the station to couple at.
 	MOF_WAIT_COUPLE_STATION, ///< Send a waiting train to a selected station before holding.
+	MOF_COUPLE_CHECK_POINT, ///< Check for a matching partner at a selected earlier station or waypoint.
 	MOF_COUPLE_USE_WAITING_SCHEDULE, ///< Take over the waiting consist's schedule at coupling.
 	MOF_COUPLE_SLOT_GROUP,           ///< Change the trace restrict slot group to couple with.
 	MOF_COUPLE_GROUP,                ///< Change the vehicle group the train to couple with must belong to.
@@ -370,6 +374,14 @@ enum ModifyOrderFlags : uint8_t {
 	MOF_RV_GROUP,        ///< Road vehicle transport (RoRo) selection criterion: vehicle group ("载具组") a candidate must belong to.
 	MOF_DECOUPLE_FIRST_SAME_DIR,  ///< Allow the first part to leave the decouple station in the same direction as the other part.
 	MOF_DECOUPLE_SECOND_SAME_DIR, ///< Allow the second part to leave the decouple station in the same direction as the other part.
+	MOF_COUPLE_REJECT_SLOWER, ///< Reject coupling when the approaching train has a lower maximum speed.
+	MOF_COUPLE_REJECT_FASTER, ///< Reject coupling when the approaching train has a higher maximum speed.
+	MOF_COUPLE_SPEED_COMPARATOR1, ///< First waiting-train maximum-speed comparison.
+	MOF_COUPLE_SPEED_COMPARATOR2, ///< Second waiting-train maximum-speed comparison.
+	MOF_COUPLE_SPEED_VALUE1, ///< First waiting-train maximum-speed threshold.
+	MOF_COUPLE_SPEED_VALUE2, ///< Second waiting-train maximum-speed threshold.
+	MOF_COUPLE_SPEED_MIN_MODE, ///< Atomically select the waiting-train minimum-speed source.
+	MOF_COUPLE_SPEED_MAX_MODE, ///< Atomically select the waiting-train maximum-speed source.
 	MOF_END
 };
 

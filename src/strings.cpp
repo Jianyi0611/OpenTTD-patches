@@ -1183,6 +1183,58 @@ uint ConvertDisplaySpeedToKmhishSpeed(uint speed, VehicleType type)
 	return GetVelocityUnits(type).c.FromDisplay(speed * 16, true, 10);
 }
 
+/** Record the velocity unit, including the time basis of game units. */
+uint8_t GetVelocityUnitCode(VehicleType type)
+{
+	const auto &locale = GetGameSettings().locale;
+	uint8_t code = (type == VehicleType::Ship || type == VehicleType::Aircraft) ? locale.units_velocity_nautical : locale.units_velocity;
+	if (code == 3 && (EconTime::UsingWallclockUnits() || DayLengthFactor() > 1)) code = 5;
+	return code;
+}
+
+/** Explicit unit selection for persisted thresholds, independent of client preferences. */
+static const Units &GetRecordedVelocityUnits(uint8_t code)
+{
+	if (code == 5) return _units_velocity_realtime[3];
+	return _units_velocity_calendar[code < 5 ? code : 1];
+}
+
+StringID GetVelocityUnitNameForCode(uint8_t code)
+{
+	if (code == 3) return STR_UNIT_NAME_VELOCITY_GAMEUNITS;
+	if (code == 5) return STR_UNIT_NAME_VELOCITY_GAMEUNITS_WALLCLOCK;
+	if (code == 4) return STR_CONFIG_SETTING_LOCALISATION_UNITS_VELOCITY_KNOTS;
+	return STR_UNIT_NAME_VELOCITY_IMPERIAL + (code < 3 ? code : 1);
+}
+
+/** Convert to whole display units for an input query. */
+uint ConvertKmhishSpeedToIntegerDisplaySpeed(uint speed, VehicleType type)
+{
+	return ConvertKmhishSpeedToIntegerDisplaySpeed(speed, GetVelocityUnitCode(type));
+}
+
+/** The same truncation as the vehicle's displayed maximum speed, with an explicit unit. */
+uint ConvertKmhishSpeedToIntegerDisplaySpeed(uint speed, uint8_t code)
+{
+	const Units &units = GetRecordedVelocityUnits(code);
+	int64_t result = units.c.ToDisplay(static_cast<int64_t>(speed) * 10, false) / 16;
+	for (uint i = 0; i < units.decimal_places; i++) result /= 10;
+	return Clamp<int64_t>(result, 0, UINT_MAX);
+}
+
+/** Convert a saved integer threshold for a query in another display unit. */
+uint ConvertVelocityUnitValue(uint speed, uint8_t from, uint8_t to)
+{
+	if (from == to) return speed;
+	const Units &source = GetRecordedVelocityUnits(from);
+	const Units &destination = GetRecordedVelocityUnits(to);
+	int64_t scaled = static_cast<int64_t>(speed) * 1000;
+	for (uint i = 0; i < source.decimal_places; i++) scaled *= 10;
+	int64_t result = destination.c.ToDisplay(source.c.FromDisplay(scaled), true) / 1000;
+	for (uint i = 0; i < destination.decimal_places; i++) result /= 10;
+	return Clamp<int64_t>(result, 0, UINT_MAX);
+}
+
 /**
  * Convert the given internal weight to the display weight.
  * @param weight the weight to convert

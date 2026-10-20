@@ -9,6 +9,7 @@
 
 #include "stdafx.h"
 #include <map>
+#include <set>
 #include "air.h"
 #include "airport_cmd.h"
 #include "blueprint.h"
@@ -41,6 +42,7 @@
 #include "terraform_cmd.h"
 #include "tile_map.h"
 #include "track_func.h"
+#include "tracerestrict.h"
 #include "vehicle_func.h"
 #include "tunnel_map.h"
 #include "tunnelbridge_cmd.h"
@@ -123,6 +125,22 @@ static void CopyRailTile(Blueprint &blueprint, TileIndex tile, TileIndexDiffC of
 			}
 			blueprint.signals.push_back({offset, track, GetSignalType(tile, track), GetSignalVariant(tile, track),
 					HasSignalOnTrackdir(tile, td), HasSignalOnTrackdir(tile, ReverseTrackdir(td)), spec});
+			BlueprintSignal &signal = blueprint.signals.back();
+			if (const TraceRestrictProgram *program = GetTraceRestrictProgram(MakeTraceRestrictRefId(tile, track), false); program != nullptr) {
+				for (auto item : program->items) signal.restriction_items.push_back(item.base());
+				if (program->texts != nullptr) signal.restriction_labels = program->texts->labels;
+				const TileIndex origin = TileAddXY(tile, -offset.x, -offset.y);
+				for (auto iter : program->IterateInstructions()) {
+					const auto type = GetTraceRestrictTypeProperties(iter.Instruction()).value_type;
+					if (type != TRVT_TILE_INDEX && type != TRVT_TILE_INDEX_THROUGH) continue;
+					TileIndex referenced{iter.Secondary()};
+					if (!IsValidTile(referenced)) continue;
+					const auto pos = BlueprintOffset(referenced, origin);
+					if (pos.x >= 0 && pos.y >= 0 && pos.x < blueprint.width && pos.y < blueprint.height) {
+						signal.restriction_tiles.push_back({uint32_t(iter.ItemIter() - program->items.begin() + 1), pos});
+					}
+				}
+			}
 		}
 	}
 }
@@ -297,9 +315,10 @@ static void CopyStationTile(Blueprint &blueprint, TileIndex tile, TileIndexDiffC
 					if (GetTileOwner(t) != _local_company) continue;
 					TileIndexDiffC rel = BlueprintOffset(t, st->airport.tile);
 					TileIndexDiffC toff{static_cast<int16_t>(anchor.x + rel.x), static_cast<int16_t>(anchor.y + rel.y)};
-					airport.tiles.push_back({toff, static_cast<uint8_t>(Tile(t).m4()),
-							static_cast<uint8_t>(Tile(t).m5()), static_cast<uint8_t>(Tile(t).m6()),
-							static_cast<uint16_t>(Tile(t).m8() & ~(0x3F << 6))}); // clear reservation bits
+					BlueprintAirportTile captured{toff, static_cast<uint8_t>(Tile(t).m4()),
+							static_cast<uint8_t>(Tile(t).m5()), static_cast<uint8_t>(Tile(t).m6()), Tile(t).m8()};
+					ClearBlueprintAirportReservations(captured);
+					airport.tiles.push_back(captured);
 				}
 			}
 
@@ -340,7 +359,10 @@ static TileIndexDiffC ShrinkBlueprintToContents(Blueprint &blueprint)
 		include(v.offset.x + v.w - 1, v.offset.y + v.h - 1);
 	}
 	for (const BlueprintRailTrack &v : blueprint.rail_tracks) include(v.offset.x, v.offset.y);
-	for (const BlueprintSignal &v : blueprint.signals) include(v.offset.x, v.offset.y);
+	for (const BlueprintSignal &v : blueprint.signals) {
+		include(v.offset.x, v.offset.y);
+		for (const auto &ref : v.restriction_tiles) include(ref.offset.x, ref.offset.y);
+	}
 	for (const BlueprintRailDepot &v : blueprint.rail_depots) include(v.offset.x, v.offset.y);
 	for (const BlueprintTunnelBridge &v : blueprint.tunnel_bridges) {
 		include(v.offset.x, v.offset.y);
@@ -379,7 +401,10 @@ static TileIndexDiffC ShrinkBlueprintToContents(Blueprint &blueprint)
 	};
 	for (BlueprintObject &v : blueprint.objects) shift(v.offset);
 	for (BlueprintRailTrack &v : blueprint.rail_tracks) shift(v.offset);
-	for (BlueprintSignal &v : blueprint.signals) shift(v.offset);
+	for (BlueprintSignal &v : blueprint.signals) {
+		shift(v.offset);
+		for (auto &ref : v.restriction_tiles) shift(ref.offset);
+	}
 	for (BlueprintRailDepot &v : blueprint.rail_depots) shift(v.offset);
 	for (BlueprintTunnelBridge &v : blueprint.tunnel_bridges) {
 		shift(v.offset);
@@ -606,6 +631,68 @@ static void SortBlueprintOffsets(TileIndexDiffC &a, TileIndexDiffC &b)
 	if (b.y < a.y || (b.y == a.y && b.x < a.x)) std::swap(a, b);
 }
 
+/** Validate raw custom airport geometry before it can change terrain or enter the map. */
+bool IsBlueprintAirportLayoutValid(const BlueprintAirport &airport)
+{
+	using Offset = std::pair<int, int>;
+	std::map<Offset, const BlueprintAirportTile *> tiles;
+	std::map<Offset, uint8_t> covered;
+	static constexpr uint8_t direction_masks[] = {9, 1, 3, 2, 6, 4, 12, 8};
+	for (const auto &tile : airport.tiles) {
+		if (!tiles.emplace(Offset{tile.offset.x, tile.offset.y}, &tile).second) return false;
+		const uint type = GB(tile.m5, 4, ATT_NUM_BITS);
+		if (type == ATT_WAITING_POINT || type == 9 || type == 11) return false;
+		if (!HasBit(tile.m6, 7)) continue;
+		if (type == ATT_SIMPLE_TRACK && tile.m4 > lengthof(GetAirTypeInfo(AIRTYPE_BEGIN)->base_sprites.ground)) return false;
+		if (type == ATT_INFRASTRUCTURE_WITH_CATCH && tile.m4 > ATTG_WITH_CATCH_BUILDING_TERMINAL) return false;
+		if (type == ATT_INFRASTRUCTURE_NO_CATCH && (tile.m4 < ATTG_NO_CATCH_FLAG || tile.m4 >= ATTG_END)) return false;
+	}
+	for (const auto &[offset, start] : tiles) {
+		const uint type = GB(start->m5, 4, ATT_NUM_BITS);
+		if (type != ATT_RUNWAY_START_ALLOW_LANDING && type != ATT_RUNWAY_START_NO_LANDING) continue;
+		const auto dir = static_cast<DiagDirection>(GB(start->m8, 12, 2));
+		const TileIndexDiffC step = TileIndexDiffCByDiagDir(dir);
+		const uint8_t mask = 1U << to_underlying(dir);
+		Offset pos = offset;
+		covered[pos] |= mask;
+		bool complete = false;
+		for (size_t length = 1; length < tiles.size(); length++) {
+			pos.first += step.x; pos.second += step.y;
+			auto it = tiles.find(pos);
+			if (it == tiles.end()) break;
+			const auto &tile = *it->second;
+			const uint current = GB(tile.m5, 4, ATT_NUM_BITS);
+			if (current == ATT_RUNWAY_MIDDLE) {
+				if ((direction_masks[GB(tile.m8, 12, 3)] & mask) == 0) break;
+			} else if (current == ATT_RUNWAY_END && GB(tile.m8, 12, 2) == to_underlying(dir)) {
+				covered[pos] |= mask;
+				complete = true;
+				break;
+			} else {
+				break;
+			}
+			covered[pos] |= mask;
+		}
+		if (!complete) return false;
+	}
+	for (const auto &[offset, tile] : tiles) {
+		const uint type = GB(tile->m5, 4, ATT_NUM_BITS);
+		if (type < ATT_RUNWAY_MIDDLE) continue;
+		const uint8_t required = type == ATT_RUNWAY_MIDDLE ? direction_masks[GB(tile->m8, 12, 3)] : (1U << GB(tile->m8, 12, 2));
+		if (covered[offset] != required) return false;
+	}
+	return true;
+}
+
+/** Remove transient ground and runway reservations without changing tile orientation. */
+void ClearBlueprintAirportReservations(BlueprintAirportTile &apt)
+{
+	apt.m8 &= ~(0x3F << 6);
+	/* On runways bit 15 is a separate flight reservation; on hangars and
+	 * aprons it is part of the orientation and must remain untouched. */
+	if (GB(apt.m5, 8 - ATT_RUNWAY_LAYOUT_NUM_BITS, ATT_RUNWAY_LAYOUT_NUM_BITS) == ATT_RUNWAY_LAYOUT_BITS) ClrBit(apt.m8, 15);
+}
+
 /**
  * Transform the direction-bearing parts of a captured custom airport tile.
  *
@@ -693,7 +780,19 @@ Blueprint TransformBlueprint(const Blueprint &blueprint, uint8_t rotation, bool 
 		Trackdir new_td = TrackExitdirToTrackdir(new_track, TransformBlueprintDiagDir(TrackdirToExitdir(td), rotation, reflected));
 		bool swapped = new_td != TrackToTrackdir(new_track);
 		result.signals.push_back({tile_offset(sig.offset), new_track, sig.type, sig.variant,
-				swapped ? sig.against : sig.along, swapped ? sig.along : sig.against, sig.spec});
+				swapped ? sig.against : sig.along, swapped ? sig.along : sig.against, sig.spec,
+				sig.restriction_items, sig.restriction_labels, sig.restriction_tiles});
+		BlueprintSignal &transformed = result.signals.back();
+		for (auto &ref : transformed.restriction_tiles) ref.offset = tile_offset(ref.offset);
+		/* Cardinal predicates rotate; front/back predicates remain signal-relative. */
+		for (size_t i = 0; i < transformed.restriction_items.size(); ++i) {
+			TraceRestrictInstructionItem item{transformed.restriction_items[i]};
+			if ((item.GetType() == TRIT_COND_ENTRY_DIRECTION || item.GetType() == TRIT_COND_TARGET_DIRECTION) && item.GetValue() < 4) {
+				item.SetValue(to_underlying(TransformBlueprintDiagDir(static_cast<DiagDirection>(item.GetValue()), rotation, reflected)));
+				transformed.restriction_items[i] = item.base();
+			}
+			if (item.IsDoubleItem()) ++i;
+		}
 	}
 
 	for (const BlueprintRailDepot &depot : blueprint.rail_depots) {
@@ -969,6 +1068,14 @@ BlueprintPasteData PrepareBlueprintPaste(const Blueprint &blueprint, const Bluep
 	return data;
 }
 
+static std::vector<TraceRestrictProgramItem> DecodeBlueprintRestriction(const BlueprintSignal &signal)
+{
+	std::vector<TraceRestrictProgramItem> result;
+	result.reserve(signal.restriction_items.size());
+	for (uint32_t item : signal.restriction_items) result.emplace_back(item);
+	return result;
+}
+
 /**
  * Check that a (possibly network-received) blueprint only contains offsets
  * within its own bounds and valid values where this file indexes by them.
@@ -982,7 +1089,20 @@ static bool BlueprintOffsetsValid(const Blueprint &bp)
 	};
 
 	for (const BlueprintRailTrack &v : bp.rail_tracks) if (!ok(v.offset) || !IsValidTrack(v.track)) return false;
-	for (const BlueprintSignal &v : bp.signals) if (!ok(v.offset) || !IsValidTrack(v.track)) return false;
+	for (const BlueprintSignal &v : bp.signals) {
+		if (!ok(v.offset) || !IsValidTrack(v.track)) return false;
+		auto items = DecodeBlueprintRestriction(v);
+		TraceRestrictProgramActionsUsedFlags actions;
+		if (TraceRestrictProgram::Validate(items, actions).Failed()) return false;
+		std::set<uint32_t> tile_operands;
+		for (auto iter : TraceRestrictInstructionIterateWrapper(items)) {
+			const auto item = iter.Instruction();
+			const auto type = GetTraceRestrictTypeProperties(item).value_type;
+			if (type == TRVT_TILE_INDEX || type == TRVT_TILE_INDEX_THROUGH) tile_operands.insert(uint32_t(iter.ItemIter() - items.begin() + 1));
+			if (item.GetType() == TRIT_GUI_LABEL && item.GetValue() != UINT16_MAX && item.GetValue() >= v.restriction_labels.size()) return false;
+		}
+		for (const auto &ref : v.restriction_tiles) if (!ok(ref.offset) || tile_operands.erase(ref.item) != 1) return false;
+	}
 	for (const BlueprintRailDepot &v : bp.rail_depots) if (!ok(v.offset)) return false;
 	for (const BlueprintTunnelBridge &v : bp.tunnel_bridges) if (!ok(v.offset) || !ok(v.other_end)) return false;
 	for (const BlueprintRoad &v : bp.roads) if (!ok(v.offset)) return false;
@@ -1876,6 +1996,11 @@ CommandCost CmdPasteBlueprint(DoCommandFlags flags, TileIndex origin, const Blue
 	if (data.terraform_mode != BlueprintTerraformMode::None && data.terraform_mode != BlueprintTerraformMode::Minimal && data.terraform_mode != BlueprintTerraformMode::Full) return CMD_ERROR;
 	if (data.terraform_mode != BlueprintTerraformMode::None && bp.corner_heights.size() != static_cast<size_t>(bp.width + 1) * (bp.height + 1)) return CMD_ERROR;
 	if (!BlueprintOffsetsValid(bp)) return CMD_ERROR;
+	/* Raw custom tiles come from a network payload. Reject unsupported types
+	 * before changing terrain; GetAllowedTracks cannot handle these values. */
+	for (const BlueprintAirport &airport : bp.airports) {
+		if (!IsBlueprintAirportLayoutValid(airport)) return CMD_ERROR;
+	}
 	for (const BlueprintObject &object : bp.objects) {
 		const ObjectSpec *spec = ResolveBlueprintObject(object.spec);
 		if (spec == nullptr || !spec->IsEnabled()) return CommandCost(STR_BLUEPRINT_ERROR_MISSING_OBJECT);
@@ -1885,6 +2010,12 @@ CommandCost CmdPasteBlueprint(DoCommandFlags flags, TileIndex origin, const Blue
 	for (const BlueprintSignal &sig : bp.signals) {
 		if (!ResolveBlueprintSignalStyle(sig.spec).has_value()) return CommandCost(STR_BLUEPRINT_ERROR_MISSING_SIGNAL_STYLE);
 	}
+	/* Reserve enough pool capacity before any building. This is deterministic and
+	 * prevents a large paste from leaving newly built signals without programs. */
+	const size_t program_count = std::count_if(bp.signals.begin(), bp.signals.end(), [](const BlueprintSignal &signal) {
+		return !signal.restriction_items.empty();
+	});
+	if (!TraceRestrictProgram::CanAllocateItem(program_count)) return CMD_ERROR;
 	/* Check required styles before changing any landscape or building tracks. */
 	for (const BlueprintStationTile &st : bp.station_tiles) {
 		if (st.spec.grfid != 0 && StationClass::GetByGrf(st.spec.grfid, st.spec.local_id) == nullptr) return CommandCost(STR_BLUEPRINT_ERROR_MISSING_NEWGRF);
@@ -2014,6 +2145,7 @@ CommandCost CmdPasteBlueprint(DoCommandFlags flags, TileIndex origin, const Blue
 		if (!tile_valid(rt.offset)) continue;
 		BlueprintDoCommand<CMD_BUILD_SINGLE_RAIL>(state, flags, target_tile(rt.offset), rt.railtype, rt.track, BuildRailTrackFlags{});
 	}
+	std::vector<const BlueprintSignal *> built_signals;
 	for (const BlueprintSignal &sig : bp.signals) {
 		if (!tile_valid(sig.offset)) continue;
 		Trackdir td = TrackToTrackdir(sig.track);
@@ -2023,8 +2155,8 @@ CommandCost CmdPasteBlueprint(DoCommandFlags flags, TileIndex origin, const Blue
 		TileIndex signal_tile = target_tile(sig.offset);
 		/* No Convert flag: the paste lays the track first, so there is never an
 		 * existing signal to convert and Convert would be rejected as "no signals". */
-		BlueprintDoCommand<CMD_BUILD_SINGLE_SIGNAL>(state, flags, signal_tile, sig.track, sig.type, sig.variant,
-				*ResolveBlueprintSignalStyle(sig.spec), 1, BuildSignalFlags::None, SignalCycleGroups{}, 0, signals_copy);
+		if (BlueprintDoCommand<CMD_BUILD_SINGLE_SIGNAL>(state, flags, signal_tile, sig.track, sig.type, sig.variant,
+				*ResolveBlueprintSignalStyle(sig.spec), 1, BuildSignalFlags::None, SignalCycleGroups{}, 0, signals_copy)) built_signals.push_back(&sig);
 	}
 	for (const BlueprintRailDepot &depot : bp.rail_depots) {
 		if (!tile_valid(depot.offset)) continue;
@@ -2247,19 +2379,23 @@ CommandCost CmdPasteBlueprint(DoCommandFlags flags, TileIndex origin, const Blue
 					/* Preserve the station type nibble (m6 bits 3-6); the rest is the
 					 * airtype gfx flag and the ground counter. */
 					Tile(tile).m6() = (Tile(tile).m6() & 0x78) | (apt.m6 & 0x87);
-					Tile(tile).m8() = apt.m8 & ~(0x3F << 6);
+					BlueprintAirportTile clean = apt;
+					ClearBlueprintAirportReservations(clean);
+					Tile(tile).m8() = clean.m8;
 					RecordBlueprintUndoCustomAirportTile(tile, airtype);
 					MarkTileDirtyByTile(tile);
 				}
 				/* Rebuild the apron/runway/hangar structures and normalise tracks; the
 				 * hangar Depot is created here, so no EnsureFreeHangar is needed. */
-				Station *st = nullptr;
+				std::set<StationID> affected;
 				for (const BlueprintAirportTile &apt : ordered) {
 					if (!tile_valid(apt.offset)) continue;
 					TileIndex t = target_tile(apt.offset);
-					if (IsAirportTile(t)) { st = Station::GetByTile(t); break; }
+					if (IsAirportTile(t) && IsTileOwner(t, _current_company)) affected.insert(GetStationIndex(t));
 				}
-				if (st != nullptr && st->airport.tile != INVALID_TILE) st->UpdateAirportDataStructure();
+				/* A disconnected layout may fall back to several adjacent stations.
+				 * Rebuild all of them, in ID order, just as a joining client will. */
+				for (StationID id : affected) Station::Get(id)->UpdateAirportDataStructure();
 			}
 			if (built) register_new_station(airport.station, airport.offset);
 			continue;
@@ -2284,6 +2420,22 @@ CommandCost CmdPasteBlueprint(DoCommandFlags flags, TileIndex origin, const Blue
 		BlueprintDoCommand<Commands::BuildObject>(state, flags, target_tile(v.offset), static_cast<ObjectType>(spec->Index()), v.view);
 	}
 
+	/* Apply snapshots only after all copied stations/waypoints have their new IDs.
+	 * All peers use this payload, never the initiating client's clipboard state. */
+	if (flags.Test(DoCommandFlag::Execute)) for (const BlueprintSignal *signal : built_signals) {
+		if (signal->restriction_items.empty()) continue;
+		auto items = DecodeBlueprintRestriction(*signal);
+		for (const auto &ref : signal->restriction_tiles) items[ref.item] = TraceRestrictProgramItem{tile_valid(ref.offset) ? target_tile(ref.offset).base() : INVALID_TILE.base()};
+		for (auto iter : TraceRestrictInstructionIterateWrapper(items)) {
+			auto item = iter.InstructionRef();
+			if ((item.GetType() == TRIT_COND_CURRENT_ORDER || item.GetType() == TRIT_COND_NEXT_ORDER || item.GetType() == TRIT_COND_LAST_STATION) &&
+					(item.GetAuxField() == TROCAF_STATION || item.GetAuxField() == TROCAF_WAYPOINT)) {
+				auto found = new_station_ids.find(StationID{item.GetValue()});
+				if (found != new_station_ids.end()) item.SetValue(found->second.base());
+			}
+		}
+		ApplyTraceRestrictProgramSnapshot(flags, target_tile(signal->offset), signal->track, items, signal->restriction_labels);
+	}
 	if (!state.any_success) return CMD_ERROR;
 	return state.total;
 }

@@ -2134,7 +2134,12 @@ void RVTransportValidateAfterLoad()
 				v->transported_by = VehicleID::Invalid();
 				v->transported_host_part = VehicleID::Invalid();
 				v->transported_weight = 0;
-				if (was_carried) v->vehstatus.Reset(VehState::Hidden);
+				if (was_carried) {
+					v->vehstatus.Reset(VehState::Hidden);
+					/* The initial load-time hash rebuild skipped this carried part.
+					 * It occupies the network again after its stale state is cleared. */
+					v->UpdatePosition();
+				}
 			}
 			continue;
 		}

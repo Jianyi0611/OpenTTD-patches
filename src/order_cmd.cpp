@@ -76,7 +76,9 @@ const Depot *GetOrderHangar(const Order &o)
 	 * index can exist at a completely different airport; trying the depot interpretation
 	 * first would silently redirect the aircraft to that other airport's hangar. */
 	const Station *st = Station::GetIfValid(o.GetDestination().ToStationID());
-	if (st != nullptr && st->airport.hangar != nullptr) return st->airport.hangar;
+	/* A valid station with no hangar is not a legacy DepotID: falling back
+	 * would redirect a canonical order to an unrelated colliding depot. */
+	if (st != nullptr) return st->airport.hangar;
 
 	/* Compatibility with an order that stored the hangar depot index instead, e.g. an
 	 * aircraft saved in the middle of an automatic servicing order. */
@@ -184,6 +186,8 @@ void Order::Free()
 	this->type  = OT_NOTHING;
 	this->flags = 0;
 	this->dest  = 0;
+	this->couple_speed_value1 = this->couple_speed_value2 = 0;
+	this->couple_speed_unit1 = this->couple_speed_unit2 = 1;
 	DeAllocExtraInfo();
 }
 
@@ -305,6 +309,8 @@ void Order::MakeGoToCouple()
 {
 	this->type = OT_GOTO_COUPLE;
 	this->flags = 0;
+	this->couple_speed_value1 = this->couple_speed_value2 = 0;
+	this->couple_speed_unit1 = this->couple_speed_unit2 = 1;
 }
 
 /**
@@ -566,6 +572,10 @@ void Order::AssignOrder(const Order &other)
 	this->max_speed   = other.max_speed;
 
 	this->occupancy = other.occupancy;
+	this->couple_speed_value1 = other.couple_speed_value1;
+	this->couple_speed_value2 = other.couple_speed_value2;
+	this->couple_speed_unit1 = other.couple_speed_unit1;
+	this->couple_speed_unit2 = other.couple_speed_unit2;
 
 	if (other.extra != nullptr) {
 		this->AllocExtraInfo();
@@ -720,9 +730,11 @@ void OrderList::RecalculateDerivedCounters()
 static void DetachHomeReferences(OrderList *going_away)
 {
 	for (Vehicle *u : Vehicle::Iterate()) {
+		std::erase_if(u->execute_schedule_stack, [&](uint32_t frame) { return OrderListID{uint16_t(frame)} == going_away->index; });
 		if (u->primary_order != going_away->index || u->orders == going_away) continue;
 		u->primary_order = (u->orders != nullptr) ? u->orders->index : OrderListID::Invalid();
 		u->primary_order_index = INVALID_VEH_ORDER_ID;
+		u->execute_schedule_stack.clear();
 	}
 }
 
@@ -743,6 +755,7 @@ bool OrderListIsSomeonesHome(const OrderList *ol)
 {
 	for (const Vehicle *u : Vehicle::Iterate()) {
 		if (u->primary_order == ol->index && u->orders != ol) return true;
+		for (uint32_t frame : u->execute_schedule_stack) if (OrderListID{uint16_t(frame)} == ol->index) return true;
 	}
 	return false;
 }
@@ -1456,6 +1469,7 @@ static bool StandaloneHasFullLoadOrder(const OrderList *ol)
  */
 static CommandCost ValidateStandaloneNewOrder(const Order &new_order)
 {
+	if (new_order.IsType(OT_GOTO_COUPLE) && (new_order.GetCoupleSpeedComparator(0) > 6 || new_order.GetCoupleSpeedComparator(1) > 6 || new_order.GetCoupleSpeedUnit(0) >= 6 || new_order.GetCoupleSpeedUnit(1) >= 6)) return CMD_ERROR;
 	switch (new_order.GetType()) {
 		case OT_GOTO_STATION:
 			if (Station::GetIfValid(new_order.GetDestination().ToStationID()) == nullptr) return CMD_ERROR;
@@ -1491,8 +1505,15 @@ template <typename F>
 static void AdjustExecutingResumeIndices(OrderListID home, F &&adjust)
 {
 	for (Vehicle *u : Vehicle::Iterate()) {
-		if (u->orders == nullptr || !u->IsExecutingSchedule() || u->primary_order != home) continue;
-		adjust(u->primary_order_index);
+		if (u->orders == nullptr || !u->IsExecutingSchedule()) continue;
+		if (u->primary_order == home) adjust(u->primary_order_index);
+		for (uint32_t &frame : u->execute_schedule_stack) {
+			if (OrderListID{uint16_t(frame)} != home) continue;
+			VehicleOrderID resume = frame >> 16;
+			if (resume == INVALID_VEH_ORDER_ID) continue;
+			adjust(resume);
+			frame = uint16_t(frame) | (uint32_t(resume) << 16);
+		}
 	}
 }
 
@@ -2136,9 +2157,12 @@ static CommandCost PreInsertOrderCheck(Vehicle *v, const Order &new_order, CmdIn
 		}
 
 		case OT_GOTO_COUPLE:
+			if (new_order.GetCoupleSpeedComparator(0) > 6 || new_order.GetCoupleSpeedComparator(1) > 6 || new_order.GetCoupleSpeedUnit(0) >= 6 || new_order.GetCoupleSpeedUnit(1) >= 6) return CMD_ERROR;
+			break;
+
 		case OT_WAIT_COUPLE:
 		case OT_DECOUPLE:
-			/* Couple/decouple orders have no destination or flags validation. */
+			/* Wait/decouple orders have no destination or flags validation. */
 			break;
 
 		default: return CMD_ERROR;
@@ -2924,7 +2948,7 @@ CommandCost CmdReverseOrderList(DoCommandFlags flags, VehicleID veh, ReverseOrde
  *                the maximum vehicle order id is 254.
  * @param mof what data to modify (@see ModifyOrderFlags)
  * @param data the data to modify
- * @param cargo for MOF_CARGO_TYPE_UNLOAD, MOF_CARGO_TYPE_LOAD
+ * @param cargo_id Cargo type, or the captured velocity unit code (0..5) for MOF_COUPLE_SPEED_VALUE1/2
  * @param text for MOF_LABEL_TEXT
  * @return the cost of this operation or an error
  */
@@ -2959,19 +2983,9 @@ CommandCost CmdModifyOrder(DoCommandFlags flags, OrderTargetType target_type, ui
 	assert(order != nullptr);
 
 	/* Dispatch nested order commands to the same target mode as this command. */
-	auto delete_order_cmd = [&](VehicleOrderID pos) {
-		if (is_list) {
-			CmdDeleteOrder(flags, OrderTargetType::OrderList, id, pos);
-		} else {
-			Command<Commands::DeleteOrder>::Do(flags, OrderTargetType::Vehicle, v->index.base(), pos);
-		}
-	};
-	auto insert_order_cmd = [&](VehicleOrderID pos, const Order &new_o) {
-		if (is_list) {
-			CmdInsertOrder(flags, InsertOrderCmdData(ol->index, pos, new_o));
-		} else {
-			CmdInsertOrder(flags, InsertOrderCmdData(v->index, pos, new_o));
-		}
+	auto insert_order_cmd = [&](DoCommandFlags cmd_flags, VehicleOrderID pos, const Order &new_o) {
+		return is_list ? CmdInsertOrder(cmd_flags, InsertOrderCmdData(ol->index, pos, new_o)) :
+				CmdInsertOrder(cmd_flags, InsertOrderCmdData(v->index, pos, new_o));
 	};
 	auto change_timetable_cmd = [&](VehicleOrderID pos, ModifyTimetableFlags mtf2, uint32_t data2, ModifyTimetableCtrlFlags ctrl2) {
 		if (is_list) {
@@ -3003,7 +3017,9 @@ CommandCost CmdModifyOrder(DoCommandFlags flags, OrderTargetType target_type, ui
 				break;
 
 			case OT_GOTO_COUPLE:
-				if (mof != MOF_COUPLE_LOAD && mof != MOF_COUPLE_CARGO && mof != MOF_COUPLE_VALUE && mof != MOF_COUPLE_SLOT && mof != MOF_COUPLE_SLOT_GROUP && mof != MOF_COUPLE_GROUP && mof != MOF_COUPLE_STATION && mof != MOF_COUPLE_USE_WAITING_SCHEDULE) return CMD_ERROR;
+				if (mof != MOF_COUPLE_LOAD && mof != MOF_COUPLE_CARGO && mof != MOF_COUPLE_VALUE && mof != MOF_COUPLE_SLOT && mof != MOF_COUPLE_SLOT_GROUP && mof != MOF_COUPLE_GROUP && mof != MOF_COUPLE_STATION && mof != MOF_COUPLE_USE_WAITING_SCHEDULE && mof != MOF_COUPLE_CHECK_POINT && mof != MOF_COUPLE_REJECT_SLOWER && mof != MOF_COUPLE_REJECT_FASTER
+						&& mof != MOF_COUPLE_SPEED_COMPARATOR1 && mof != MOF_COUPLE_SPEED_COMPARATOR2 && mof != MOF_COUPLE_SPEED_VALUE1 && mof != MOF_COUPLE_SPEED_VALUE2
+						&& mof != MOF_COUPLE_SPEED_MIN_MODE && mof != MOF_COUPLE_SPEED_MAX_MODE) return CMD_ERROR;
 				break;
 
 			case OT_WAIT_COUPLE:
@@ -3408,7 +3424,14 @@ CommandCost CmdModifyOrder(DoCommandFlags flags, OrderTargetType target_type, ui
 
 		case MOF_DECOUPLE:
 			if (!is_list && v->type != VehicleType::Train) return CMD_ERROR;
+			if (data > 1) return CMD_ERROR;
 			if (order->GetNonStopType() & ONSF_NO_STOP_AT_DESTINATION_STATION) return CMD_ERROR;
+			if (order->GetDecouple() == ODF_NOTHING && data == ODF_DECOUPLE) {
+				Order marker;
+				marker.MakeDecouple();
+				ret = insert_order_cmd(DoCommandFlags{flags}.Reset(DoCommandFlag::Execute), sel_ord + 1, marker);
+				if (ret.Failed()) return ret;
+			}
 			break;
 
 		case MOF_DECOUPLE_VALUE:
@@ -3474,6 +3497,45 @@ CommandCost CmdModifyOrder(DoCommandFlags flags, OrderTargetType target_type, ui
 			}
 			break;
 
+		case MOF_COUPLE_CHECK_POINT:
+			if (!is_list && v->type != VehicleType::Train) return CMD_ERROR;
+			if (data != 0) {
+				bool found = false;
+				for (VehicleOrderID i = 0; i < sel_ord; ++i) {
+					const Order *candidate = ol->GetOrderAt(i);
+					if (candidate != nullptr && (candidate->IsType(OT_GOTO_STATION) || candidate->IsType(OT_GOTO_WAYPOINT)) && candidate->GetDestination().base() == data - 1) { found = true; break; }
+				}
+				if (!found) return CMD_ERROR;
+			}
+			break;
+
+		case MOF_COUPLE_SPEED_MIN_MODE:
+		case MOF_COUPLE_SPEED_MAX_MODE:
+			if (data > to_underlying(CoupleSpeedBoundMode::Manual)) return CMD_ERROR;
+			if (!is_list && v->type != VehicleType::Train) return CMD_ERROR;
+			if (!order->IsType(OT_GOTO_COUPLE)) return CMD_ERROR;
+			break;
+
+		case MOF_COUPLE_SPEED_COMPARATOR1:
+		case MOF_COUPLE_SPEED_COMPARATOR2:
+			if (data > 6) return CMD_ERROR;
+			if (!is_list && v->type != VehicleType::Train) return CMD_ERROR;
+			if (!order->IsType(OT_GOTO_COUPLE)) return CMD_ERROR;
+			break;
+
+		case MOF_COUPLE_SPEED_VALUE1:
+		case MOF_COUPLE_SPEED_VALUE2:
+			/* These threshold commands use the auxiliary byte for the captured velocity unit,
+			 * so that changing a value and its unit is one atomic network command. */
+			if (cargo_id >= 6) return CMD_ERROR;
+			if (!is_list && v->type != VehicleType::Train) return CMD_ERROR;
+			if (!order->IsType(OT_GOTO_COUPLE)) return CMD_ERROR;
+			break;
+
+		case MOF_COUPLE_REJECT_SLOWER:
+		case MOF_COUPLE_REJECT_FASTER:
+			if (data > 1) return CMD_ERROR;
+			[[fallthrough]];
 		case MOF_COUPLE_USE_WAITING_SCHEDULE:
 			if (!is_list && v->type != VehicleType::Train) return CMD_ERROR;
 			if (order->GetType() != OT_GOTO_COUPLE) return CMD_ERROR;
@@ -3881,18 +3943,27 @@ CommandCost CmdModifyOrder(DoCommandFlags flags, OrderTargetType target_type, ui
 				break;
 
 			case MOF_DECOUPLE: {
-				OrderDecoupleFlags decouple_flags = order->GetDecouple();
-				order->SetDecouple(data);
-				if (decouple_flags == ODF_DECOUPLE && order->GetDecouple() == ODF_NOTHING) {
-					delete_order_cmd(sel_ord + 1);
-				}
-				if (decouple_flags == ODF_NOTHING && order->GetDecouple() == ODF_DECOUPLE) {
+				const OrderDecoupleFlags old_flags = order->GetDecouple();
+				if (old_flags == ODF_DECOUPLE && data == ODF_NOTHING) {
+					/* A legacy or edited list may have lost its marker. Never delete an
+					 * unrelated successor or invoke the out-of-range declone command. */
+					const Order *marker = ol->GetOrderAt(sel_ord + 1);
+					if (marker != nullptr && marker->IsType(OT_DECOUPLE)) {
+						ret = CmdDeleteOrder(flags, target_type, id, sel_ord + 1);
+						if (ret.Failed()) return ret;
+					}
+				} else if (old_flags == ODF_NOTHING && data == ODF_DECOUPLE) {
 					Order new_order;
 					new_order.MakeDecouple();
 					new_order.SetDecoupleFirstOrdersType(ODOF_KEEP_ORDERS_NO_LOAD);
 					new_order.SetDecoupleSecondOrdersType(ODOF_LOAD_AND_WAIT);
-					insert_order_cmd(sel_ord + 1, new_order);
+					ret = insert_order_cmd(flags, sel_ord + 1, new_order);
+					if (ret.Failed()) return ret;
 				}
+				/* Insertion can reallocate the order vector. Refresh before changing
+				 * the station flags or synchronising any vehicle's current order. */
+				order = ol->GetOrderAt(sel_ord);
+				order->SetDecouple(data);
 				break;
 			}
 
@@ -3928,8 +3999,36 @@ CommandCost CmdModifyOrder(DoCommandFlags flags, OrderTargetType target_type, ui
 				order->SetWaitCoupleStation(data == 0 ? StationID::Invalid() : StationID{(uint16_t)(data - 1)});
 				break;
 
+			case MOF_COUPLE_SPEED_MIN_MODE:
+			case MOF_COUPLE_SPEED_MAX_MODE:
+				order->SetCoupleSpeedBoundMode(mof == MOF_COUPLE_SPEED_MIN_MODE ? 0 : 1, static_cast<CoupleSpeedBoundMode>(data));
+				break;
+
+			case MOF_COUPLE_SPEED_COMPARATOR1:
+			case MOF_COUPLE_SPEED_COMPARATOR2:
+				order->SetCoupleSpeedComparator(mof == MOF_COUPLE_SPEED_COMPARATOR1 ? 0 : 1, data);
+				break;
+
+			case MOF_COUPLE_SPEED_VALUE1:
+			case MOF_COUPLE_SPEED_VALUE2:
+				order->SetCoupleSpeedValue(mof == MOF_COUPLE_SPEED_VALUE1 ? 0 : 1, data);
+				order->SetCoupleSpeedUnit(mof == MOF_COUPLE_SPEED_VALUE1 ? 0 : 1, cargo_id);
+				break;
+
+			case MOF_COUPLE_REJECT_SLOWER:
+				order->SetCoupleRejectSlower(data != 0);
+				break;
+
+			case MOF_COUPLE_REJECT_FASTER:
+				order->SetCoupleRejectFaster(data != 0);
+				break;
+
 			case MOF_COUPLE_USE_WAITING_SCHEDULE:
 				order->SetCoupleUseWaitingSchedule(data != 0);
+				break;
+
+			case MOF_COUPLE_CHECK_POINT:
+				order->SetCoupleCheckPoint(data == 0 ? StationID::Invalid() : StationID{(uint16_t)(data - 1)});
 				break;
 
 			case MOF_FIRST_ORDERS:
@@ -4007,6 +4106,31 @@ CommandCost CmdModifyOrder(DoCommandFlags flags, OrderTargetType target_type, ui
 		}
 
 		if (is_list) {
+			if (mof == MOF_DECOUPLE) {
+				for (Vehicle *u = ol->GetFirstSharedVehicle(); u != nullptr; u = u->NextShared()) {
+					if (sel_ord != u->cur_real_order_index || !u->current_order.IsType(OT_GOTO_STATION)) continue;
+					u->current_order.SetDecouple(order->GetDecouple());
+					u->current_order.SetNumDecouple(order->GetNumDecouple());
+					InvalidateVehicleOrder(u, VIWD_MODIFY_ORDERS);
+				}
+			}
+			/* A running train holds a copy of its active order. Update that copy
+			 * in simulation scope even when the standalone schedule is edited. */
+			if (mof == MOF_COUPLE_SPEED_MIN_MODE || mof == MOF_COUPLE_SPEED_MAX_MODE ||
+					mof == MOF_COUPLE_REJECT_SLOWER || mof == MOF_COUPLE_REJECT_FASTER ||
+					mof == MOF_COUPLE_SPEED_COMPARATOR1 || mof == MOF_COUPLE_SPEED_COMPARATOR2 || mof == MOF_COUPLE_SPEED_VALUE1 || mof == MOF_COUPLE_SPEED_VALUE2) {
+				for (Vehicle *u = ol->GetFirstSharedVehicle(); u != nullptr; u = u->NextShared()) {
+					if (sel_ord != u->cur_real_order_index || !u->current_order.IsType(OT_GOTO_COUPLE)) continue;
+					u->current_order.SetCoupleRejectSlower(order->GetCoupleRejectSlower());
+					u->current_order.SetCoupleRejectFaster(order->GetCoupleRejectFaster());
+					for (uint row = 0; row < 2; row++) {
+						u->current_order.SetCoupleSpeedComparator(row, order->GetCoupleSpeedComparator(row));
+						u->current_order.SetCoupleSpeedValue(row, order->GetCoupleSpeedValue(row));
+						u->current_order.SetCoupleSpeedUnit(row, order->GetCoupleSpeedUnit(row));
+					}
+					InvalidateVehicleOrder(u, VIWD_MODIFY_ORDERS);
+				}
+			}
 			InvalidateStandaloneOrderGUIs();
 		} else {
 			/* Update the windows and full load flags, also for vehicles that share the same order list */
@@ -4078,6 +4202,13 @@ CommandCost CmdModifyOrder(DoCommandFlags flags, OrderTargetType target_type, ui
 				u->current_order.GetRVTransportMaxRef() = order->GetRVTransportMax();
 			}
 			if (sel_ord == u->cur_real_order_index && u->current_order.IsType(OT_GOTO_COUPLE)) {
+				u->current_order.SetCoupleRejectSlower(order->GetCoupleRejectSlower());
+				u->current_order.SetCoupleRejectFaster(order->GetCoupleRejectFaster());
+				for (uint row = 0; row < 2; row++) {
+					u->current_order.SetCoupleSpeedComparator(row, order->GetCoupleSpeedComparator(row));
+					u->current_order.SetCoupleSpeedValue(row, order->GetCoupleSpeedValue(row));
+					u->current_order.SetCoupleSpeedUnit(row, order->GetCoupleSpeedUnit(row));
+				}
 				u->current_order.SetCoupleLoad(order->GetCoupleLoad());
 				u->current_order.SetCoupleCargoType(order->GetCoupleCargoType());
 				u->current_order.SetNumCouple(order->GetNumCouple());
@@ -4085,6 +4216,7 @@ CommandCost CmdModifyOrder(DoCommandFlags flags, OrderTargetType target_type, ui
 				u->current_order.SetCoupleSlotGroup(order->GetCoupleSlotGroup());
 				u->current_order.SetCoupleGroup(order->GetCoupleGroup());
 				u->current_order.SetXData2Low(order->GetXData2Low());
+				u->current_order.SetCoupleCheckPoint(order->GetCoupleCheckPoint());
 			}
 			if (sel_ord == u->cur_real_order_index && u->current_order.IsType(OT_WAIT_COUPLE) && mof == MOF_WAIT_COUPLE_STATION) {
 				u->current_order.SetWaitCoupleStation(order->GetWaitCoupleStation());
@@ -4930,6 +5062,7 @@ void SetDecoupleWaitOrderList(Vehicle *v, OrderList *orders)
 
 void DeleteVehicleOrders(Vehicle *v, bool keep_orderlist, bool reset_order_indices)
 {
+	v->execute_schedule_stack.clear();
 	DeleteOrderWarnings(v);
 	InvalidateWindowClassesData(WindowClass::DepartureBoard);
 
@@ -5619,14 +5752,26 @@ void FlushAdvanceOrderIndexDeferred(const Vehicle *v, bool apply)
 
 /**
  * A vehicle executing another order list finished one full pass of it: return
- * the vehicle to its primary (home) order list and resume at the position
- * remembered when the detour started.
+ * to its immediate caller, or its primary list for the outermost call.
+ * Completed or deleted callers are skipped while unwinding the return stack.
  * @note called from the order index wrap-around handling, so the caller must
  *       cope with the vehicle's order list having changed on return.
  */
 void Vehicle::ReturnFromExecuteSchedule()
 {
 	OrderList *home = OrderList::GetIfValid(this->primary_order);
+	VehicleOrderID resume = this->primary_order_index;
+	bool nested = false;
+	while (!this->execute_schedule_stack.empty()) {
+		const uint32_t frame = this->execute_schedule_stack.back();
+		this->execute_schedule_stack.pop_back();
+		OrderList *parent = OrderList::GetIfValid(OrderListID{uint16_t(frame)});
+		if (parent == nullptr || (frame >> 16) >= parent->GetNumOrders()) continue;
+		home = parent;
+		resume = frame >> 16;
+		nested = true;
+		break;
+	}
 	OrderList *target = this->orders;
 	if (home == nullptr || home == target) {
 		/* The home list is gone (its deletion should have handled this):
@@ -5658,10 +5803,11 @@ void Vehicle::ReturnFromExecuteSchedule()
 	this->vehicle_flags.Set(VehicleFlag::TimetableSeparation, home->IsSeparationEnabled());
 
 	/* Resume where we left the home list when we jumped away. */
-	VehicleOrderID resume = this->primary_order_index;
 	if (resume == INVALID_VEH_ORDER_ID || resume >= home->GetNumOrders()) resume = 0;
-	this->primary_order_index = INVALID_VEH_ORDER_ID;
-	this->primary_order = home->index;
+	if (!nested) {
+		this->primary_order_index = INVALID_VEH_ORDER_ID;
+		this->primary_order = home->index;
+	}
 	this->cur_implicit_order_index = resume;
 	this->cur_real_order_index = resume;
 	this->cur_timetable_order_index = INVALID_VEH_ORDER_ID;
@@ -5700,7 +5846,7 @@ bool UpdateOrderDest(Vehicle *v, const Order *order, int conditional_depth, bool
 		case OT_WAIT_COUPLE:
 			if (order->HasWaitCoupleStation() && Station::IsValidID(order->GetWaitCoupleStation())) {
 				if (v->last_station_visited == order->GetWaitCoupleStation() && v->type == VehicleType::Train &&
-						v->cur_speed == 0 && IsRailStationTile(v->tile) && GetStationIndex(v->tile) == order->GetWaitCoupleStation()) {
+						v->cur_speed == 0 && GetTrainCouplingStation(Train::From(v)) == order->GetWaitCoupleStation()) {
 					v->SetDestTile(INVALID_TILE);
 					return false;
 				}
@@ -5839,16 +5985,13 @@ bool UpdateOrderDest(Vehicle *v, const Order *order, int conditional_depth, bool
 			assert(!pbs_look_ahead);
 			{
 				OrderList *target = OrderList::GetIfValid(order->GetDestination().ToOrderListID());
-				/* An empty list has nothing to execute: the order indices would be
-				 * reset against a list of length 0 and the vehicle would end up in
-				 * an inconsistent state. Treat it like an invalid target and step
-				 * past the order instead (same rule as the prediction paths). */
-				if (target != nullptr && target != v->orders && target->GetNumOrders() > 0 && target->IsPlayerCreated() && target->IsVisibleToCompany(v->owner)) {
+				bool recursive = target != nullptr && v->IsExecutingSchedule() && target->index == v->primary_order;
+				for (uint32_t frame : v->execute_schedule_stack) if (target != nullptr && OrderListID{uint16_t(frame)} == target->index) recursive = true;
+				if (target != nullptr && target != v->orders && target->GetNumOrders() > 0 && !recursive && v->execute_schedule_stack.size() < 64 && target->IsPlayerCreated() && target->IsVisibleToCompany(v->owner)) {
 					/* Execute the target order list: switch this vehicle to it (shared list).
 					 * The primary order list is kept as-is; after one full pass of the
 					 * target list the vehicle returns to it and resumes where it left.
-					 * Nested execute-schedule orders jump the same way without touching
-					 * the primary list. */
+					 * Nested calls preserve their immediate parent in a separate stack. */
 					OrderList *home = v->orders;
 					if (!v->IsExecutingSchedule()) {
 						/* Step past this execute-schedule order; the resulting position
@@ -5862,6 +6005,8 @@ bool UpdateOrderDest(Vehicle *v, const Order *order, int conditional_depth, bool
 						v->primary_order = home->index;
 						v->primary_order_index = v->cur_real_order_index;
 					} else {
+						const VehicleOrderID resume = v->cur_real_order_index + 1 < home->GetNumOrders() ? v->cur_real_order_index + 1 : INVALID_VEH_ORDER_ID;
+						v->execute_schedule_stack.push_back(home->index.base() | (uint32_t(resume) << 16));
 					}
 
 					/* Remember the home list's dispatch/separation state if it is not
@@ -5974,6 +6119,15 @@ bool ProcessOrders(Vehicle *v)
 	 */
 	bool may_reverse = v->current_order.IsType(OT_NOTHING) || v->current_order.IsType(OT_GOTO_COUPLE) || v->current_order.IsType(OT_WAIT_COUPLE);
 	Vehicle *moving_front = v->GetMovingFront();
+	/* A selected early couple checkpoint must hold before a via order advances.
+	 * ProcessOrders also runs from path reservation, outside TrainLocoHandler. */
+	if (v->type == VehicleType::Train && (v->current_order.IsType(OT_GOTO_WAYPOINT) ||
+			(v->current_order.IsType(OT_GOTO_STATION) && (v->current_order.GetNonStopType() & ONSF_NO_STOP_AT_DESTINATION_STATION))) &&
+			TrainShouldWaitForCoupleAtCheckpoint(Train::From(v))) {
+		v->cur_speed = 0;
+		v->subspeed = 0;
+		return false;
+	}
 
 	v->vehicle_flags.Reset(VehicleFlag::ConditionalOrderWait);
 

@@ -66,14 +66,14 @@
 bool SetClipboardContents(const std::string &contents); ///< Implemented per OS.
 
 /** Identifying prefix of a blueprint in clipboard text form; the trailing digit is the format version. */
-static constexpr std::string_view BLUEPRINT_CLIPBOARD_PREFIX = "OTTD-BP-5;";
+static constexpr std::string_view BLUEPRINT_CLIPBOARD_PREFIX = "OTTD-BP-6;";
 
-/** Also accept older exports: v3 has no styles, v4 has station styles only. */
+/** Also accept older exports: v3 has no styles, v4 has station styles only, v5 adds signals/objects. */
 static bool HasBlueprintTextPrefix(std::string_view text, std::string_view prefix)
 {
 	if (text.starts_with(prefix)) return true;
 	std::string legacy(prefix);
-	for (char version : {'3', '4'}) {
+	for (char version : {'3', '4', '5'}) {
 		legacy[legacy.size() - 2] = version;
 		if (text.starts_with(legacy)) return true;
 	}
@@ -167,10 +167,10 @@ static std::string EncodeBlueprintText(const Blueprint &blueprint)
 }
 
 /** Identifying prefix of one page of slots saved to a file; the trailing digit is the format version. */
-static constexpr std::string_view BLUEPRINT_SET_FILE_PREFIX = "OTTD-BPSET-5;";
+static constexpr std::string_view BLUEPRINT_SET_FILE_PREFIX = "OTTD-BPSET-6;";
 
 /** Identifying prefix of the autosave, which holds every page; the trailing digit is the format version. */
-static constexpr std::string_view BLUEPRINT_ALL_FILE_PREFIX = "OTTD-BPALL-5;";
+static constexpr std::string_view BLUEPRINT_ALL_FILE_PREFIX = "OTTD-BPALL-6;";
 
 /** File extension used for exported blueprint sets, appended to the player-typed file name. */
 static constexpr std::string_view BLUEPRINT_SET_FILE_EXTENSION = ".txt";

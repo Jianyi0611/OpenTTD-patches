@@ -2108,6 +2108,11 @@ STR_ORDER_LIST_ALL_SCHEDULES                                    :All schedules
 STR_ORDER_LIST_ALL_SCHEDULES_TOOLTIP                            :{BLACK}Drag a schedule or group here to move it out of its group
 STR_ORDER_WAIT_COUPLE_STATION_TOOLTIP                            :{BLACK}Select a station on the map for the train to wait at. Click again to clear, so the train holds where it is.
 STR_ORDER_WAIT_COUPLE_AT                                        : at {STATION}
+STR_ORDER_COUPLE_CHECK_SELECT                                   :{BLACK}Check location: {RAW_STRING}...
+STR_ORDER_COUPLE_CHECK_ITEM                                     :{BLACK}{RAW_STRING}{RAW_STRING}
+STR_ORDER_COUPLE_CHECK_NONE                                     :{BLACK}Check only when going to couple
+STR_ORDER_COUPLE_CHECK_MENU                                     :{BLACK}Check for partner at: {RAW_STRING}
+STR_ORDER_COUPLE_CHECK_AT                                       :; check at {STATION} first
 STR_ORDER_LIST_EDIT                                             :{BLACK}Edit
 STR_ORDER_LIST_DELETE                                           :{BLACK}Delete
 STR_ORDER_LIST_DELETE_TOOLTIP                                   :{BLACK}Delete the selected order list
@@ -2695,3 +2700,28 @@ STR_CONFIG_SETTING_NEWS_CARGO_FLOW                              :Overflowing car
 STR_CONFIG_SETTING_NEWS_CARGO_FLOW_HELPTEXT                     :Warn about stations where cargo is accumulating.{}The detection is based on shape of the cargo history graph, not on specific amount threshold.
 
 STR_STATION_CARGO_OVERFLOW                                      :{WHITE}{CARGO_LIST} overflowing at {STATION}
+
+# Coupling maximum-speed criteria
+STR_ORDER_COUPLE_REJECT_SLOWER                                :{BLACK}Skip if my train has a lower top speed
+STR_ORDER_COUPLE_REJECT_FASTER                                :{BLACK}Skip if my train has a higher top speed
+STR_ORDER_COUPLE_SPEED_TOOLTIP                                :{BLACK}Compare both trains before coupling. Slower means my train has a lower top speed; faster means it has a higher top speed. Enabling both allows equal top speeds only. Current speed and temporary limits do not count.
+STR_ORDER_COUPLE_REJECT_SLOWER_SUFFIX                         : (require this train maximum speed >= waiting train)
+STR_ORDER_COUPLE_REJECT_FASTER_SUFFIX                         : (require this train maximum speed <= waiting train)
+STR_COUPLE_DIAGNOSTIC_SLOWER                                  :Approaching train maximum speed is lower than waiting train
+STR_COUPLE_DIAGNOSTIC_FASTER                                  :Approaching train maximum speed is higher than waiting train
+
+# Custom coupling maximum-speed range
+STR_ORDER_COUPLE_SPEED_DISABLED                               :{BLACK}Disabled
+STR_ORDER_COUPLE_SPEED_LABEL1                                  :{BLACK}Minimum
+STR_ORDER_COUPLE_SPEED_LABEL2                                  :{BLACK}Maximum
+STR_ORDER_COUPLE_SPEED_QUERY                                  :{WHITE}Maximum speed threshold ({STRING}, whole units)
+STR_ORDER_COUPLE_SPEED_RANGE_TOOLTIP                           :{BLACK}Limit the waiting train top speed, including both bounds. My top speed follows the approaching train. Select Manual, then click the number. Disable both for no limit, or choose My top speed twice for equal speeds. Legacy comparisons retain their effect until reselected.
+STR_ORDER_COUPLE_SPEED_RANGE_SUFFIX                           : (waiting train max. speed {STRING} {NUM} {STRING})
+STR_COUPLE_DIAGNOSTIC_SPEED_RANGE                             :Waiting train maximum speed fails the custom speed criteria
+
+STR_ORDER_COUPLE_SPEED_VALUE                                    :{BLACK}{NUM} {STRING}
+STR_ORDER_COUPLE_SPEED_INVALID                                  :{WHITE}Enter a speed from 0 to 65535.
+
+STR_ORDER_COUPLE_SPEED_LABEL                                     :{BLACK}Speed
+STR_ORDER_COUPLE_SPEED_OWN_MAX                                   :{BLACK}My top speed
+STR_ORDER_COUPLE_SPEED_MANUAL                                    :{BLACK}Manual

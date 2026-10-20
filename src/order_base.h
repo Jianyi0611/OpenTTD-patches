@@ -156,6 +156,10 @@ private:
 
 	TimetableTicks wait_time{};    ///< How long in ticks to wait at the destination.
 	TimetableTicks travel_time{};  ///< How long in ticks the journey to this destination should take.
+	uint16_t couple_speed_value1{}; ///< First coupling speed threshold in its recorded display units.
+	uint16_t couple_speed_value2{}; ///< Second coupling speed threshold in its recorded display units.
+	uint8_t couple_speed_unit1{1}; ///< First threshold unit code (metric by default).
+	uint8_t couple_speed_unit2{1}; ///< Second threshold unit code (metric by default).
 	uint16_t max_speed{};          ///< How fast the vehicle may go on the way to the destination.
 
 	void AllocExtraInfo();
@@ -391,8 +395,8 @@ public:
 		return *this;
 	}
 
-	static constexpr auto GetCmdRefFields() { return std::make_tuple(&Order::type, &Order::flags, &Order::dest); }
-	static constexpr char CMD_TUPLE_FMT[] = "t: {:X}, f: {:X}, d: {}";
+	static constexpr auto GetCmdRefFields() { return std::make_tuple(&Order::type, &Order::flags, &Order::dest, &Order::couple_speed_value1, &Order::couple_speed_value2, &Order::couple_speed_unit1, &Order::couple_speed_unit2); }
+	static constexpr char CMD_TUPLE_FMT[] = "t: {:X}, f: {:X}, d: {}, coupling speeds: {}, {}, units: {}, {}";
 
 	/**
 	 * Check whether this order is of the given type.
@@ -620,6 +624,10 @@ public:
 	 * @param station the station, or #StationID::Invalid() for any station.
 	 */
 	inline void SetCoupleStation(StationID station) { this->SetXData2Low(station == StationID::Invalid() ? 0 : station.base() + 1); }
+	/** Optional station or waypoint where an approaching train checks for a matching partner before continuing its schedule. */
+	inline bool HasCoupleCheckPoint() const { return this->IsType(OT_GOTO_COUPLE) && HasBit(this->GetXFlags(), 6); }
+	inline StationID GetCoupleCheckPoint() const { return this->HasCoupleCheckPoint() ? this->GetDestination().ToStationID() : StationID::Invalid(); }
+	inline void SetCoupleCheckPoint(StationID station) { AssignBit(this->GetXFlagsRef(), 6, station != StationID::Invalid()); this->SetDestination(station); }
 
 	/**
 	 * Update the jump_counter of this order.
@@ -780,6 +788,33 @@ public:
 	inline bool GetCoupleUseWaitingSchedule() const { return HasBit(this->flags, 3); }
 	/** Set whether the consist takes over the waiting consist's schedule at coupling. */
 	inline void SetCoupleUseWaitingSchedule(bool on) { SB(this->flags, 3, 1, on ? 1 : 0); }
+	/** Reject partners whose maximum speed is higher than the approaching train. */
+	inline bool GetCoupleRejectSlower() const { return HasBit(this->flags, 4); }
+	inline void SetCoupleRejectSlower(bool on) { SB(this->flags, 4, 1, on ? 1 : 0); }
+	/** Reject partners whose maximum speed is lower than the approaching train. */
+	inline bool GetCoupleRejectFaster() const { return HasBit(this->flags, 5); }
+	inline void SetCoupleRejectFaster(bool on) { SB(this->flags, 5, 1, on ? 1 : 0); }
+	/** Optional speed criteria: 0 disables the row, 1..6 map to numeric OrderConditionComparator values + 1. */
+	inline uint8_t GetCoupleSpeedComparator(uint row) const { assert(row < 2); return GB(this->flags, 6 + 3 * row, 3); }
+	inline void SetCoupleSpeedComparator(uint row, uint8_t value) { assert(row < 2 && value <= 6); SB(this->flags, 6 + 3 * row, 3, value); }
+	inline uint16_t GetCoupleSpeedValue(uint row) const { assert(row < 2); return row == 0 ? this->couple_speed_value1 : this->couple_speed_value2; }
+	inline void SetCoupleSpeedValue(uint row, uint16_t value) { assert(row < 2); (row == 0 ? this->couple_speed_value1 : this->couple_speed_value2) = value; }
+	inline uint8_t GetCoupleSpeedUnit(uint row) const { assert(row < 2); return row == 0 ? this->couple_speed_unit1 : this->couple_speed_unit2; }
+	inline void SetCoupleSpeedUnit(uint row, uint8_t value) { assert(row < 2 && value < 6); (row == 0 ? this->couple_speed_unit1 : this->couple_speed_unit2) = value; }
+	/** Source of the minimum (row 0) or maximum (row 1) waiting-train speed. */
+	inline CoupleSpeedBoundMode GetCoupleSpeedBoundMode(uint row) const
+	{
+		if (this->GetCoupleSpeedComparator(row) != 0) return CoupleSpeedBoundMode::Manual;
+		return (row == 0 ? this->GetCoupleRejectFaster() : this->GetCoupleRejectSlower()) ? CoupleSpeedBoundMode::OwnMax : CoupleSpeedBoundMode::Disabled;
+	}
+	/** Update both representations together; keep saved manual values and units. */
+	inline void SetCoupleSpeedBoundMode(uint row, CoupleSpeedBoundMode mode)
+	{
+		assert(row < 2);
+		this->SetCoupleSpeedComparator(row, mode == CoupleSpeedBoundMode::Manual ? to_underlying(row == 0 ? OrderConditionComparator::MoreThanOrEqual : OrderConditionComparator::LessThanOrEqual) + 1 : 0);
+		if (row == 0) this->SetCoupleRejectFaster(mode == CoupleSpeedBoundMode::OwnMax);
+		else this->SetCoupleRejectSlower(mode == CoupleSpeedBoundMode::OwnMax);
+	}
 	/** How many wagons are we taking */
 	inline uint8_t GetNumCouple() const { return GB(this->decouple_flags, 1, 7); }
 	/** What orders should first part get */

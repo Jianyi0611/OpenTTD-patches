@@ -167,3 +167,31 @@ TEST_CASE("Command format debug summary")
 
 	DeallocateMap();
 }
+
+TEST_CASE("Couple - speed criteria survive network command serialisation")
+{
+	for (ModifyOrderFlags flag : {MOF_COUPLE_REJECT_SLOWER, MOF_COUPLE_REJECT_FASTER, MOF_COUPLE_SPEED_COMPARATOR1, MOF_COUPLE_SPEED_COMPARATOR2, MOF_COUPLE_SPEED_VALUE1, MOF_COUPLE_SPEED_VALUE2}) {
+		for (OrderTargetType target : {OrderTargetType::Vehicle, OrderTargetType::OrderList}) {
+			auto payload = CmdPayload<Commands::ModifyOrder>::Make(target, 123, 7, flag, 1, (flag == MOF_COUPLE_SPEED_VALUE1 || flag == MOF_COUPLE_SPEED_VALUE2) ? static_cast<CargoType>(1) : INVALID_CARGO, std::string{});
+			CHECK(TestGeneralCommandPayload<Commands::ModifyOrder>(payload, [](std::span<const uint8_t>) { return true; }));
+		}
+	}
+	Order order;
+	order.MakeGoToCouple();
+	order.SetCoupleRejectSlower(true);
+	order.SetCoupleRejectFaster(true);
+	order.SetCoupleUseWaitingSchedule(true);
+	order.SetCoupleCheckPoint(StationID{12});
+	order.SetCoupleSpeedComparator(0, 6);
+	order.SetCoupleSpeedValue(0, 80);
+	order.SetCoupleSpeedComparator(1, 4);
+	order.SetCoupleSpeedValue(1, 120);
+	order.SetCoupleSpeedUnit(0, 0);
+	order.SetCoupleSpeedUnit(1, 1);
+	InsertOrderCmdData payload(VehicleID{123}, 7, order);
+	CHECK(TestGeneralCommandPayload<Commands::InsertOrder>(payload,
+			[](std::span<const uint8_t>) { return true; },
+			[](const InsertOrderCmdData &a, const InsertOrderCmdData &b) {
+				return a.is_list == b.is_list && a.veh == b.veh && a.sel_ord == b.sel_ord && a.new_order == b.new_order;
+			}));
+}

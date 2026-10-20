@@ -204,6 +204,10 @@ NamedSaveLoadTable GetOrderDescription()
 		NSL("wait_time",     SLE_CONDVAR_X(Order, wait_time,          SLE_UINT32,                   SLV_67, SL_MAX_VERSION, SlXvFeatureTest(XSLFTO_AND, XSLFI_TIMETABLE_EXTRA, 6))),
 		NSL("travel_time",   SLE_CONDVAR_X(Order, travel_time,        SLE_FILE_U16 | SLE_VAR_U32,   SLV_67, SL_MAX_VERSION, SlXvFeatureTest(XSLFTO_AND, XSLFI_TIMETABLE_EXTRA, 0, 5))),
 		NSL("travel_time",   SLE_CONDVAR_X(Order, travel_time,        SLE_UINT32,                   SLV_67, SL_MAX_VERSION, SlXvFeatureTest(XSLFTO_AND, XSLFI_TIMETABLE_EXTRA, 6))),
+		NSL("couple_speed_unit1", SLE_CONDVAR_X(Order, couple_speed_unit1, SLE_UINT8, SL_MIN_VERSION, SL_MAX_VERSION, SlXvFeatureTest(XSLFTO_AND, XSLFI_COUPLE_SPEED_FILTER, 2))),
+		NSL("couple_speed_unit2", SLE_CONDVAR_X(Order, couple_speed_unit2, SLE_UINT8, SL_MIN_VERSION, SL_MAX_VERSION, SlXvFeatureTest(XSLFTO_AND, XSLFI_COUPLE_SPEED_FILTER, 2))),
+		NSL("couple_speed_value1", SLE_CONDVAR_X(Order, couple_speed_value1, SLE_UINT16, SL_MIN_VERSION, SL_MAX_VERSION, SlXvFeatureTest(XSLFTO_AND, XSLFI_COUPLE_SPEED_FILTER, 2))),
+		NSL("couple_speed_value2", SLE_CONDVAR_X(Order, couple_speed_value2, SLE_UINT16, SL_MIN_VERSION, SL_MAX_VERSION, SlXvFeatureTest(XSLFTO_AND, XSLFI_COUPLE_SPEED_FILTER, 2))),
 		NSL("max_speed",       SLE_CONDVAR(Order, max_speed,          SLE_UINT16,                   SLV_172, SL_MAX_VERSION)),
 		NSL("",             SLE_CONDNULL_X(1,                                                       SL_MIN_VERSION, SL_MAX_VERSION, SlXvFeatureTest(XSLFTO_AND, XSLFI_MORE_COND_ORDERS, 1, 6))), // jump_counter
 

@@ -298,17 +298,24 @@ public:
 
 protected:
 	Order dest_order;
+	const Train *couple_target_filter = nullptr;
+	bool prefer_matching_speed = true;
+	bool speed_preference_applied = false;
 
 public:
+	void SetCoupleSpeedPreference(bool enabled) { this->prefer_matching_speed = enabled; }
+	bool HasCoupleSpeedPreference() const { return this->speed_preference_applied; }
+
 	/** @copydoc CYapfBaseT::Yapf */
 	Tpf &Yapf()
 	{
 		return *static_cast<Tpf *>(this);
 	}
 
-	void SetDestination(const Train *v)
+	void SetDestination(const Train *v, const Order *criteria = nullptr, const Train *only_target = nullptr)
 	{
-		dest_order.AssignOrder(v->current_order);
+		dest_order.AssignOrder(criteria != nullptr ? *criteria : v->current_order);
+		this->couple_target_filter = only_target != nullptr ? only_target->Primary() : nullptr;
 		this->CYapfDestinationRailBase::SetDestination(v);
 	}
 
@@ -332,28 +339,41 @@ public:
 	/** @copydoc CYapfBaseT::PfDetectDestinationTileFunc */
 	inline bool PfDetectDestination(TileIndex tile, Trackdir td, uint32_t claim_cost)
 	{
+		return this->GetCoupleDestination(tile, td, claim_cost) != nullptr;
+	}
+
+	Train *GetCoupleDestination(TileIndex tile, Trackdir td, uint32_t claim_cost)
+	{
 		if (IsRailStationTile(tile)) {
 			/* Station tile: search the entire platform for a waiting train
 			 * directly, without requiring a reservation. Cross-company trains
 			 * that arrived via block signals do not leave reservations.
 			 * All order/permission/validity checks live in the shared resolver.
 			 * A waiting train already claimed by another approaching consist is
-			 * not a destination unless this consist's path is cheaper. */
-			return ResolveCoupleTargetStation(Yapf().GetVehicle(), tile, td, true, claim_cost) != nullptr;
+			 * not a destination unless the claim belongs to this consist. */
+			return ResolveCoupleTargetStation(Yapf().GetVehicle(), tile, td, true, claim_cost, &this->dest_order, this->couple_target_filter);
 		}
 
 		/* Non-station tiles: require reservation as usual. */
 		TrackdirBits tdb = TrackdirToTrackdirBits(td);
-		if (!HasReservedTracks(tile, TrackdirBitsToTrackBits(tdb))) return false;
+		if (!HasReservedTracks(tile, TrackdirBitsToTrackBits(tdb))) return nullptr;
 		Train *t = GetTrainForReservation(tile, TrackdirToTrack(td));
-		if (t == nullptr) return false;
-		return ValidateCoupleCandidate(Yapf().GetVehicle(), t->First(), tile, true, claim_cost) != nullptr;
+		if (t == nullptr || (this->couple_target_filter != nullptr && t->Primary() != this->couple_target_filter)) return nullptr;
+		return ValidateCoupleCandidate(Yapf().GetVehicle(), t->First(), tile, true, claim_cost, &this->dest_order);
 	}
 
 	/** @copydoc CYapfBaseT::PfCalcEstimateFunc */
 	inline bool PfCalcEstimate(Node &n)
 	{
 		n.estimate = n.cost;
+		if (this->prefer_matching_speed && n.flags_u.flags_s.target_seen) {
+			Train *target = this->GetCoupleDestination(n.GetLastTile(), n.GetLastTrackdir(), n.GetCost());
+			if (target != nullptr) {
+				const uint penalty = GetCoupleSpeedPreferencePenalty(Yapf().GetVehicle(), target) * YAPF_TILE_LENGTH;
+				this->speed_preference_applied |= penalty != 0;
+				n.estimate = std::min<int64_t>(int64_t(n.cost) + penalty, INT_MAX);
+			}
+		}
 		return true;
 	}
 

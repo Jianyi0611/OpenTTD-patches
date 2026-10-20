@@ -17,7 +17,6 @@
 #include "command_func.h"
 #include "company_func.h"
 #include "company_base.h"
-#include "company_gui.h"
 #include "dropdown_func.h"
 #include "dropdown_type.h"
 #include <map>
@@ -96,8 +95,6 @@ struct OrderListWindow : Window {
 	WidgetID query_widget = WID_OL_CAPTION;         ///< Currently open query widget (rename dialog).
 	std::vector<OrderListID> list{};                ///< The translation table linking panel indices to their related OrderListID.
 	int selected = INT_MAX;                         ///< What item is currently selected in the panel.
-	uint edit_btn_left = 0;                         ///< left offset of the edit buttons
-	Dimension company_icon_spr_dim{};               ///< dimensions of company icon
 	Dimension edit_btn_spr_dim{};                   ///< dimensions of the edit button sprite
 	std::vector<uint> depths;                       ///< Indentation of each displayed row.
 	std::set<OrderListID> collapsed;                ///< Local folder expansion state, never simulation state.
@@ -124,16 +121,29 @@ private:
 
 	GUIOrderList orders{OrderListWindow::last_sorting.order};
 
+	struct RowLayout {
+		int button_left;
+		int text_left;
+		int text_right;
+	};
+
+	RowLayout GetRowLayout(const Rect &r) const
+	{
+		const Rect inner = r.Shrink(WidgetDimensions::scaled.framerect);
+		const bool rtl = _current_text_dir == TD_RTL;
+		const int button_left = rtl ? inner.left : inner.right - SETTING_BUTTON_WIDTH + 1;
+		return {button_left,
+			rtl ? button_left + SETTING_BUTTON_WIDTH + 4 : inner.left,
+			rtl ? inner.right : button_left - 4};
+	}
+
 	void BuildSortOrderList()
 	{
 		if (this->orders.NeedRebuild()) {
 			this->orders.clear();
 			this->orders.reserve(OrderList::GetNumItems());
 
-			const std::set<OrderListID> groups = GetVisibleScheduleGroups(_local_company);
-			for (const OrderList *ol : OrderList::Iterate()) {
-				if (ol->IsScheduleGroup() ? groups.contains(ol->index) : ol->IsVisibleToCompany(_local_company)) this->orders.push_back(ol);
-			}
+			for (OrderListID id : GetVisibleScheduleEntries(_local_company)) this->orders.push_back(OrderList::Get(id));
 
 			this->orders.RebuildDone();
 			this->SetDirty();
@@ -154,14 +164,12 @@ private:
 
 		this->list.clear();
 		this->depths.clear();
+		this->list.reserve(this->orders.size());
+		this->depths.reserve(this->orders.size());
 		std::map<OrderListID, std::vector<const OrderList *>> children;
 		std::set<OrderListID> matches;
-		const std::set<OrderListID> groups = GetVisibleScheduleGroups(_local_company);
 		for (const OrderList *ol : this->orders) {
-			/* A schedule of another company keeps its folders, which are part of the list as soon as
-			 * one schedule below them is visible; anything else is shown at the root. */
 			OrderListID parent = ol->GetScheduleGroup();
-			if (parent != OrderListID::Invalid() && !groups.contains(parent)) parent = OrderListID::Invalid();
 			children[parent].push_back(ol);
 			if (!this->string_filter.IsEmpty()) {
 				this->string_filter.ResetState();
@@ -243,6 +251,7 @@ public:
 
 	virtual void OnClick(Point pt, WidgetID widget, int click_count) override
 	{
+		if (this->orders.NeedRebuild()) this->BuildSortOrderList();
 		switch (widget) {
 			case WID_OL_NEW:
 				{
@@ -287,10 +296,10 @@ public:
 				bool opened_editor = false;
 				if (new_selected >= 0 && new_selected < (int)this->list.size()) {
 					const OrderList *ol = OrderList::Get(this->list[new_selected]);
-					const Rect inner = this->GetWidget<NWidgetBase>(WID_OL_LIST)->GetCurrentRect().Shrink(WidgetDimensions::scaled.framerect);
+					const RowLayout row = this->GetRowLayout(this->GetWidget<NWidgetBase>(WID_OL_LIST)->GetCurrentRect());
 					const bool rtl = _current_text_dir == TD_RTL;
-					const int text_left = rtl ? inner.left : this->edit_btn_left + SETTING_BUTTON_WIDTH + 4;
-					const int text_right = rtl ? this->edit_btn_left - 4 : inner.right;
+					const int text_left = row.text_left;
+					const int text_right = row.text_right;
 					const int indent = std::min<uint>(this->depths[new_selected] * ScaleGUITrad(12), (text_right - text_left) / 2);
 					const int fold_left = rtl ? text_right - indent - GetSpriteSize(SPR_CIRCLE_FOLDED).width : text_left + indent;
 					if (ol->IsScheduleGroup() && (click_count > 1 || (pt.x >= fold_left && pt.x < fold_left + ScaleGUITrad(14)))) {
@@ -300,7 +309,7 @@ public:
 						this->SetDirty();
 						break;
 					}
-					const int btn_left = this->edit_btn_left;
+					const int btn_left = row.button_left;
 					const int btn_right = btn_left + SETTING_BUTTON_WIDTH;
 					if (!ol->IsScheduleGroup() && pt.x >= btn_left && pt.x < btn_right) {
 						ShowOrderListEditor(this->list[new_selected]);
@@ -333,6 +342,7 @@ public:
 
 	void OnMouseDrag(Point pt, WidgetID widget) override
 	{
+		if (this->orders.NeedRebuild()) this->BuildSortOrderList();
 		OrderListID target = OrderListID::Invalid();
 		bool root = widget == WID_OL_ALL && this->CanDropOn(OrderListID::Invalid());
 		if (widget == WID_OL_LIST) {
@@ -349,6 +359,7 @@ public:
 
 	void OnDragDrop(Point pt, WidgetID widget) override
 	{
+		if (this->orders.NeedRebuild()) this->BuildSortOrderList();
 		if (widget == WID_OL_LIST) {
 			int row = this->vscroll->GetScrolledRowFromWidget(pt.y, this, WID_OL_LIST, WidgetDimensions::scaled.framerect.top);
 			if (row >= 0 && row < (int)this->list.size() && this->CanDropOn(this->list[row])) {
@@ -404,6 +415,7 @@ public:
 
 	virtual void OnPaint() override
 	{
+		if (this->orders.NeedRebuild()) this->BuildSortOrderList();
 		bool no_company = _game_mode != GameMode::Editor && !Company::IsValidID(_local_company);
 		this->SetWidgetDisabledState(WID_OL_NEW, no_company);
 		this->SetWidgetDisabledState(WID_OL_NEW_GROUP, no_company);
@@ -446,11 +458,10 @@ public:
 				}
 
 				bool rtl = _current_text_dir == TD_RTL;
-				uint icon_left  = (rtl ? ir.right - this->company_icon_spr_dim.width : r.left);
-				uint btn_left   = (rtl ? icon_left - SETTING_BUTTON_WIDTH - 4 : icon_left + this->company_icon_spr_dim.width + 4);
-				uint text_left  = (rtl ? ir.left : btn_left + SETTING_BUTTON_WIDTH + 4);
-				uint text_right = (rtl ? btn_left - 4 : ir.right);
-				const_cast<OrderListWindow*>(this)->edit_btn_left = btn_left;
+				const RowLayout row = this->GetRowLayout(r);
+				const int btn_left = row.button_left;
+				const int text_left = row.text_left;
+				const int text_right = row.text_right;
 
 				for (int32_t i = this->vscroll->GetPosition(); this->vscroll->IsVisible(i) && i < this->vscroll->GetCount(); i++) {
 					OrderListID id = this->list[i];
@@ -459,10 +470,6 @@ public:
 
 					if (OrderList::IsValidID(id)) {
 						const OrderList *ol = OrderList::Get(id);
-
-						if (Company::IsValidID(ol->GetCompany())) {
-							DrawCompanyIcon(ol->GetCompany(), icon_left, y + (this->resize.step_height - this->company_icon_spr_dim.height) / 2);
-						}
 
 						Rect br{(int) btn_left, (int) y + ((int) this->resize.step_height - SETTING_BUTTON_HEIGHT) / 2,
 								(int) btn_left + SETTING_BUTTON_WIDTH - 1, (int) y + ((int) this->resize.step_height + SETTING_BUTTON_HEIGHT) / 2 - 1};
@@ -534,7 +541,6 @@ public:
 			}
 
 			case WID_OL_LIST:
-				this->company_icon_spr_dim = GetSpriteSize(SPR_COMPANY_ICON);
 				this->edit_btn_spr_dim = GetSpriteSize(SPR_RENAME);
 				resize.height = std::max<int>(GetCharacterHeight(FontSize::Normal), SETTING_BUTTON_HEIGHT);
 				size.height = resize.height * 5 + WidgetDimensions::scaled.framerect.Vertical();
@@ -562,8 +568,9 @@ public:
 	{
 		if (wid == WID_OL_FILTER) {
 			this->string_filter.SetFilterTerm(this->orderlist_editbox.text.GetText());
-			this->orders.ForceRebuild();
-			this->BuildSortOrderList();
+			if (this->orders.NeedRebuild()) this->BuildSortOrderList();
+			else this->RebuildList();
+			this->SetDirty();
 		}
 	}
 
@@ -576,8 +583,10 @@ public:
 			}
 		}
 
+		/* Coalesce bursts of command notifications into one rebuild on the GUI
+		 * thread. A click also refreshes first, so it never uses deleted rows. */
 		this->orders.ForceRebuild();
-		this->BuildSortOrderList();
+		this->SetDirty();
 	}
 };
 
