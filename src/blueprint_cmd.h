@@ -315,7 +315,7 @@ inline void SerialiseBlueprint(BufferSerialisationRef buffer, const Blueprint &d
 {
 	/* An impossible width distinguishes styled blueprints from legacy data,
 	 * including when several blueprints are nested in a slot set. */
-	buffer.Send_generic(uint16_t{UINT16_MAX - 1}); // Version 5, including explicit signal styles and complete objects.
+	buffer.Send_generic(uint16_t{UINT16_MAX - 2}); // Version 6, including signal restriction snapshots.
 	buffer.Send_generic_seq(data.width, data.height, data.name);
 	WriteBlueprintVector(buffer, data.rail_tracks);
 	WriteBlueprintVector(buffer, data.signals);
@@ -333,12 +333,24 @@ inline void SerialiseBlueprint(BufferSerialisationRef buffer, const Blueprint &d
 	WriteBlueprintVector(buffer, data.airports);
 	WriteBlueprintVector(buffer, data.corner_heights);
 	WriteBlueprintVector(buffer, data.objects);
+	for (const BlueprintSignal &signal : data.signals) {
+		buffer.Send_generic_integer(uint32_t(signal.restriction_items.size()));
+		for (uint32_t item : signal.restriction_items) buffer.Send_generic(item);
+		buffer.Send_generic_integer(uint32_t(signal.restriction_labels.size()));
+		for (const std::string &label : signal.restriction_labels) buffer.Send_generic(label);
+		buffer.Send_generic_integer(uint32_t(signal.restriction_tiles.size()));
+		for (const auto &ref : signal.restriction_tiles) {
+			buffer.Send_generic(ref.item);
+			SerialiseBlueprintOffset(buffer, ref.offset);
+		}
+	}
 }
 
 inline bool DeserialiseBlueprint(DeserialisationBuffer &buffer, Blueprint &data, StringValidationSettings settings)
 {
 	buffer.Recv_generic(data.width);
-	bool with_signal_specs = data.width == UINT16_MAX - 1;
+	bool with_restrictions = data.width == UINT16_MAX - 2;
+	bool with_signal_specs = data.width == UINT16_MAX - 1 || with_restrictions;
 	bool with_specs = data.width == UINT16_MAX || with_signal_specs;
 	if (with_specs) buffer.Recv_generic(data.width);
 	buffer.Recv_generic_seq(settings, data.height, data.name);
@@ -359,7 +371,25 @@ inline bool DeserialiseBlueprint(DeserialisationBuffer &buffer, Blueprint &data,
 	ok &= ReadBlueprintVector(buffer, data.corner_heights, settings);
 	data.objects.clear();
 	if (with_signal_specs) ok &= ReadBlueprintVector(buffer, data.objects, settings);
-	return ok;
+	if (with_restrictions && ok) for (BlueprintSignal &signal : data.signals) {
+		auto count = [&]() {
+			uint32_t value = 0;
+			buffer.Recv_generic(value);
+			if (value > MAX_BLUEPRINT_VECTOR_LENGTH) { buffer.RaiseDeserialisationError(); return uint32_t{0}; }
+			return value;
+		};
+		signal.restriction_items.resize(count());
+		for (auto &item : signal.restriction_items) buffer.Recv_generic(item);
+		signal.restriction_labels.resize(count());
+		for (auto &label : signal.restriction_labels) buffer.Recv_generic_seq(settings, label);
+		signal.restriction_tiles.resize(count());
+		for (auto &ref : signal.restriction_tiles) {
+			buffer.Recv_generic(ref.item);
+			DeserialiseBlueprintOffset(buffer, ref.offset, settings);
+		}
+		if (buffer.error) return false;
+	}
+	return ok && !buffer.error;
 }
 
 inline void SerialiseBlueprintItem(BufferSerialisationRef buffer, const Blueprint &data)

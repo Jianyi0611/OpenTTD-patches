@@ -97,7 +97,9 @@ void ResetAirTypes()
  */
 static bool CompareAirTypes(const AirType &first, const AirType &second)
 {
-	return GetAirTypeInfo(first)->sorting_order < GetAirTypeInfo(second)->sorting_order;
+	const auto left = GetAirTypeInfo(first)->sorting_order;
+	const auto right = GetAirTypeInfo(second)->sorting_order;
+	return left != right ? left < right : first < second;
 }
 
 /**
@@ -174,10 +176,10 @@ void Station::ClearAirportDataInfrastructure() {
 	this->airport.helipads.clear();
 	this->airport.heliports.clear();
 	this->airport.runways.clear();
-	if (this->airport.HasHangar()) {
-		delete this->airport.hangar;
-		this->airport.hangar = nullptr;
-	}
+	/* Hangars are saved Depot pool items, not disposable cache entries.
+	 * Keep their identity until UpdateAirportDataStructure checks the map. */
+	ClrBit(this->airport.flags, AFB_HANGAR);
+	ClrBit(this->airport.flags, AFB_LANDING_RUNWAY);
 }
 
 /**
@@ -479,6 +481,19 @@ void Station::UpdateAirportDataStructure()
 		assert(this->airport.air_type == GetAirType(t));
 
 		if (IsHangar(t)) first_hangar = t;
+	}
+
+	/* Reconnect a saved hangar before allocating anything: the station's
+	 * pointer is not saved, but the Depot pool (including its IDs) is. */
+	if (first_hangar != INVALID_TILE) {
+		Depot *canonical = this->airport.hangar;
+		for (Depot *depot : Depot::Iterate()) {
+			if (!IsValidTile(depot->xy) || !this->TileBelongsToAirport(depot->xy) || !IsHangar(depot->xy)) continue;
+			/* Legacy saves may contain duplicates. Both a running server and a
+			 * joining client must choose the same identity, regardless of an old pointer. */
+			if (canonical == nullptr || depot->index < canonical->index) canonical = depot;
+		}
+		this->airport.hangar = canonical;
 	}
 
 	/* Set/Clear depot. */

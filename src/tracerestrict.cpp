@@ -2997,6 +2997,34 @@ CommandCost CmdProgramSignalTraceRestrictMgmt(DoCommandFlags flags, TileIndex ti
 	return CommandCost();
 }
 
+/** Install an independent blueprint snapshot; never overwrite an existing restriction. */
+CommandCost ApplyTraceRestrictProgramSnapshot(DoCommandFlags flags, TileIndex tile, Track track,
+		std::span<const TraceRestrictProgramItem> items, const std::vector<std::string> &labels)
+{
+	if (!IsValidTile(tile) || !IsValidTrack(track)) return CMD_ERROR;
+	CommandCost result = TraceRestrictCheckTileIsUsable(tile, track);
+	if (result.Failed()) return result;
+	TraceRestrictProgramActionsUsedFlags actions;
+	result = TraceRestrictProgram::Validate(items, actions);
+	if (result.Failed()) return result;
+	const TraceRestrictRefId ref = MakeTraceRestrictRefId(tile, track);
+	if (items.empty() || GetTraceRestrictProgram(ref, false) != nullptr) return CommandCost();
+	if (!TraceRestrictProgram::CanAllocateItem()) return CMD_ERROR;
+	if (!flags.Test(DoCommandFlag::Execute)) return CommandCost();
+	TraceRestrictProgram *program = GetTraceRestrictProgram(ref, true);
+	if (program == nullptr) return CMD_ERROR;
+	program->items.assign(items.begin(), items.end());
+	TraceRestrictRemoveNonOwnedReferencesFromInstructionRange(program->items, _current_company);
+	if (!labels.empty()) {
+		program->texts = std::make_unique<TraceRestrictProgramTexts>();
+		program->texts->labels = labels;
+	}
+	program->Validate();
+	TraceRestrictCheckRefreshSignals(program, 0, TRPAUF_NONE);
+	InvalidateWindowClassesData(WindowClass::TraceRestrict);
+	return CommandCost();
+}
+
 /**
  * Restore tracerestrict program from backup.
  * @param flags Internal command handler stuff.

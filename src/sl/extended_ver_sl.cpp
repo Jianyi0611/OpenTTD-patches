@@ -157,7 +157,7 @@ const std::initializer_list<SlxiSubChunkInfo> _sl_xv_sub_chunk_infos = {
 	{ XSLFI_ORDER_FLAGS_EXTRA,                XSCF_NULL,                1,   1, "order_flags_extra",                nullptr, nullptr, nullptr          },
 	{ XSLFI_ORDER_DECOUPLE,                   XSCF_NULL,                1,   1, "order_decouple",                   nullptr, nullptr, nullptr          },
 	{ XSLFI_TRAIN_PRIMARY,                   XSCF_NULL,                1,   1, "train_primary",                    nullptr, nullptr, nullptr          },
-	{ XSLFI_VEHICLE_PRIMARY_ORDER,           XSCF_NULL,                1,   1, "vehicle_primary_order",            nullptr, nullptr, nullptr          },
+	{ XSLFI_VEHICLE_PRIMARY_ORDER,           XSCF_NULL,                2,   2, "vehicle_primary_order",            nullptr, nullptr, nullptr          },
 	{ XSLFI_ONE_WAY_DT_ROAD_STOP,             XSCF_NULL,                1,   1, "one_way_dt_road_stop",             nullptr, nullptr, nullptr          },
 	{ XSLFI_ONE_WAY_ROAD_BRIDGE,              XSCF_NULL,                1,   1, "one_way_road_bridge",              nullptr, nullptr, nullptr          },
 	{ XSLFI_ONE_WAY_ROAD_STATE,               XSCF_NULL,                1,   1, "one_way_road_state",               nullptr, nullptr, nullptr          },
@@ -256,6 +256,8 @@ const std::initializer_list<SlxiSubChunkInfo> _sl_xv_sub_chunk_infos = {
 	{ XSLFI_ORDER_LIST_GROUPS,               XSCF_NULL,                1,   1, "order_list_groups",               nullptr, nullptr, nullptr          },
 	{ XSLFI_AIRCRAFT_CACHE_STATE,            XSCF_NULL,                1,   1, "aircraft_cache_state",            nullptr, nullptr, nullptr          },
 	{ XSLFI_WAIT_COUPLE_TARGET,              XSCF_NULL,                1,   1, "wait_couple_target",              nullptr, nullptr, nullptr          },
+	{ XSLFI_COUPLE_CHECK_POINT,               XSCF_NULL,                1,   1, "couple_check_point",               nullptr, nullptr, nullptr          },
+	{ XSLFI_COUPLE_SPEED_FILTER,              XSCF_NULL,                2,   2, "couple_speed_filter",              nullptr, nullptr, nullptr          },
 };
 
 /**

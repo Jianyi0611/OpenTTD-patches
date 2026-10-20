@@ -221,6 +221,8 @@ enum SlXvFeatureIndex {
 	XSLFI_ORDER_LIST_GROUPS,                      ///< Hierarchical standalone schedule folders
 	XSLFI_AIRCRAFT_CACHE_STATE,                   ///< Aircraft callback cache state survives network snapshots
 	XSLFI_WAIT_COUPLE_TARGET,                     ///< Wait-for-couple orders may travel to a selected station first
+	XSLFI_COUPLE_CHECK_POINT,                      ///< Go-to-couple orders may check for a partner at an earlier schedule stop
+	XSLFI_COUPLE_SPEED_FILTER,                    ///< Coupling selection can compare consist maximum speeds
 	XSLFI_SIZE,                                   ///< Total count of features, including null feature
 };
 

@@ -1256,8 +1256,10 @@ void Window::Close([[maybe_unused]] int data)
 	/* We can't scroll the window when it's closed. */
 	if (_last_scroll_window == this) _last_scroll_window = nullptr;
 
-	/* Make sure we don't try to access non-existing query strings. */
-	this->querystrings.clear();
+	/* Children may restore focus to their parent when they close. Close them
+	 * before clearing our focus, while our widgets and query strings are valid.
+	 * Otherwise a child can leave _focused_window pointing at this dying window. */
+	this->CloseChildWindows();
 
 	/* Make sure we don't try to access this window as the focused window when it doesn't exist anymore. */
 	if (_focused_window == this) {
@@ -1266,7 +1268,8 @@ void Window::Close([[maybe_unused]] int data)
 		this->OnFocusLost(true, nullptr);
 	}
 
-	this->CloseChildWindows();
+	/* Focus callbacks above may still access an edit box's query string. */
+	this->querystrings.clear();
 
 	this->SetDirtyAsBlocks();
 
@@ -1279,6 +1282,7 @@ void Window::Close([[maybe_unused]] int data)
 Window::~Window()
 {
 	assert(this->window_class == WindowClass::Invalid);
+	assert(_focused_window != this);
 
 	if (this->viewport != nullptr) DeleteWindowViewport(this);
 }

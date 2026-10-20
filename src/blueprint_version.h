@@ -14,6 +14,6 @@
  * Version of the Blueprint patch: the date of its last change, shown by the
  * toolbar's info button. Update whenever blueprint.patch is regenerated.
  */
-static constexpr std::string_view BLUEPRINT_PATCH_VERSION = "2026-10-15";
+static constexpr std::string_view BLUEPRINT_PATCH_VERSION = "2026-10-19";
 
 #endif /* BLUEPRINT_VERSION_H */

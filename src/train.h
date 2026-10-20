@@ -49,6 +49,8 @@ enum class VehicleRailFlag : uint8_t {
 	PendingSpeedRestriction   = 21, ///< This vehicle has one or more pending speed restriction changes.
 	SpeedAdaptationExempt     = 22, ///< This vehicle is exempt from train speed adaptation.
 	SameDirDecouplePending    = 23, ///< Trailing split part waits for the leading part to clear its platform before following.
+	CoupleCheckReversePending = 24, ///< Wait for a selected early couple target only after a waypoint reversal completes.
+	CoupleCheckReservationReleased = 25, ///< Forward reservation has already been released for an early couple checkpoint.
 };
 using VehicleRailFlags = EnumBitSet<VehicleRailFlag, uint32_t>;
 
@@ -113,6 +115,7 @@ void DeleteVisibleTrain(Train *v);
 void CheckBreakdownFlags(Train *v);
 void GetTrainSpriteSize(EngineID engine, uint &width, uint &height, int &xoffs, int &yoffs, EngineImageType image_type);
 bool TrainFitStation(const Train *v);
+StationID GetTrainCouplingStation(const Train *v);
 void TrainMoveToPosition(Train *v, int x, int y);
 bool IsCoupleArrangementValid(Train *v_phys, Train *u_phys);
 
@@ -133,15 +136,20 @@ enum class CoupleCandidateResult : uint8_t {
 	Group,
 	Station,
 	Platform,
+	Slower,
+	Faster,
+	SpeedRange,
 	Arrangement,
 };
 
 CoupleCandidateResult GetCoupleCandidateResult(const Train *moving, const Order &order,
 		Train *waiting_first, TileIndex contact_tile, bool respect_claim = true, uint32_t claim_cost = 0);
+uint GetCoupleSpeedPreferencePenalty(const Train *moving, const Train *waiting);
+Train *FindBestCoupleCheckpointTarget(Train *moving, const Order &couple);
 Train *ValidateCoupleCandidate(const Train *moving, Train *waiting_first, TileIndex contact_tile,
-		bool respect_claim = true, uint32_t claim_cost = 0);
+		bool respect_claim = true, uint32_t claim_cost = 0, const Order *criteria = nullptr);
 Train *ResolveCoupleTargetStation(const Train *moving, TileIndex tile, Trackdir td,
-		bool respect_claim = true, uint32_t claim_cost = 0);
+		bool respect_claim = true, uint32_t claim_cost = 0, const Order *criteria = nullptr, const Train *only_target = nullptr);
 void ClaimCoupleTarget(Train *moving, Train *carrier, uint32_t claim_cost);
 const Train *GetCoupleClaimant(const Train *carrier);
 Train *GetDecoupleVehicleForCount(Train *v, uint num_keep);
