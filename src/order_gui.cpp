@@ -4475,6 +4475,14 @@ public:
 				size.height = ScaleGUITrad(GetVehicleHeight(VehicleType::Train) + 12) + GetCharacterHeight(FontSize::Normal) + padding.height + 2 * WidgetDimensions::scaled.vsep_normal;
 				break;
 
+			case WID_O_SEL_DECOUPLE_PREVIEW:
+				/* A hidden (SZSP_NONE) plane reports no resize in either direction. The
+				 * vertical body aggregates resize widths as lcm, so a hidden selection
+				 * would zero out the horizontal resize step of the whole window. Keep
+				 * the chain alive with a unit step while the plane stays zero-sized. */
+				resize.width = 1;
+				break;
+
 			case WID_O_OCCUPANCY_LIST:
 				size.width = GetStringBoundingBox(GetString(STR_ORDERS_OCCUPANCY_PERCENT, GetParamMaxValue(100))).width + 10 + WidgetDimensions::unscaled.framerect.Horizontal();
 				/* FALL THROUGH */
