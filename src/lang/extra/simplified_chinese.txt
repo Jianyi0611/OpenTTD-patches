@@ -2643,6 +2643,14 @@ STR_ORDER_COUPLE_SPEED_LABEL2                                  :{BLACK}最大值
 STR_ORDER_COUPLE_SPEED_QUERY                                  :{WHITE}最大速度阈值（{STRING}，整数）
 STR_ORDER_COUPLE_SPEED_RANGE_TOOLTIP                           :{BLACK}限制等待列车的最高速度，最小值和最大值都包含边界。“本车最大速度”随前往连接的机车变化；选“手动输入”后点击数字修改。两端关闭则不限速，两端均选本车则只接同速列车。旧版比较条件保留原效果，重新选择后使用上下限。
 STR_ORDER_COUPLE_SPEED_RANGE_SUFFIX                           :（等待列车最大速度{STRING}{NUM}{STRING}）
+STR_ORDER_COUPLE_SPEED_SUFFIX_BOTH                            :且最大速度{NUM}-{NUM} {STRING}
+STR_ORDER_COUPLE_SPEED_SUFFIX_ONE                             :且最大速度{STRING}{NUM} {STRING}
+STR_ORDER_COUPLE_SPEED_SUFFIX_RANGE_OWN_FIRST                 :且最大速度{STRING}-{NUM} {STRING}
+STR_ORDER_COUPLE_SPEED_SUFFIX_RANGE_OWN_SECOND                :且最大速度{NUM} {STRING}-{STRING}
+STR_ORDER_COUPLE_SPEED_SUFFIX_OWN_MIN                         :且最大速度≥本车最大速度
+STR_ORDER_COUPLE_SPEED_SUFFIX_OWN_MAX                         :且最大速度≤本车最大速度
+STR_ORDER_COUPLE_SPEED_SUFFIX_OWN_BOTH                        :且最大速度与本车最大速度相同
+STR_ORDER_COUPLE_SPEED_SUFFIX_LEGACY                          :且包含一个旧版相对速度条件
 STR_COUPLE_DIAGNOSTIC_SPEED_RANGE                             :等待列车最大速度不符合自定义速度条件
 
 STR_ORDER_COUPLE_SPEED_VALUE                                    :{BLACK}{NUM} {STRING}
@@ -2650,4 +2658,5 @@ STR_ORDER_COUPLE_SPEED_INVALID                                  :{WHITE}请输�
 
 STR_ORDER_COUPLE_SPEED_LABEL                                     :{BLACK}速度条件
 STR_ORDER_COUPLE_SPEED_OWN_MAX                                   :{BLACK}本车最大速度
+STR_ORDER_COUPLE_SPEED_OWN_PLAIN                                 :本车最大速度
 STR_ORDER_COUPLE_SPEED_MANUAL                                    :{BLACK}手动输入

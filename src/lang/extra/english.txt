@@ -2719,6 +2719,14 @@ STR_ORDER_COUPLE_SPEED_LABEL2                                  :{BLACK}Maximum
 STR_ORDER_COUPLE_SPEED_QUERY                                  :{WHITE}Maximum speed threshold ({STRING}, whole units)
 STR_ORDER_COUPLE_SPEED_RANGE_TOOLTIP                           :{BLACK}Limit the waiting train top speed, including both bounds. My top speed follows the approaching train. Select Manual, then click the number. Disable both for no limit, or choose My top speed twice for equal speeds. Legacy comparisons retain their effect until reselected.
 STR_ORDER_COUPLE_SPEED_RANGE_SUFFIX                           : (waiting train max. speed {STRING} {NUM} {STRING})
+STR_ORDER_COUPLE_SPEED_SUFFIX_BOTH                            : and top speed {NUM}-{NUM} {STRING}
+STR_ORDER_COUPLE_SPEED_SUFFIX_ONE                             : and top speed {STRING}{NUM} {STRING}
+STR_ORDER_COUPLE_SPEED_SUFFIX_RANGE_OWN_FIRST                 : and top speed {STRING}-{NUM} {STRING}
+STR_ORDER_COUPLE_SPEED_SUFFIX_RANGE_OWN_SECOND                : and top speed {NUM} {STRING}-{STRING}
+STR_ORDER_COUPLE_SPEED_SUFFIX_OWN_MIN                         : and top speed >= my train's top speed
+STR_ORDER_COUPLE_SPEED_SUFFIX_OWN_MAX                         : and top speed <= my train's top speed
+STR_ORDER_COUPLE_SPEED_SUFFIX_OWN_BOTH                        : and top speed equal to my train's
+STR_ORDER_COUPLE_SPEED_SUFFIX_LEGACY                          : and a legacy relative speed condition
 STR_COUPLE_DIAGNOSTIC_SPEED_RANGE                             :Waiting train maximum speed fails the custom speed criteria
 
 STR_ORDER_COUPLE_SPEED_VALUE                                    :{BLACK}{NUM} {STRING}
@@ -2726,4 +2734,5 @@ STR_ORDER_COUPLE_SPEED_INVALID                                  :{WHITE}Enter a 
 
 STR_ORDER_COUPLE_SPEED_LABEL                                     :{BLACK}Speed
 STR_ORDER_COUPLE_SPEED_OWN_MAX                                   :{BLACK}My top speed
+STR_ORDER_COUPLE_SPEED_OWN_PLAIN                                 :My train's top speed
 STR_ORDER_COUPLE_SPEED_MANUAL                                    :{BLACK}Manual

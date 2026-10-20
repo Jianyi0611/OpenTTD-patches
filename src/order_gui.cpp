@@ -3020,12 +3020,39 @@ void DrawOrderString(const Vehicle *v, const Order *order, int order_index, int 
 			if (order->GetCoupleUseWaitingSchedule()) {
 				AppendStringInPlace(line, STR_ORDER_COUPLE_USE_WAITING_SCHEDULE_SUFFIX);
 			}
-			if (order->GetCoupleRejectSlower()) AppendStringInPlace(line, STR_ORDER_COUPLE_REJECT_SLOWER_SUFFIX);
-			if (order->GetCoupleRejectFaster()) AppendStringInPlace(line, STR_ORDER_COUPLE_REJECT_FASTER_SUFFIX);
-			for (uint row = 0; row < 2; row++) {
-				const uint8_t comparator = order->GetCoupleSpeedComparator(row);
-				if (comparator >= 1 && comparator <= 6) AppendStringInPlace(line, STR_ORDER_COUPLE_SPEED_RANGE_SUFFIX, STR_TRACE_RESTRICT_CONDITIONAL_COMPARATOR_EQUALS + comparator - 1, order->GetCoupleSpeedValue(row), GetVelocityUnitNameForCode(order->GetCoupleSpeedUnit(row)));
+			/* Compact speed suffix: collapsed bounds, or one entry per bound. */
+			const uint8_t bound_min = to_underlying(OrderConditionComparator::MoreThanOrEqual) + 1;
+			const uint8_t bound_max = to_underlying(OrderConditionComparator::LessThanOrEqual) + 1;
+			const auto mode0 = order->GetCoupleSpeedBoundMode(0);
+			const auto mode1 = order->GetCoupleSpeedBoundMode(1);
+			const uint8_t cmp0 = order->GetCoupleSpeedComparator(0);
+			const uint8_t cmp1 = order->GetCoupleSpeedComparator(1);
+			if (mode0 == CoupleSpeedBoundMode::OwnMax && mode1 == CoupleSpeedBoundMode::OwnMax) {
+				AppendStringInPlace(line, STR_ORDER_COUPLE_SPEED_SUFFIX_OWN_BOTH);
+			} else if (cmp0 == bound_min && cmp1 == bound_max && order->GetCoupleSpeedUnit(0) == order->GetCoupleSpeedUnit(1)) {
+				AppendStringInPlace(line, STR_ORDER_COUPLE_SPEED_SUFFIX_BOTH, order->GetCoupleSpeedValue(0), order->GetCoupleSpeedValue(1), GetVelocityUnitNameForCode(order->GetCoupleSpeedUnit(0)));
+			} else if (mode0 == CoupleSpeedBoundMode::OwnMax && mode1 == CoupleSpeedBoundMode::Manual && cmp1 == bound_max) {
+				AppendStringInPlace(line, STR_ORDER_COUPLE_SPEED_SUFFIX_RANGE_OWN_FIRST, STR_ORDER_COUPLE_SPEED_OWN_PLAIN, order->GetCoupleSpeedValue(1), GetVelocityUnitNameForCode(order->GetCoupleSpeedUnit(1)));
+			} else if (mode1 == CoupleSpeedBoundMode::OwnMax && mode0 == CoupleSpeedBoundMode::Manual && cmp0 == bound_min) {
+				AppendStringInPlace(line, STR_ORDER_COUPLE_SPEED_SUFFIX_RANGE_OWN_SECOND, order->GetCoupleSpeedValue(0), GetVelocityUnitNameForCode(order->GetCoupleSpeedUnit(0)), STR_ORDER_COUPLE_SPEED_OWN_PLAIN);
+			} else {
+				if (mode0 == CoupleSpeedBoundMode::OwnMax) {
+					AppendStringInPlace(line, STR_ORDER_COUPLE_SPEED_SUFFIX_OWN_MIN);
+				} else if (cmp0 != 0) {
+					AppendStringInPlace(line, STR_ORDER_COUPLE_SPEED_SUFFIX_ONE, STR_TRACE_RESTRICT_CONDITIONAL_COMPARATOR_EQUALS + cmp0 - 1, order->GetCoupleSpeedValue(0), GetVelocityUnitNameForCode(order->GetCoupleSpeedUnit(0)));
+				}
+				if (mode1 == CoupleSpeedBoundMode::OwnMax) {
+					AppendStringInPlace(line, STR_ORDER_COUPLE_SPEED_SUFFIX_OWN_MAX);
+				} else if (cmp1 != 0) {
+					AppendStringInPlace(line, STR_ORDER_COUPLE_SPEED_SUFFIX_ONE, STR_TRACE_RESTRICT_CONDITIONAL_COMPARATOR_EQUALS + cmp1 - 1, order->GetCoupleSpeedValue(1), GetVelocityUnitNameForCode(order->GetCoupleSpeedUnit(1)));
+				}
 			}
+			/* A legacy relative condition not covered by the bound modes keeps its effect. */
+			if ((order->GetCoupleRejectSlower() && mode1 != CoupleSpeedBoundMode::OwnMax) ||
+					(order->GetCoupleRejectFaster() && mode0 != CoupleSpeedBoundMode::OwnMax)) {
+				AppendStringInPlace(line, STR_ORDER_COUPLE_SPEED_SUFFIX_LEGACY);
+			}
+
 			if (order->HasCoupleCheckPoint()) AppendStringInPlace(line, STR_ORDER_COUPLE_CHECK_AT, GetCoupleCheckPointLabel(orders, order_index, *order));
 			break;
 		}
