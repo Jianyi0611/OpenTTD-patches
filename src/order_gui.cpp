@@ -1247,6 +1247,74 @@ void ShowRVTransportWindow(Window *parent, const OrderCriteriaTarget &target, Ve
 	w->parent = parent;
 }
 
+/** Map a couple candidate rejection reason to its diagnostic string. */
+static StringID GetCoupleCandidateResultString(CoupleCandidateResult result)
+{
+	switch (result) {
+		case CoupleCandidateResult::NotWaiting:  return STR_COUPLE_DIAGNOSTIC_NOT_WAITING;
+		case CoupleCandidateResult::Claimed:     return STR_COUPLE_DIAGNOSTIC_CLAIMED;
+		case CoupleCandidateResult::Crashed:     return STR_COUPLE_DIAGNOSTIC_CRASHED;
+		case CoupleCandidateResult::Stopped:     return STR_COUPLE_DIAGNOSTIC_STOPPED;
+		case CoupleCandidateResult::Owner:       return STR_COUPLE_DIAGNOSTIC_OWNER;
+		case CoupleCandidateResult::Load:        return STR_COUPLE_DIAGNOSTIC_LOAD;
+		case CoupleCandidateResult::Cargo:       return STR_COUPLE_DIAGNOSTIC_CARGO;
+		case CoupleCandidateResult::UnitCount:   return STR_COUPLE_DIAGNOSTIC_UNIT_COUNT;
+		case CoupleCandidateResult::Slot:        return STR_COUPLE_DIAGNOSTIC_SLOT;
+		case CoupleCandidateResult::SlotGroup:   return STR_COUPLE_DIAGNOSTIC_SLOT_GROUP;
+		case CoupleCandidateResult::Group:       return STR_COUPLE_DIAGNOSTIC_GROUP;
+		case CoupleCandidateResult::Station:     return STR_COUPLE_DIAGNOSTIC_STATION;
+		case CoupleCandidateResult::Platform:    return STR_COUPLE_DIAGNOSTIC_PLATFORM;
+		case CoupleCandidateResult::Slower:      return STR_COUPLE_DIAGNOSTIC_SLOWER;
+		case CoupleCandidateResult::Faster:      return STR_COUPLE_DIAGNOSTIC_FASTER;
+		case CoupleCandidateResult::SpeedRange:  return STR_COUPLE_DIAGNOSTIC_SPEED_RANGE;
+		case CoupleCandidateResult::Arrangement: return STR_COUPLE_DIAGNOSTIC_ARRANGEMENT;
+		default:                                  return STR_NULL;
+	}
+}
+
+/** Build the coupling report on demand; no pathfinder or claim state is changed. */
+static void ShowCoupleDiagnostics(const Train *moving, const Order *order, VehicleOrderID sel)
+{
+	if (moving == nullptr || order == nullptr || !order->IsType(OT_GOTO_COUPLE)) return;
+
+	constexpr size_t RESULT_COUNT = to_underlying(CoupleCandidateResult::Arrangement) + 1;
+	std::array<uint, RESULT_COUNT> counts{};
+
+	for (Train *candidate : Train::Iterate()) {
+		if (candidate != candidate->First() || candidate == moving->First()) continue;
+		CoupleCandidateResult result = GetCoupleCandidateResult(moving, *order, candidate, candidate->tile, true, UINT32_MAX);
+		counts[to_underlying(result)]++;
+	}
+
+	std::string report;
+	const Train *target = Train::GetIfValid(moving->couple_target);
+	bool active = moving->current_order.IsType(OT_GOTO_COUPLE) && moving->cur_implicit_order_index == sel;
+	/* The early check at a checkpoint runs the couple order before it becomes
+	 * the executing order; a held train is still running this order. */
+	if (!active) active = IsCoupleCheckpointEngaged(moving, order);
+	if (active && target != nullptr) {
+		report = GetString(STR_COUPLE_DIAGNOSTIC_TARGET, target->Primary()->index);
+		const Train *claimant = GetCoupleClaimant(target);
+		report += "\n";
+		report += claimant == moving ? GetString(STR_COUPLE_DIAGNOSTIC_CLAIM_SELF) :
+				(claimant != nullptr ? GetString(STR_COUPLE_DIAGNOSTIC_CLAIM_OTHER, claimant->index) : GetString(STR_COUPLE_DIAGNOSTIC_CLAIM_NONE));
+	} else if (counts[to_underlying(CoupleCandidateResult::Valid)] != 0) {
+		report = GetString(STR_COUPLE_DIAGNOSTIC_PATH_UNKNOWN);
+	} else {
+		report = GetString(STR_COUPLE_DIAGNOSTIC_NO_CANDIDATE);
+	}
+	if (!active) report = GetString(STR_COUPLE_DIAGNOSTIC_NOT_ACTIVE) + "\n" + report;
+
+	for (size_t i = 0; i < counts.size(); i++) {
+		CoupleCandidateResult result = static_cast<CoupleCandidateResult>(i);
+		if (counts[i] == 0 || result == CoupleCandidateResult::Valid || result == CoupleCandidateResult::NotCoupleOrder) continue;
+		report += "\n";
+		report += GetString(STR_COUPLE_DIAGNOSTIC_REJECTION, GetCoupleCandidateResultString(result), counts[i]);
+	}
+
+	ShowErrorMessage(GetEncodedString(STR_COUPLE_DIAGNOSTIC_CAPTION), GetEncodedString(STR_JUST_RAW_STRING, report), WarningLevel::Info);
+}
+
 /** Widgets of the #CoupleOptionsWindow (coupling selection criteria of a train couple order). */
 enum CoupleCriteriaWidgets : WidgetID {
 	WID_CPO_CAPTION,          ///< Caption of the window.
@@ -1269,6 +1337,7 @@ enum CoupleCriteriaWidgets : WidgetID {
 	WID_CPO_SPEED_LABEL2,
 	WID_CPO_SPEED_MAX_MODE,
 	WID_CPO_SPEED_VALUE2, ///< Virtual widget id used to route the manual value text query of row 1.
+	WID_CPO_DIAGNOSTICS,      ///< Show coupling target and candidate diagnostics.
 	WID_CPO_CLOSE,            ///< Close button.
 };
 
@@ -1490,6 +1559,10 @@ public:
 		 * their current value. */
 		this->UpdateWidgetTexts();
 		this->FinishInitNested(target.window_number);
+		if (target.vehicle == nullptr || target.vehicle->type != VehicleType::Train) {
+			/* Standalone order lists have no train whose coupling could be diagnosed. */
+			this->DisableWidget(WID_CPO_DIAGNOSTICS);
+		}
 		this->last_settings = this->GetSettings();
 		this->owner = target.owner;
 	}
@@ -1640,6 +1713,12 @@ public:
 				this->ShowSpeedValueQuery(widget == WID_CPO_SPEED_VALUE1 ? 0 : 1);
 				return;
 
+			case WID_CPO_DIAGNOSTICS:
+				if (this->target.vehicle != nullptr && this->target.vehicle->type == VehicleType::Train) {
+					ShowCoupleDiagnostics(Train::From(this->target.vehicle)->Primary(), this->order, this->order_id);
+				}
+				return;
+
 			case WID_CPO_CLOSE:
 				this->Close();
 				return;
@@ -1782,6 +1861,10 @@ static constexpr NWidgetPart _nested_couple_options_widgets[] = {
 			NWidget(WWT_TEXT, Colours::Invalid, WID_CPO_SPEED_LABEL2), SetStringTip(STR_ORDER_COUPLE_SPEED_LABEL2, STR_ORDER_COUPLE_SPEED_RANGE_TOOLTIP),
 			NWidget(WWT_DROPDOWN, Colours::Grey, WID_CPO_SPEED_MAX_MODE), SetStringTip(STR_ORDER_COUPLE_SPEED_DISABLED, STR_ORDER_COUPLE_SPEED_RANGE_TOOLTIP),
 		EndContainer(),
+		NWidget(NWID_HORIZONTAL), SetPIP(2, 4, 2),
+			NWidget(WWT_PUSHTXTBTN, Colours::Grey, WID_CPO_DIAGNOSTICS), SetFill(1, 0), SetResize(1, 0),
+												SetStringTip(STR_COUPLE_DIAGNOSTIC_BUTTON, STR_COUPLE_DIAGNOSTIC_TOOLTIP),
+		EndContainer(),
 	EndContainer(),
 	NWidget(NWID_HORIZONTAL),
 		NWidget(WWT_TEXTBTN, Colours::Grey, WID_CPO_CLOSE), SetFill(1, 0), SetResize(1, 0), SetStringTip(STR_CARGO_TYPE_ORDERS_CLOSE_BUTTON, STR_TOOLTIP_CLOSE_WINDOW),
@@ -1791,7 +1874,7 @@ static constexpr NWidgetPart _nested_couple_options_widgets[] = {
 
 /** Window description of the coupling criteria window. */
 static WindowDesc _couple_options_desc(__FILE__, __LINE__,
-	WindowPosition::Automatic, "couple_criteria", 240, 143,
+	WindowPosition::Automatic, "couple_criteria", 240, 159,
 	WindowClass::VehicleCoupleCriteria, WindowClass::VehicleOrders,
 	WindowDefaultFlag::Construction,
 	_nested_couple_options_widgets
@@ -3819,73 +3902,11 @@ private:
 		this->PostInsert(order, this->OrderGetSel());
 	}
 
-	static StringID GetCoupleCandidateResultString(CoupleCandidateResult result)
-	{
-		switch (result) {
-			case CoupleCandidateResult::NotWaiting:  return STR_COUPLE_DIAGNOSTIC_NOT_WAITING;
-			case CoupleCandidateResult::Claimed:     return STR_COUPLE_DIAGNOSTIC_CLAIMED;
-			case CoupleCandidateResult::Crashed:     return STR_COUPLE_DIAGNOSTIC_CRASHED;
-			case CoupleCandidateResult::Stopped:     return STR_COUPLE_DIAGNOSTIC_STOPPED;
-			case CoupleCandidateResult::Owner:       return STR_COUPLE_DIAGNOSTIC_OWNER;
-			case CoupleCandidateResult::Load:        return STR_COUPLE_DIAGNOSTIC_LOAD;
-			case CoupleCandidateResult::Cargo:       return STR_COUPLE_DIAGNOSTIC_CARGO;
-			case CoupleCandidateResult::UnitCount:   return STR_COUPLE_DIAGNOSTIC_UNIT_COUNT;
-			case CoupleCandidateResult::Slot:        return STR_COUPLE_DIAGNOSTIC_SLOT;
-			case CoupleCandidateResult::SlotGroup:   return STR_COUPLE_DIAGNOSTIC_SLOT_GROUP;
-			case CoupleCandidateResult::Group:       return STR_COUPLE_DIAGNOSTIC_GROUP;
-			case CoupleCandidateResult::Station:     return STR_COUPLE_DIAGNOSTIC_STATION;
-			case CoupleCandidateResult::Platform:    return STR_COUPLE_DIAGNOSTIC_PLATFORM;
-			case CoupleCandidateResult::Slower:      return STR_COUPLE_DIAGNOSTIC_SLOWER;
-			case CoupleCandidateResult::Faster:      return STR_COUPLE_DIAGNOSTIC_FASTER;
-			case CoupleCandidateResult::SpeedRange:  return STR_COUPLE_DIAGNOSTIC_SPEED_RANGE;
-			case CoupleCandidateResult::Arrangement: return STR_COUPLE_DIAGNOSTIC_ARRANGEMENT;
-			default:                                  return STR_NULL;
-		}
-	}
-
 	/** Build the coupling report on demand; no pathfinder or claim state is changed. */
 	void ShowCoupleDiagnostics()
 	{
-		const Order *order = this->OrderAt(this->OrderGetSel());
-		if (!this->HasVehicle() || this->vehicle->type != VehicleType::Train || order == nullptr || !order->IsType(OT_GOTO_COUPLE)) return;
-
-		const Train *moving = Train::From(this->vehicle)->Primary();
-		constexpr size_t RESULT_COUNT = to_underlying(CoupleCandidateResult::Arrangement) + 1;
-		std::array<uint, RESULT_COUNT> counts{};
-
-		for (Train *candidate : Train::Iterate()) {
-			if (candidate != candidate->First() || candidate == moving->First()) continue;
-			CoupleCandidateResult result = GetCoupleCandidateResult(moving, *order, candidate, candidate->tile, true, UINT32_MAX);
-			counts[to_underlying(result)]++;
-		}
-
-		std::string report;
-		const Train *target = Train::GetIfValid(moving->couple_target);
-		bool active = moving->current_order.IsType(OT_GOTO_COUPLE) && moving->cur_implicit_order_index == this->OrderGetSel();
-		/* The early check at a checkpoint runs the couple order before it becomes
-		 * the executing order; a held train is still running this order. */
-		if (!active) active = IsCoupleCheckpointEngaged(moving, order);
-		if (active && target != nullptr) {
-			report = GetString(STR_COUPLE_DIAGNOSTIC_TARGET, target->Primary()->index);
-			const Train *claimant = GetCoupleClaimant(target);
-			report += "\n";
-			report += claimant == moving ? GetString(STR_COUPLE_DIAGNOSTIC_CLAIM_SELF) :
-					(claimant != nullptr ? GetString(STR_COUPLE_DIAGNOSTIC_CLAIM_OTHER, claimant->index) : GetString(STR_COUPLE_DIAGNOSTIC_CLAIM_NONE));
-		} else if (counts[to_underlying(CoupleCandidateResult::Valid)] != 0) {
-			report = GetString(STR_COUPLE_DIAGNOSTIC_PATH_UNKNOWN);
-		} else {
-			report = GetString(STR_COUPLE_DIAGNOSTIC_NO_CANDIDATE);
-		}
-		if (!active) report = GetString(STR_COUPLE_DIAGNOSTIC_NOT_ACTIVE) + "\n" + report;
-
-		for (size_t i = 0; i < counts.size(); i++) {
-			CoupleCandidateResult result = static_cast<CoupleCandidateResult>(i);
-			if (counts[i] == 0 || result == CoupleCandidateResult::Valid || result == CoupleCandidateResult::NotCoupleOrder) continue;
-			report += "\n";
-			report += GetString(STR_COUPLE_DIAGNOSTIC_REJECTION, GetCoupleCandidateResultString(result), counts[i]);
-		}
-
-		ShowErrorMessage(GetEncodedString(STR_COUPLE_DIAGNOSTIC_CAPTION), GetEncodedString(STR_JUST_RAW_STRING, report), WarningLevel::Info);
+		if (!this->HasVehicle() || this->vehicle->type != VehicleType::Train) return;
+		::ShowCoupleDiagnostics(Train::From(this->vehicle)->Primary(), this->OrderAt(this->OrderGetSel()), this->OrderGetSel());
 	}
 
 	void OrderClick_OrdersFirst(int index)
@@ -4989,6 +5010,9 @@ public:
 					if (this->HasVehicle()) assert(this->vehicle->type == VehicleType::Train);
 					train_row_sel->SetDisplayedPlane(DP_GROUNDVEHICLE_ROW_COUPLE);
 					this->SetWidgetLoweredState(WID_O_COUPLE_STATION, order->HasCoupleStation());
+					if (this->widget_lookup.find(WID_O_COUPLE_USE_WAITING) != this->widget_lookup.end()) {
+						this->SetWidgetLoweredState(WID_O_COUPLE_USE_WAITING, order->GetCoupleUseWaitingSchedule());
+					}
 					break;
 				}
 
@@ -5130,6 +5154,10 @@ public:
 				if (this->widget_lookup.find(WID_O_COUPLE_STATION) != this->widget_lookup.end()) {
 					this->SetWidgetLoweredState(WID_O_COUPLE_STATION, this->goto_type == OPOS_COUPLE_STATION
 							|| (sel_order != nullptr && sel_order->IsType(OT_GOTO_COUPLE) && sel_order->HasCoupleStation()));
+				}
+				if (this->widget_lookup.find(WID_O_COUPLE_USE_WAITING) != this->widget_lookup.end()) {
+					this->SetWidgetLoweredState(WID_O_COUPLE_USE_WAITING,
+							sel_order != nullptr && sel_order->IsType(OT_GOTO_COUPLE) && sel_order->GetCoupleUseWaitingSchedule());
 				}
 				if (this->widget_lookup.find(WID_O_WAIT_COUPLE_STATION) != this->widget_lookup.end()) {
 					this->SetWidgetLoweredState(WID_O_WAIT_COUPLE_STATION, this->goto_type == OPOS_WAIT_COUPLE_STATION
@@ -5655,11 +5683,6 @@ public:
 				const bool bound_decouple = order->IsType(OT_DECOUPLE) || (order->IsType(OT_GOTO_STATION) && order->GetDecouple() == ODF_DECOUPLE);
 				if (!bound_decouple) list.push_back(MakeDropDownListStringItem(STR_ORDER_DUPLICATE_ORDER, 0, false));
 				if (order->IsType(OT_CONDITIONAL)) list.push_back(MakeDropDownListStringItem(STR_ORDER_CHANGE_JUMP_TARGET, 1, false));
-				if (order->IsType(OT_GOTO_COUPLE)) {
-					list.push_back(MakeDropDownListDividerItem());
-					list.push_back(MakeDropDownListCheckedItem(order->GetCoupleUseWaitingSchedule(), STR_ORDER_COUPLE_USE_WAITING_SCHEDULE, 0x600, false));
-					list.push_back(MakeDropDownListDividerItem());
-				}
 
 				/* Standalone lists act like trains here: every per-order option is available,
 				 * except constraints that need a real consist (passenger through-load scan). */
@@ -6317,9 +6340,15 @@ public:
 				ShowCoupleOptionsWindow(this, this->CriteriaTarget(), this->OrderGetSel());
 				break;
 
-			case WID_O_COUPLE_DIAGNOSTICS:
-				this->ShowCoupleDiagnostics();
+			case WID_O_COUPLE_USE_WAITING: {
+				const Order *sel_order = OrderAt(this->OrderGetSel());
+				if (sel_order == nullptr || !sel_order->IsType(OT_GOTO_COUPLE)) break;
+				this->ModifyOrder(this->OrderGetSel(), MOF_COUPLE_USE_WAITING_SCHEDULE, sel_order->GetCoupleUseWaitingSchedule() ? 0 : 1);
+				/* Keep the button visually in the new state; OnPaint re-syncs it from the order. */
+				this->SetWidgetLoweredState(WID_O_COUPLE_USE_WAITING, sel_order->GetCoupleUseWaitingSchedule() == 0);
+				this->SetWidgetDirty(WID_O_COUPLE_USE_WAITING);
 				break;
+			}
 
 			case WID_O_DECOUPLE_VALUE: {
 				const Order *order = OrderAt(this->OrderGetSel());
@@ -6833,14 +6862,6 @@ public:
 							const Order *dec_order = OrderAt(this->OrderGetSel());
 							if (dec_order == nullptr) break;
 							this->ModifyOrder(this->OrderGetSel(), MOF_DECOUPLE, dec_order->GetDecouple() == ODF_DECOUPLE ? ODF_NOTHING : ODF_DECOUPLE);
-						}
-						break;
-
-					case 0x600:
-						{
-							const Order *cpl_order = OrderAt(this->OrderGetSel());
-							if (cpl_order == nullptr || !cpl_order->IsType(OT_GOTO_COUPLE)) break;
-							this->ModifyOrder(this->OrderGetSel(), MOF_COUPLE_USE_WAITING_SCHEDULE, cpl_order->GetCoupleUseWaitingSchedule() ? 0 : 1);
 						}
 						break;
 
@@ -7489,10 +7510,10 @@ static constexpr std::initializer_list<NWidgetPart> _nested_orders_train_widgets
 												SetStringTip(STR_ORDER_COUPLE_SLOT_BUTTON, STR_ORDER_COUPLE_SLOT_TOOLTIP), SetResize(1, 0),
 				NWidget(WWT_PUSHTXTBTN, Colours::Grey, WID_O_COUPLE_STATION), SetMinimalSize(112, 12), SetFill(1, 0),
 												SetStringTip(STR_ORDER_COUPLE_STATION_BUTTON, STR_ORDER_COUPLE_STATION_TOOLTIP), SetResize(1, 0),
+				NWidget(WWT_PUSHTXTBTN, Colours::Grey, WID_O_COUPLE_USE_WAITING), SetMinimalSize(112, 12), SetFill(1, 0),
+												SetStringTip(STR_ORDER_COUPLE_USE_WAITING_BUTTON, STR_ORDER_COUPLE_USE_WAITING_TOOLTIP), SetResize(1, 0),
 				NWidget(WWT_PUSHTXTBTN, Colours::Grey, WID_O_COUPLE_MORE), SetMinimalSize(112, 12), SetFill(1, 0),
 												SetStringTip(STR_ORDER_COUPLE_MORE_BUTTON, STR_ORDER_COUPLE_MORE_TOOLTIP), SetResize(1, 0),
-				NWidget(WWT_PUSHTXTBTN, Colours::Grey, WID_O_COUPLE_DIAGNOSTICS), SetMinimalSize(112, 12), SetFill(1, 0),
-												SetStringTip(STR_COUPLE_DIAGNOSTIC_BUTTON, STR_COUPLE_DIAGNOSTIC_TOOLTIP), SetResize(1, 0),
 			EndContainer(),
 			NWidget(NWID_HORIZONTAL, NWidContainerFlag::EqualSize),
 				NWidget(NWID_BUTTON_DROPDOWN, Colours::Grey, WID_O_ORDERS_FIRST), SetMinimalSize(124, 12), SetFill(1, 0),

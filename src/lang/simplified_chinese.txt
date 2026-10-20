@@ -5019,6 +5019,8 @@ STR_ORDER_COUPLE_VALUE_TOOLTIP                                  :{BLACK}限制�
 STR_ORDER_DECOUPLE_VALUE_TOOLTIP                                :{BLACK}解挂后本列车保留的车厢数量
 STR_ORDER_COUPLE_USE_WAITING_SCHEDULE                          :使用等待对接列车的调度计划
 STR_ORDER_COUPLE_USE_WAITING_SCHEDULE_SUFFIX                   :（并使用等待对接列车的调度计划）
+STR_ORDER_COUPLE_USE_WAITING_BUTTON                            :{BLACK}用等待调度计划
+STR_ORDER_COUPLE_USE_WAITING_TOOLTIP                           :{BLACK}对接后改用等待列车自带的调度计划。再次点击取消
 STR_ORDER_COUPLE_ANY_SLOT                                     :任意路签
 STR_ORDER_COUPLE_MORE_BUTTON                                   :{BLACK}更多选项
 STR_ORDER_COUPLE_MORE_TOOLTIP                                  :{BLACK}更多连接限制条件：路签组、载具组、空满状态、货物类型与车厢数量

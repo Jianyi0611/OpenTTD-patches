@@ -999,6 +999,8 @@ STR_ORDER_COUPLE_VALUE_TOOLTIP                                  :{BLACK}Restrict
 STR_ORDER_DECOUPLE_VALUE_TOOLTIP                                :{BLACK}How many units stay in this train after decoupling
 STR_ORDER_COUPLE_USE_WAITING_SCHEDULE                          :Use the waiting train's schedule
 STR_ORDER_COUPLE_USE_WAITING_SCHEDULE_SUFFIX                   :(and use the waiting train's schedule)
+STR_ORDER_COUPLE_USE_WAITING_BUTTON                            :{BLACK}Waiting schedule
+STR_ORDER_COUPLE_USE_WAITING_TOOLTIP                           :{BLACK}After coupling, continue the waiting train's schedule instead of this one. Click again to disable
 STR_ORDERS_DECOUPLE_VALUE_BUTTON                                :{BLACK}Units decouple
 STR_ORDERS_DECOUPLE_BUTTON                                      :{BLACK}Decouple
 STR_ORDERS_DECOUPLE_DROP                                        :Decouple
