@@ -7028,6 +7028,26 @@ void CancelTrainCoupleCheckpoint(Train *train)
 }
 
 /**
+ * Query whether the train is currently held by (or has claimed a partner for)
+ * the early couple check at the checkpoint belonging to \a order.
+ * Read-only probe for GUI diagnostics; no claim or reservation state is changed.
+ * @param moving the consist in question.
+ * @param order the GOTO_COUPLE order of \a moving that owns the check point.
+ * @return true when the early check backed by \a order is engaged.
+ */
+bool IsCoupleCheckpointEngaged(const Train *moving, const Order *order)
+{
+	Train *prim = moving->Primary();
+	if (GetClaimCoupleOrder(const_cast<Train *>(prim)) != order) return false;
+	/* Engaged once a partner is claimed, or the checkpoint hold has taken
+	 * effect: the forward reservation was released waiting for a partner,
+	 * or a checkpoint reversal is still pending. */
+	return prim->couple_target != VehicleID::Invalid()
+			|| prim->flags.Test(VehicleRailFlag::CoupleCheckReservationReleased)
+			|| prim->flags.Test(VehicleRailFlag::CoupleCheckReversePending);
+}
+
+/**
  * Check a waiting consist's exclusive claim.
  * Changing the target or any volatile order condition invalidates the claim.
  */

@@ -34,6 +34,7 @@
 #include "hotkeys.h"
 #include "aircraft.h"
 #include "train.h"
+#include "train_cmd.h"
 #include "vehicle_gui.h"
 #include "gui.h"
 #include "date_func.h"
@@ -1249,6 +1250,8 @@ void ShowRVTransportWindow(Window *parent, const OrderCriteriaTarget &target, Ve
 /** Widgets of the #CoupleOptionsWindow (coupling selection criteria of a train couple order). */
 enum CoupleCriteriaWidgets : WidgetID {
 	WID_CPO_CAPTION,          ///< Caption of the window.
+	WID_CPO_CHECK_POINT_LABEL, ///< Label of the early couple check point criterion.
+	WID_CPO_CHECK_POINT,      ///< Early couple check point criterion (none / an earlier station or waypoint order).
 	WID_CPO_SLOT_GROUP_LABEL, ///< Label of the trace restrict slot group criterion.
 	WID_CPO_SLOT_GROUP,       ///< Trace restrict slot group criterion.
 	WID_CPO_GROUP_LABEL,      ///< Label of the vehicle group criterion.
@@ -1260,14 +1263,12 @@ enum CoupleCriteriaWidgets : WidgetID {
 	WID_CPO_VALUE_LABEL,      ///< Label of the unit count criterion.
 	WID_CPO_VALUE,            ///< Unit count criterion (opens a query).
 	WID_CPO_SPEED_LABEL,
-	WID_CPO_SPEED_VALUE_SELECT1,
-	WID_CPO_SPEED_VALUE_SELECT2,
 	WID_CPO_SPEED_LABEL1,
 	WID_CPO_SPEED_MIN_MODE,
-	WID_CPO_SPEED_VALUE1,
+	WID_CPO_SPEED_VALUE1, ///< Virtual widget id used to route the manual value text query of row 0.
 	WID_CPO_SPEED_LABEL2,
 	WID_CPO_SPEED_MAX_MODE,
-	WID_CPO_SPEED_VALUE2,
+	WID_CPO_SPEED_VALUE2, ///< Virtual widget id used to route the manual value text query of row 1.
 	WID_CPO_CLOSE,            ///< Close button.
 };
 
@@ -1301,6 +1302,7 @@ private:
 
 	/** Snapshot of the criteria which are shown, to refresh the dropdowns when the order changes. */
 	struct SettingsSnapshot {
+		uint16_t check_point = 0; ///< Early check point (station id + 1), 0 when none.
 		uint8_t load = 0;
 		uint8_t cargo = 0;
 		uint8_t units = 0;
@@ -1314,7 +1316,7 @@ private:
 
 		bool operator==(const SettingsSnapshot &other) const
 		{
-			return this->load == other.load && this->cargo == other.cargo && this->units == other.units &&
+			return this->check_point == other.check_point && this->load == other.load && this->cargo == other.cargo && this->units == other.units &&
 					this->slot_group == other.slot_group && this->group == other.group &&
 					this->reject_slower == other.reject_slower && this->reject_faster == other.reject_faster &&
 					this->speed_comparators == other.speed_comparators && this->speed_values == other.speed_values && this->speed_units == other.speed_units;
@@ -1329,6 +1331,7 @@ private:
 	SettingsSnapshot GetSettings() const
 	{
 		SettingsSnapshot s;
+		s.check_point = this->order->HasCoupleCheckPoint() ? this->order->GetCoupleCheckPoint().base() + 1 : 0;
 		s.load = to_underlying(this->order->GetCoupleLoad());
 		s.cargo = this->order->HasCoupleCargoType() ? (uint8_t)this->order->GetCoupleCargoType() : (uint8_t)CARGO_NO_REFIT;
 		s.units = this->order->GetNumCouple();
@@ -1349,16 +1352,25 @@ private:
 	 * fallbacks used while no parameter is available. */
 	void UpdateWidgetTexts()
 	{
+		this->GetWidget<NWidgetCore>(WID_CPO_CHECK_POINT)->SetString(STR_ORDER_COUPLE_CHECK_NONE);
 		this->GetWidget<NWidgetCore>(WID_CPO_SLOT_GROUP)->SetString(STR_ORDER_COUPLE_ANY_GROUP);
 		this->GetWidget<NWidgetCore>(WID_CPO_GROUP)->SetString(STR_ORDER_COUPLE_ANY_VEHICLE_GROUP);
 		this->GetWidget<NWidgetCore>(WID_CPO_LOAD)->SetString(STR_ORDER_COUPLE_ANY + to_underlying(this->order->GetCoupleLoad()));
 		this->GetWidget<NWidgetCore>(WID_CPO_CARGO)->SetString(STR_ORDER_COUPLE_ANY_CARGO);
 		for (uint row = 0; row < 2; row++) {
 			const auto mode = this->order->GetCoupleSpeedBoundMode(row);
+			/* Manual mode text ("value unit") is resolved per render by #GetWidgetString. */
 			this->GetWidget<NWidgetCore>(row == 0 ? WID_CPO_SPEED_MIN_MODE : WID_CPO_SPEED_MAX_MODE)->SetString(
 					mode == CoupleSpeedBoundMode::OwnMax ? STR_ORDER_COUPLE_SPEED_OWN_MAX : mode == CoupleSpeedBoundMode::Manual ? STR_ORDER_COUPLE_SPEED_MANUAL : STR_ORDER_COUPLE_SPEED_DISABLED);
-			this->GetWidget<NWidgetStacked>(row == 0 ? WID_CPO_SPEED_VALUE_SELECT1 : WID_CPO_SPEED_VALUE_SELECT2)->SetDisplayedPlane(mode == CoupleSpeedBoundMode::Manual ? 0 : SZSP_NONE);
 		}
+	}
+
+	/** Open the manual value text query for \a row. */
+	void ShowSpeedValueQuery(uint row)
+	{
+		this->query_text_widget = row == 0 ? WID_CPO_SPEED_VALUE1 : WID_CPO_SPEED_VALUE2;
+		ShowQueryString(GetString(STR_JUST_INT, ConvertVelocityUnitValue(this->order->GetCoupleSpeedValue(row), this->order->GetCoupleSpeedUnit(row), GetVelocityUnitCode(VehicleType::Train))),
+				GetEncodedString(STR_ORDER_COUPLE_SPEED_QUERY, GetVelocityUnitName(VehicleType::Train)), 7, this, CS_NUMERAL, {});
 	}
 
 	/** Is the edited order still there? */
@@ -1382,6 +1394,27 @@ private:
 		if (!this->order->HasCoupleCargoType()) return INVALID_CARGO;
 		const CargoType cargo = this->order->GetCoupleCargoType();
 		return IsValidCargoType(cargo) ? cargo : INVALID_CARGO;
+	}
+
+	/** Build the dropdown which selects the early couple check point: none, or a station/waypoint
+	 * order before the couple order. Entries carry the stored "station + 1" value; "none" is 0. */
+	DropDownList BuildCheckPointList() const
+	{
+		DropDownList list;
+		list.push_back(MakeDropDownListCheckedItem(!this->order->HasCoupleCheckPoint(), STR_ORDER_COUPLE_CHECK_NONE, 0, false));
+		for (uint i = 0; i < this->order_id; ++i) {
+			const Order *point = this->target.GetOrder(i);
+			if (point == nullptr || (!point->IsType(OT_GOTO_STATION) && !point->IsType(OT_GOTO_WAYPOINT))) continue;
+			const StationID station = point->GetDestination().ToStationID();
+			const int result = station.base() + 1;
+			const bool checked = this->order->HasCoupleCheckPoint() && this->order->GetCoupleCheckPoint() == station;
+			std::string name = GetString(point->IsType(OT_GOTO_WAYPOINT) ? STR_WAYPOINT_NAME : STR_STATION_NAME, station);
+			auto item = MakeDropDownListCheckedItem(checked, GetString(STR_ORDER_COUPLE_CHECK_ITEM, GetString(STR_ORDER_INDEX, i + 1), name), result, false);
+			/* Embedded station/string colours must not hide text on the selected background. */
+			item->colour_flags.Set(ExtendedTextColourFlag::Forced);
+			list.push_back(std::move(item));
+		}
+		return list;
 	}
 
 	/** Build the dropdown which selects the trace restrict slot group criterion. The list works
@@ -1495,6 +1528,21 @@ public:
 	std::string GetWidgetString(WidgetID widget, StringID stringid) const override
 	{
 		switch (widget) {
+			case WID_CPO_CHECK_POINT: {
+				if (!this->order->HasCoupleCheckPoint()) return GetString(STR_ORDER_COUPLE_CHECK_NONE);
+				const StationID station = this->order->GetCoupleCheckPoint();
+				for (uint i = 0; i < this->order_id; ++i) {
+					const Order *point = this->target.GetOrder(i);
+					if (point != nullptr && (point->IsType(OT_GOTO_STATION) || point->IsType(OT_GOTO_WAYPOINT)) && point->GetDestination().ToStationID() == station) {
+						std::string name = GetString(point->IsType(OT_GOTO_WAYPOINT) ? STR_WAYPOINT_NAME : STR_STATION_NAME, station);
+						return GetString(STR_ORDER_INDEX, i + 1) + name;
+					}
+				}
+				if (Waypoint::IsValidID(station)) return GetString(STR_WAYPOINT_NAME, station);
+				if (Station::IsValidID(station)) return GetString(STR_STATION_NAME, station);
+				return GetString(STR_ORDER_COUPLE_CHECK_MISSING);
+			}
+
 			case WID_CPO_SLOT_GROUP: {
 				const uint16_t slot_group = this->order->GetCoupleSlotGroup().base();
 				if (slot_group != INVALID_TRACE_RESTRICT_SLOT_GROUP.base()) {
@@ -1524,16 +1572,20 @@ public:
 			case WID_CPO_SPEED_LABEL2:
 				return GetString(widget == WID_CPO_SPEED_LABEL1 ? STR_ORDER_COUPLE_SPEED_LABEL1 : STR_ORDER_COUPLE_SPEED_LABEL2);
 
-			case WID_CPO_SPEED_VALUE1:
-			case WID_CPO_SPEED_VALUE2: {
-				const uint row = widget == WID_CPO_SPEED_VALUE1 ? 0 : 1;
-				std::string value = GetString(STR_ORDER_COUPLE_SPEED_VALUE, this->order->GetCoupleSpeedValue(row), GetVelocityUnitNameForCode(this->order->GetCoupleSpeedUnit(row)));
-				const uint8_t comparator = this->order->GetCoupleSpeedComparator(row);
-				const uint8_t bound = to_underlying(row == 0 ? OrderConditionComparator::MoreThanOrEqual : OrderConditionComparator::LessThanOrEqual) + 1;
-				/* Do not silently reinterpret an older saved comparison on opening the window. */
-				if (comparator >= 1 && comparator <= 6 && comparator != bound) value = GetString(STR_TRACE_RESTRICT_CONDITIONAL_COMPARATOR_EQUALS + comparator - 1) + value;
-				if (row == 0 ? this->order->GetCoupleRejectFaster() : this->order->GetCoupleRejectSlower()) value += " *";
-				return value;
+			case WID_CPO_SPEED_MIN_MODE:
+			case WID_CPO_SPEED_MAX_MODE: {
+				const uint row = widget == WID_CPO_SPEED_MIN_MODE ? 0 : 1;
+				const auto mode = this->order->GetCoupleSpeedBoundMode(row);
+				if (mode == CoupleSpeedBoundMode::Manual) {
+					const uint8_t comparator = this->order->GetCoupleSpeedComparator(row);
+					const uint8_t bound = to_underlying(row == 0 ? OrderConditionComparator::MoreThanOrEqual : OrderConditionComparator::LessThanOrEqual) + 1;
+					std::string value = GetString(STR_ORDER_COUPLE_SPEED_VALUE, this->order->GetCoupleSpeedValue(row), GetVelocityUnitNameForCode(this->order->GetCoupleSpeedUnit(row)));
+					/* Do not silently reinterpret an older saved comparison on opening the window. */
+					if (comparator >= 1 && comparator <= 6 && comparator != bound) value = GetString(STR_TRACE_RESTRICT_CONDITIONAL_COMPARATOR_EQUALS + comparator - 1) + value;
+					if (row == 0 ? this->order->GetCoupleRejectFaster() : this->order->GetCoupleRejectSlower()) value += " *";
+					return value;
+				}
+				return GetString(mode == CoupleSpeedBoundMode::OwnMax ? STR_ORDER_COUPLE_SPEED_OWN_MAX : STR_ORDER_COUPLE_SPEED_DISABLED);
 			}
 
 			default:
@@ -1549,6 +1601,10 @@ public:
 		}
 
 		switch (widget) {
+			case WID_CPO_CHECK_POINT:
+				ShowDropDownList(this, this->BuildCheckPointList(), -1, WID_CPO_CHECK_POINT, 0,
+						{DropDownOption::Filterable, DropDownOption::ClickOnly}, DDSF_SHARED);
+				return;
 			case WID_CPO_SLOT_GROUP:
 				ShowDropDownList(this, this->BuildSlotGroupList(), -1, WID_CPO_SLOT_GROUP, 0);
 				return;
@@ -1581,9 +1637,7 @@ public:
 			}
 			case WID_CPO_SPEED_VALUE1:
 			case WID_CPO_SPEED_VALUE2:
-				this->query_text_widget = widget;
-				ShowQueryString(GetString(STR_JUST_INT, ConvertVelocityUnitValue(this->order->GetCoupleSpeedValue(widget == WID_CPO_SPEED_VALUE1 ? 0 : 1), this->order->GetCoupleSpeedUnit(widget == WID_CPO_SPEED_VALUE1 ? 0 : 1), GetVelocityUnitCode(VehicleType::Train))),
-						GetEncodedString(STR_ORDER_COUPLE_SPEED_QUERY, GetVelocityUnitName(VehicleType::Train)), 7, this, CS_NUMERAL, {});
+				this->ShowSpeedValueQuery(widget == WID_CPO_SPEED_VALUE1 ? 0 : 1);
 				return;
 
 			case WID_CPO_CLOSE:
@@ -1600,11 +1654,23 @@ public:
 		if (!this->CheckOrderStillValid()) return;
 
 		switch (widget) {
+			case WID_CPO_CHECK_POINT: {
+				/* Recheck eligibility after edits from another window or a network client. */
+				bool valid = index == 0;
+				for (uint i = 0; !valid && i < this->order_id; ++i) {
+					const Order *point = this->target.GetOrder(i);
+					valid = point != nullptr && (point->IsType(OT_GOTO_STATION) || point->IsType(OT_GOTO_WAYPOINT)) && point->GetDestination().base() + 1 == index;
+				}
+				if (valid) this->ModifyOrder(MOF_COUPLE_CHECK_POINT, static_cast<uint16_t>(index));
+				break;
+			}
+
 			case WID_CPO_SPEED_MIN_MODE:
 			case WID_CPO_SPEED_MAX_MODE:
 				if (index >= 0 && index <= 2) {
 					this->ModifyOrder(widget == WID_CPO_SPEED_MIN_MODE ? MOF_COUPLE_SPEED_MIN_MODE : MOF_COUPLE_SPEED_MAX_MODE, index);
-					if (index == to_underlying(CoupleSpeedBoundMode::Manual)) this->OnClick({}, widget == WID_CPO_SPEED_MIN_MODE ? WID_CPO_SPEED_VALUE1 : WID_CPO_SPEED_VALUE2, 1);
+					/* Manual asks for the numeric value right away; the mode dropdown shows it after the edit. */
+					if (index == to_underlying(CoupleSpeedBoundMode::Manual)) this->ShowSpeedValueQuery(widget == WID_CPO_SPEED_MIN_MODE ? 0 : 1);
 				}
 				break;
 			case WID_CPO_SLOT_GROUP:
@@ -1686,6 +1752,10 @@ static constexpr NWidgetPart _nested_couple_options_widgets[] = {
 	EndContainer(),
 	NWidget(WWT_PANEL, Colours::Grey),
 		NWidget(NWID_HORIZONTAL),
+			NWidget(WWT_TEXT, Colours::Invalid, WID_CPO_CHECK_POINT_LABEL), SetFill(1, 0), SetResize(1, 0), SetStringTip(STR_ORDER_COUPLE_CHECK_LABEL, STR_NULL),
+			NWidget(WWT_DROPDOWN, Colours::Grey, WID_CPO_CHECK_POINT), SetFill(0, 0), SetResize(0, 0),
+		EndContainer(),
+		NWidget(NWID_HORIZONTAL),
 			NWidget(WWT_TEXT, Colours::Invalid, WID_CPO_SLOT_GROUP_LABEL), SetFill(1, 0), SetResize(1, 0), SetStringTip(STR_ORDER_COUPLE_SLOT_GROUP_LABEL, STR_NULL),
 			NWidget(WWT_DROPDOWN, Colours::Grey, WID_CPO_SLOT_GROUP), SetFill(0, 0), SetResize(0, 0),
 		EndContainer(),
@@ -1709,14 +1779,8 @@ static constexpr NWidgetPart _nested_couple_options_widgets[] = {
 			NWidget(WWT_TEXT, Colours::Invalid, WID_CPO_SPEED_LABEL), SetStringTip(STR_ORDER_COUPLE_SPEED_LABEL, STR_ORDER_COUPLE_SPEED_RANGE_TOOLTIP),
 			NWidget(WWT_TEXT, Colours::Invalid, WID_CPO_SPEED_LABEL1), SetStringTip(STR_ORDER_COUPLE_SPEED_LABEL1, STR_ORDER_COUPLE_SPEED_RANGE_TOOLTIP),
 			NWidget(WWT_DROPDOWN, Colours::Grey, WID_CPO_SPEED_MIN_MODE), SetStringTip(STR_ORDER_COUPLE_SPEED_DISABLED, STR_ORDER_COUPLE_SPEED_RANGE_TOOLTIP),
-			NWidget(NWID_SELECTION, Colours::Invalid, WID_CPO_SPEED_VALUE_SELECT1),
-				NWidget(WWT_PUSHTXTBTN, Colours::Grey, WID_CPO_SPEED_VALUE1), SetStringTip(STR_JUST_VELOCITY, STR_ORDER_COUPLE_SPEED_RANGE_TOOLTIP),
-			EndContainer(),
 			NWidget(WWT_TEXT, Colours::Invalid, WID_CPO_SPEED_LABEL2), SetStringTip(STR_ORDER_COUPLE_SPEED_LABEL2, STR_ORDER_COUPLE_SPEED_RANGE_TOOLTIP),
 			NWidget(WWT_DROPDOWN, Colours::Grey, WID_CPO_SPEED_MAX_MODE), SetStringTip(STR_ORDER_COUPLE_SPEED_DISABLED, STR_ORDER_COUPLE_SPEED_RANGE_TOOLTIP),
-			NWidget(NWID_SELECTION, Colours::Invalid, WID_CPO_SPEED_VALUE_SELECT2),
-				NWidget(WWT_PUSHTXTBTN, Colours::Grey, WID_CPO_SPEED_VALUE2), SetStringTip(STR_JUST_VELOCITY, STR_ORDER_COUPLE_SPEED_RANGE_TOOLTIP),
-			EndContainer(),
 		EndContainer(),
 	EndContainer(),
 	NWidget(NWID_HORIZONTAL),
@@ -1727,7 +1791,7 @@ static constexpr NWidgetPart _nested_couple_options_widgets[] = {
 
 /** Window description of the coupling criteria window. */
 static WindowDesc _couple_options_desc(__FILE__, __LINE__,
-	WindowPosition::Automatic, "couple_criteria", 240, 130,
+	WindowPosition::Automatic, "couple_criteria", 240, 143,
 	WindowClass::VehicleCoupleCriteria, WindowClass::VehicleOrders,
 	WindowDefaultFlag::Construction,
 	_nested_couple_options_widgets
@@ -2293,6 +2357,34 @@ static void AppendRVTransportOrderSummary(format_buffer &line, const Order &orde
  * @param middle X position between order index and order text
  * @param right Right border for text drawing
  */
+/**
+ * Build the "order index: name" label of a couple order's early check point.
+ * Looks for the station/waypoint order before the couple order that references
+ * the check point, so the label tracks the list like the selection dropdown.
+ * Falls back to the bare station/waypoint name, and to a "missing" note when
+ * neither the owning order nor the location exists anymore.
+ * @param orders the order list being displayed (may be nullptr for standalone use).
+ * @param order_index index of the displayed couple order within \a orders.
+ * @param order the GOTO_COUPLE order to label.
+ * @return formatted parameter for STR_ORDER_COUPLE_CHECK_AT.
+ */
+static std::string GetCoupleCheckPointLabel(const OrderList *orders, int order_index, const Order &order)
+{
+	const StationID station = order.GetCoupleCheckPoint();
+	if (orders != nullptr) {
+		for (int i = 0; i < order_index; ++i) {
+			const Order *point = orders->GetOrderAt(i);
+			if (point == nullptr || (!point->IsType(OT_GOTO_STATION) && !point->IsType(OT_GOTO_WAYPOINT))) continue;
+			if (point->GetDestination().ToStationID() != station) continue;
+			std::string name = GetString(point->IsType(OT_GOTO_WAYPOINT) ? STR_WAYPOINT_NAME : STR_STATION_NAME, station);
+			return GetString(STR_ORDER_INDEX, i + 1) + name;
+		}
+	}
+	if (Waypoint::IsValidID(station)) return GetString(STR_WAYPOINT_NAME, station);
+	if (Station::IsValidID(station)) return GetString(STR_STATION_NAME, station);
+	return GetString(STR_ORDER_COUPLE_CHECK_MISSING);
+}
+
 void DrawOrderString(const Vehicle *v, const Order *order, int order_index, int y, bool selected, bool timetable, int left, int middle, int right, bool dispatch_enabled, const OrderList *orders)
 {
 	bool rtl = _current_text_dir == TD_RTL;
@@ -2928,13 +3020,40 @@ void DrawOrderString(const Vehicle *v, const Order *order, int order_index, int 
 			if (order->GetCoupleUseWaitingSchedule()) {
 				AppendStringInPlace(line, STR_ORDER_COUPLE_USE_WAITING_SCHEDULE_SUFFIX);
 			}
-			if (order->GetCoupleRejectSlower()) AppendStringInPlace(line, STR_ORDER_COUPLE_REJECT_SLOWER_SUFFIX);
-			if (order->GetCoupleRejectFaster()) AppendStringInPlace(line, STR_ORDER_COUPLE_REJECT_FASTER_SUFFIX);
-			for (uint row = 0; row < 2; row++) {
-				const uint8_t comparator = order->GetCoupleSpeedComparator(row);
-				if (comparator >= 1 && comparator <= 6) AppendStringInPlace(line, STR_ORDER_COUPLE_SPEED_RANGE_SUFFIX, STR_TRACE_RESTRICT_CONDITIONAL_COMPARATOR_EQUALS + comparator - 1, order->GetCoupleSpeedValue(row), GetVelocityUnitNameForCode(order->GetCoupleSpeedUnit(row)));
+			/* Compact speed suffix: collapsed bounds, or one entry per bound. */
+			const uint8_t bound_min = to_underlying(OrderConditionComparator::MoreThanOrEqual) + 1;
+			const uint8_t bound_max = to_underlying(OrderConditionComparator::LessThanOrEqual) + 1;
+			const auto mode0 = order->GetCoupleSpeedBoundMode(0);
+			const auto mode1 = order->GetCoupleSpeedBoundMode(1);
+			const uint8_t cmp0 = order->GetCoupleSpeedComparator(0);
+			const uint8_t cmp1 = order->GetCoupleSpeedComparator(1);
+			if (mode0 == CoupleSpeedBoundMode::OwnMax && mode1 == CoupleSpeedBoundMode::OwnMax) {
+				AppendStringInPlace(line, STR_ORDER_COUPLE_SPEED_SUFFIX_OWN_BOTH);
+			} else if (cmp0 == bound_min && cmp1 == bound_max && order->GetCoupleSpeedUnit(0) == order->GetCoupleSpeedUnit(1)) {
+				AppendStringInPlace(line, STR_ORDER_COUPLE_SPEED_SUFFIX_BOTH, order->GetCoupleSpeedValue(0), order->GetCoupleSpeedValue(1), GetVelocityUnitNameForCode(order->GetCoupleSpeedUnit(0)));
+			} else if (mode0 == CoupleSpeedBoundMode::OwnMax && mode1 == CoupleSpeedBoundMode::Manual && cmp1 == bound_max) {
+				AppendStringInPlace(line, STR_ORDER_COUPLE_SPEED_SUFFIX_RANGE_OWN_FIRST, STR_ORDER_COUPLE_SPEED_OWN_PLAIN, order->GetCoupleSpeedValue(1), GetVelocityUnitNameForCode(order->GetCoupleSpeedUnit(1)));
+			} else if (mode1 == CoupleSpeedBoundMode::OwnMax && mode0 == CoupleSpeedBoundMode::Manual && cmp0 == bound_min) {
+				AppendStringInPlace(line, STR_ORDER_COUPLE_SPEED_SUFFIX_RANGE_OWN_SECOND, order->GetCoupleSpeedValue(0), GetVelocityUnitNameForCode(order->GetCoupleSpeedUnit(0)), STR_ORDER_COUPLE_SPEED_OWN_PLAIN);
+			} else {
+				if (mode0 == CoupleSpeedBoundMode::OwnMax) {
+					AppendStringInPlace(line, STR_ORDER_COUPLE_SPEED_SUFFIX_OWN_MIN);
+				} else if (cmp0 != 0) {
+					AppendStringInPlace(line, STR_ORDER_COUPLE_SPEED_SUFFIX_ONE, STR_TRACE_RESTRICT_CONDITIONAL_COMPARATOR_EQUALS + cmp0 - 1, order->GetCoupleSpeedValue(0), GetVelocityUnitNameForCode(order->GetCoupleSpeedUnit(0)));
+				}
+				if (mode1 == CoupleSpeedBoundMode::OwnMax) {
+					AppendStringInPlace(line, STR_ORDER_COUPLE_SPEED_SUFFIX_OWN_MAX);
+				} else if (cmp1 != 0) {
+					AppendStringInPlace(line, STR_ORDER_COUPLE_SPEED_SUFFIX_ONE, STR_TRACE_RESTRICT_CONDITIONAL_COMPARATOR_EQUALS + cmp1 - 1, order->GetCoupleSpeedValue(1), GetVelocityUnitNameForCode(order->GetCoupleSpeedUnit(1)));
+				}
 			}
-			if (order->HasCoupleCheckPoint()) AppendStringInPlace(line, STR_ORDER_COUPLE_CHECK_AT, order->GetCoupleCheckPoint());
+			/* A legacy relative condition not covered by the bound modes keeps its effect. */
+			if ((order->GetCoupleRejectSlower() && mode1 != CoupleSpeedBoundMode::OwnMax) ||
+					(order->GetCoupleRejectFaster() && mode0 != CoupleSpeedBoundMode::OwnMax)) {
+				AppendStringInPlace(line, STR_ORDER_COUPLE_SPEED_SUFFIX_LEGACY);
+			}
+
+			if (order->HasCoupleCheckPoint()) AppendStringInPlace(line, STR_ORDER_COUPLE_CHECK_AT, GetCoupleCheckPointLabel(orders, order_index, *order));
 			break;
 		}
 
@@ -3743,6 +3862,9 @@ private:
 		std::string report;
 		const Train *target = Train::GetIfValid(moving->couple_target);
 		bool active = moving->current_order.IsType(OT_GOTO_COUPLE) && moving->cur_implicit_order_index == this->OrderGetSel();
+		/* The early check at a checkpoint runs the couple order before it becomes
+		 * the executing order; a held train is still running this order. */
+		if (!active) active = IsCoupleCheckpointEngaged(moving, order);
 		if (active && target != nullptr) {
 			report = GetString(STR_COUPLE_DIAGNOSTIC_TARGET, target->Primary()->index);
 			const Train *claimant = GetCoupleClaimant(target);
@@ -5537,14 +5659,6 @@ public:
 					list.push_back(MakeDropDownListDividerItem());
 					list.push_back(MakeDropDownListCheckedItem(order->GetCoupleUseWaitingSchedule(), STR_ORDER_COUPLE_USE_WAITING_SCHEDULE, 0x600, false));
 					list.push_back(MakeDropDownListDividerItem());
-					std::string current = GetString(STR_ORDER_COUPLE_CHECK_NONE);
-					if (order->HasCoupleCheckPoint()) {
-						const StationID station = order->GetCoupleCheckPoint();
-						current = GetString(Waypoint::IsValidID(station) ? STR_WAYPOINT_NAME : STR_STATION_NAME, station);
-					}
-					auto check_item = MakeDropDownListStringItem(GetString(STR_ORDER_COUPLE_CHECK_SELECT, current), 0x800, false);
-					check_item->colour_flags.Set(ExtendedTextColourFlag::Forced);
-					list.push_back(std::move(check_item));
 				}
 
 				/* Standalone lists act like trains here: every per-order option is available,
@@ -6675,44 +6789,6 @@ public:
 				}
 				if (index >= 0x300 && index <= 0x300 + to_underlying(DiagDirection::Invalid)) {
 					this->ModifyOrder(this->OrderGetSel(), MOF_RV_TRAVEL_DIR, index & 0xFF);
-					break;
-				}
-				if (index == 0x800) {
-					const Order *order = OrderAt(this->OrderGetSel());
-					if (order == nullptr || !order->IsType(OT_GOTO_COUPLE)) break;
-					DropDownList list;
-					int selected = 0x10000;
-					auto none_item = MakeDropDownListCheckedItem(!order->HasCoupleCheckPoint(), STR_ORDER_COUPLE_CHECK_NONE, 0x10000, false);
-					none_item->colour_flags.Set(ExtendedTextColourFlag::Forced);
-					list.push_back(std::move(none_item));
-					for (VehicleOrderID i = 0; i < this->OrderGetSel(); ++i) {
-						const Order *point = OrderAt(i);
-						if (point == nullptr || (!point->IsType(OT_GOTO_STATION) && !point->IsType(OT_GOTO_WAYPOINT))) continue;
-						const StationID station = point->GetDestination().ToStationID();
-						const int result = 0x10001 + station.base();
-						const bool checked = order->HasCoupleCheckPoint() && order->GetCoupleCheckPoint() == station;
-						if (checked) selected = result;
-						std::string name = GetString(point->IsType(OT_GOTO_WAYPOINT) ? STR_WAYPOINT_NAME : STR_STATION_NAME, station);
-						auto item = MakeDropDownListCheckedItem(checked, GetString(STR_ORDER_COUPLE_CHECK_ITEM, GetString(STR_ORDER_INDEX, i + 1), name), result, false);
-						/* Embedded station/string colours must not hide text on the selected background. */
-						item->colour_flags.Set(ExtendedTextColourFlag::Forced);
-						list.push_back(std::move(item));
-					}
-					ShowDropDownList(this, std::move(list), selected, widget, 0, {DropDownOption::Filterable, DropDownOption::ClickOnly}, DDSF_SHARED);
-					break;
-				}
-				if (index >= 0x10000 && index < 0x20000) {
-					const Order *order = OrderAt(this->OrderGetSel());
-					if (order == nullptr || !order->IsType(OT_GOTO_COUPLE)) break;
-					/* Keep stable destination IDs while the list is open, and recheck eligibility
-					 * after edits from another window or a network client. */
-					const uint32_t value = index - 0x10000;
-					bool valid = value == 0;
-					for (VehicleOrderID i = 0; !valid && i < this->OrderGetSel(); ++i) {
-						const Order *point = OrderAt(i);
-						valid = point != nullptr && (point->IsType(OT_GOTO_STATION) || point->IsType(OT_GOTO_WAYPOINT)) && point->GetDestination().base() + 1 == value;
-					}
-					if (valid) this->ModifyOrder(this->OrderGetSel(), MOF_COUPLE_CHECK_POINT, value);
 					break;
 				}
 				if (index == RVDD_RV_WAIT || index == RVDD_RV_UNLOAD) {
