@@ -2697,7 +2697,7 @@ void AgeVehicle(Vehicle *v)
  */
 uint8_t CalcPercentVehicleFilled(const Vehicle *front, StringID *colour)
 {
-	int count = 0;
+	int count = RVTransportGetConsistCargoAmount(front);
 	int max = 0;
 	int cars = 0;
 	int unloading = 0;
@@ -2716,7 +2716,6 @@ uint8_t CalcPercentVehicleFilled(const Vehicle *front, StringID *colour)
 	 * (e.g. a primary vehicle sitting at the chain tail after a decouple),
 	 * so always walk from the physical chain head. */
 	for (const Vehicle *v = front->First(); v != nullptr; v = v->Next()) {
-		count += RVTransportGetPartCargoAmount(v);
 		max += v->cargo_cap;
 		if (v->cargo_cap != 0 && colour != nullptr) {
 			unloading += v->vehicle_flags.Test(VehicleFlag::CargoUnloading) ? 1 : 0;
@@ -2754,13 +2753,12 @@ uint8_t CalcPercentVehicleFilled(const Vehicle *front, StringID *colour)
 
 uint8_t CalcPercentVehicleFilledOfCargo(const Vehicle *front, CargoType cargo)
 {
-	int count = 0;
+	int count = RVTransportGetConsistCargoAmount(front, cargo);
 	int max = 0;
 
 	/* Count up max and used */
 	for (const Vehicle *v = front->First(); v != nullptr; v = v->Next()) {
 		if (v->cargo_type != cargo) continue;
-		count += RVTransportGetPartCargoAmount(v);
 		max += v->cargo_cap;
 	}
 

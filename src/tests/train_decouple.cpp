@@ -114,6 +114,48 @@ protected:
 	}
 };
 
+TEST_CASE_METHOD(TrainDecoupleFixture, "Transport - batch fill preserves per-part rounding, cargo filters and live transport changes")
+{
+	AutoRestoreBackup weight0(CargoSpec::Get(0)->weight, uint8_t{32});
+	AutoRestoreBackup weight1(CargoSpec::Get(1)->weight, uint8_t{16});
+	Train *head = MakeTrain(), *tail = MakeTrain(), *other = MakeTrain();
+	head->SetNext(tail);
+	head->cargo_type = CargoType{0}; head->cargo_cap = 10;
+	tail->cargo_type = CargoType{1}; tail->cargo_cap = 20;
+	head->cargo.Append(CargoPacket::Create(uint16_t{3},uint16_t{0},StationID::Invalid(),TileIndex{0},Money{0}));
+	tail->cargo.Append(CargoPacket::Create(uint16_t{1},uint16_t{0},StationID::Invalid(),TileIndex{0},Money{0}));
+	Train *a = MakeTrain(), *b = MakeTrain(), *c = MakeTrain(), *unrelated = MakeTrain();
+	const uint16_t tonnes = GENERATE(0,1,3,17,200);
+	for (Train *v : {a,b,c,unrelated}) v->rv_transport_flags = RVTF_TRANSPORTED;
+	a->transported_host_part = b->transported_host_part = head->index;
+	a->transported_weight = tonnes; b->transported_weight = 1;
+	c->transported_host_part = tail->index; c->transported_weight = 3;
+	unrelated->transported_host_part = other->index; unrelated->transported_weight = 1000;
+	const uint32_t expected_head = std::min<uint32_t>(3 + (tonnes + 1) / 2, 10);
+	GameRandomSeedChecker random_checker;
+	CHECK(RVTransportGetConsistCargoAmount(nullptr) == 0);
+	CHECK(RVTransportGetConsistCargoAmount(head) == expected_head + 4);
+	CHECK(RVTransportGetConsistCargoAmount(tail) == expected_head + 4);
+	CHECK(RVTransportGetConsistCargoAmount(tail,CargoType{0}) == expected_head);
+	CHECK(RVTransportGetConsistCargoAmount(tail,CargoType{1}) == 4);
+	CHECK(RVTransportGetConsistCargoAmount(head,CargoType{2}) == 0);
+	CHECK(RVTransportGetConsistCargoAmount(head) == RVTransportGetPartCargoAmount(head) + RVTransportGetPartCargoAmount(tail));
+	CHECK(CalcPercentVehicleFilled(head,nullptr) == CeilDiv((expected_head + 4) * 100, 30));
+	CHECK(CalcPercentVehicleFilledOfCargo(tail,CargoType{0}) == expected_head * 10);
+	a->rv_transport_flags = b->rv_transport_flags = 0;
+	CHECK(RVTransportGetConsistCargoAmount(head) == 7);
+	CHECK(CalcPercentVehicleFilledOfCargo(head,CargoType{0}) == 30);
+	c->transported_host_part = other->index;
+	CHECK(RVTransportGetConsistCargoAmount(head) == 4);
+	CargoSpec::Get(0)->weight = 0;
+	a->rv_transport_flags = RVTF_TRANSPORTED;
+	CHECK(RVTransportGetConsistCargoAmount(head) == 4);
+	head->cargo_type = INVALID_CARGO;
+	CHECK(RVTransportGetConsistCargoAmount(head,INVALID_CARGO) == 3);
+	CHECK(random_checker.Check());
+	for (Train *v : {a,b,c,unrelated}) v->rv_transport_flags = 0;
+}
+
 TEST_CASE("Couple - early checkpoint survives order copy without changing coupling station")
 {
 	Order order;
