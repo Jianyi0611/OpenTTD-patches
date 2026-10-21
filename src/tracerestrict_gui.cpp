@@ -174,6 +174,8 @@ enum TraceRestrictWindowWidgets : WidgetID {
 	TR_WIDGET_VALUE_TILE,
 	TR_WIDGET_LABEL,
 	TR_WIDGET_LEFT_AUX_DROPDOWN,
+	TR_WIDGET_AUTO_REGISTER_SEL,
+	TR_WIDGET_AUTO_REGISTER,
 
 	TR_WIDGET_BLANK_L2,
 	TR_WIDGET_BLANK_L,
@@ -298,6 +300,10 @@ static const TraceRestrictDropDownListSet _deny_value = {
 static const StringID _auto_speed_cap_value_str[] = { STR_TRACE_RESTRICT_AUTO_SPEED_CAP_RAIL, STR_TRACE_RESTRICT_AUTO_SPEED_CAP_INPUT };
 static const uint _auto_speed_cap_value_val[] = { 0, 1 };
 static const TraceRestrictDropDownListSet _auto_speed_cap_value = { _auto_speed_cap_value_str, _auto_speed_cap_value_val };
+
+static const StringID _auto_registration_str[] = { STR_TRACE_RESTRICT_AUTO_REGISTER_RESERVATION, STR_TRACE_RESTRICT_AUTO_REGISTER_FRONT, STR_TRACE_RESTRICT_AUTO_REGISTER_TAIL };
+static const uint _auto_registration_val[] = { 0, 1, 2 };
+static const TraceRestrictDropDownListSet _auto_registration_value = { _auto_registration_str, _auto_registration_val };
 
 static const StringID _auto_lane_value_str[] = { STR_TRACE_RESTRICT_AUTO_LANE_ORDINARY, STR_TRACE_RESTRICT_AUTO_LANE_PLATFORM };
 static const uint _auto_lane_value_val[] = { 0, 1 };
@@ -1976,9 +1982,10 @@ static void FillInstructionString(format_buffer &instruction_string, const Trace
 				if (item.GetAuxField() == to_underlying(AutoYieldRole::Approach)) {
 					set_instruction(STR_TRACE_RESTRICT_AUTO_SPEED_INSTRUCTION, GetTypeString(item),
 							item.GetValueAsSlot() == INVALID_TRACE_RESTRICT_SLOT_ID ? STR_TRACE_RESTRICT_VARIABLE_UNDEFINED_RED : STR_TRACE_RESTRICT_SLOT_NAME,
-							item.GetValue(), instruction_record.secondary >> 16,
+							item.GetValue(), GetAutoYieldPercent(instruction_record.secondary),
 							(instruction_record.secondary & 0xFFFF) ? STR_TRACE_RESTRICT_AUTO_SPEED_CAP_MANUAL : STR_TRACE_RESTRICT_AUTO_SPEED_CAP_RAIL,
-							PackVelocity(instruction_record.secondary & 0xFFFF, VehicleType::Train));
+							PackVelocity(instruction_record.secondary & 0xFFFF, VehicleType::Train),
+							GetDropDownStringByValue(&_auto_registration_value, to_underlying(GetAutoYieldRegistration(instruction_record.secondary))));
 				} else {
 					set_instruction((instruction_record.secondary & AUTO_YIELD_PLATFORM) ? STR_TRACE_RESTRICT_AUTO_PLATFORM_ROLE_INSTRUCTION : STR_TRACE_RESTRICT_AUTO_ROLE_INSTRUCTION, GetTypeString(item),
 							item.GetValueAsSlot() == INVALID_TRACE_RESTRICT_SLOT_ID ? STR_TRACE_RESTRICT_VARIABLE_UNDEFINED_RED : STR_TRACE_RESTRICT_SLOT_NAME, item.GetValue());
@@ -2343,6 +2350,7 @@ class TraceRestrictWindow : public Window {
 	bool value_drop_down_is_company = false;                                    ///< TR_WIDGET_VALUE_DROPDOWN is a company list
 	TraceRestrictInstructionItem expecting_inserted_item{};                     ///< set to instruction when performing an instruction insertion, used to handle selection update on insertion
 	int current_placement_widget = -1;                                          ///< which widget has a SetObjectToPlaceWnd, if any
+	int current_registration_plane = 0;
 	int current_left_aux_plane = 0;                                             ///< current plane for TR_WIDGET_SEL_TOP_LEFT_AUX widget
 	int current_right_plane = 0;                                                ///< current plane for TR_WIDGET_SEL_TOP_RIGHT widget
 	int base_copy_plane = 0;                                                    ///< base plane for TR_WIDGET_SEL_COPY widget
@@ -2781,6 +2789,10 @@ public:
 				break;
 			}
 
+			case TR_WIDGET_AUTO_REGISTER:
+				this->ShowDropDownListWithValue(&_auto_registration_value, to_underlying(GetAutoYieldRegistration(this->GetSelected().secondary)), false, TR_WIDGET_AUTO_REGISTER, 0, 0);
+				break;
+
 			case TR_WIDGET_LEFT_AUX_DROPDOWN: {
 				TraceRestrictInstructionItem item = this->GetSelected().instruction;
 				if (item.GetType() == TRIT_AUTO_YIELD_AREA && IsAutoYieldLaneRole(static_cast<AutoYieldRole>(item.GetAuxField()))) {
@@ -2789,7 +2801,7 @@ public:
 				}
 				if (item.GetType() == TRIT_AUTO_YIELD_AREA && item.GetAuxField() == to_underlying(AutoYieldRole::Approach)) {
 					const uint32_t config = this->GetSelected().secondary;
-					this->TraceRestrictShowQueryString(std::to_string(config >> 16), STR_TRACE_RESTRICT_AUTO_PERCENT_CAPTION, 5, CS_NUMERAL, {}, QSM_AUTO_YIELD_PERCENT);
+					this->TraceRestrictShowQueryString(std::to_string(GetAutoYieldPercent(config)), STR_TRACE_RESTRICT_AUTO_PERCENT_CAPTION, 5, CS_NUMERAL, {}, QSM_AUTO_YIELD_PERCENT);
 					break;
 				}
 				switch (GetTraceRestrictTypeProperties(item).value_type) {
@@ -3011,7 +3023,7 @@ public:
 				auto value = ParseInteger<uint>(*str);
 				if (!value || *value > 1000) return;
 				const uint32_t config = this->GetSelected().secondary;
-				this->PostInstructionCommand(TRDCT_MODIFY_DUAL_ITEM, (*value << 16) | (config & 0xFFFF), STR_TRACE_RESTRICT_ERROR_CAN_T_MODIFY_ITEM);
+				this->PostInstructionCommand(TRDCT_MODIFY_DUAL_ITEM, (*value << 16) | (config & ~AUTO_YIELD_PERCENT_MASK), STR_TRACE_RESTRICT_ERROR_CAN_T_MODIFY_ITEM);
 				return;
 			}
 			case QSM_SET_TEXT:
@@ -3062,6 +3074,12 @@ public:
 	{
 		TraceRestrictInstructionItem item = this->GetSelected().instruction;
 		if (item == 0 || index < 0 || this->selected_instruction < 1) {
+			return;
+		}
+		if (widget == TR_WIDGET_AUTO_REGISTER && item.GetType() == TRIT_AUTO_YIELD_AREA && item.GetAuxField() == to_underlying(AutoYieldRole::Approach)) {
+			if (index > 2) return;
+			const uint32_t config = this->GetSelected().secondary;
+			this->PostInstructionCommand(TRDCT_MODIFY_DUAL_ITEM, (config & ~AUTO_YIELD_REGISTRATION_MASK) | (uint32_t(index) << 26), STR_TRACE_RESTRICT_ERROR_CAN_T_MODIFY_ITEM);
 			return;
 		}
 		if (widget == TR_WIDGET_COMPARATOR && item.GetType() == TRIT_AUTO_YIELD_AREA && item.GetAuxField() == to_underlying(AutoYieldRole::Approach)) {
@@ -3590,7 +3608,7 @@ public:
 				if (item.GetType() == TRIT_AUTO_YIELD_AREA) {
 					const uint32_t config = this->GetSelected().secondary;
 					if (IsAutoYieldLaneRole(static_cast<AutoYieldRole>(item.GetAuxField()))) return GetString((config & AUTO_YIELD_PLATFORM) ? STR_TRACE_RESTRICT_AUTO_LANE_PLATFORM : STR_TRACE_RESTRICT_AUTO_LANE_ORDINARY);
-					return GetString(STR_TRACE_RESTRICT_AUTO_PERCENT, config >> 16);
+					return GetString(STR_TRACE_RESTRICT_AUTO_PERCENT, GetAutoYieldPercent(config));
 				}
 				if (type.value_type == TRVT_SLOT_INDEX_INT || type.value_type == TRVT_COUNTER_INDEX_INT || type.value_type == TRVT_TIME_DATE_INT) {
 					return GetString(stringid, item.GetValue());
@@ -3926,6 +3944,9 @@ private:
 		NWidgetStacked *middle_sel = this->GetWidget<NWidgetStacked>(TR_WIDGET_SEL_TOP_MIDDLE);
 		NWidgetStacked *right_sel  = this->GetWidget<NWidgetStacked>(TR_WIDGET_SEL_TOP_RIGHT);
 
+		auto *registration_sel = this->GetWidget<NWidgetStacked>(TR_WIDGET_AUTO_REGISTER_SEL);
+		registration_sel->SetDisplayedPlane(SZSP_NONE);
+		this->DisableWidget(TR_WIDGET_AUTO_REGISTER);
 		this->DisableWidget(TR_WIDGET_TYPE_COND);
 		this->DisableWidget(TR_WIDGET_TYPE_NONCOND);
 		this->DisableWidget(TR_WIDGET_CONDFLAGS);
@@ -3972,6 +3993,10 @@ private:
 		this->SetWidgetLoweredState(TR_WIDGET_HIGHLIGHT, prog != nullptr && _viewport_highlight_tracerestrict_program == prog);
 
 		auto plane_update_guard = scope_guard([&]() {
+			if (this->current_registration_plane != registration_sel->shown_plane) {
+				this->current_registration_plane = registration_sel->shown_plane;
+				this->ReInit();
+			}
 			this->current_right_plane = right_sel->shown_plane;
 			if (this->current_left_aux_plane != left_aux_sel->shown_plane) {
 				this->current_left_aux_plane = left_aux_sel->shown_plane;
@@ -4199,6 +4224,9 @@ private:
 								this->EnableWidget(TR_WIDGET_SLOT_OP);
 								this->GetWidget<NWidgetCore>(TR_WIDGET_SLOT_OP)->SetString(GetDropDownStringByValue(&_slot_op_subtypes, item.GetCombinedAuxCondOpField()));
 							} else if (item.GetType() == TRIT_AUTO_YIELD_AREA && item.GetAuxField() == to_underlying(AutoYieldRole::Approach)) {
+								registration_sel->SetDisplayedPlane(0);
+								this->EnableWidget(TR_WIDGET_AUTO_REGISTER);
+								this->GetWidget<NWidgetCore>(TR_WIDGET_AUTO_REGISTER)->SetString(GetDropDownStringByValue(&_auto_registration_value, to_underlying(GetAutoYieldRegistration(this->GetSelected().secondary))));
 								left_aux_sel->SetDisplayedPlane(DPLA_DROPDOWN);
 								this->EnableWidget(TR_WIDGET_LEFT_AUX_DROPDOWN);
 								this->GetWidget<NWidgetCore>(TR_WIDGET_LEFT_AUX_DROPDOWN)->SetString(STR_TRACE_RESTRICT_AUTO_PERCENT);
@@ -4624,6 +4652,11 @@ static constexpr NWidgetPart _nested_program_widgets[] = {
 			NWidget(WWT_RESIZEBOX, Colours::Grey),
 			NWidget(WWT_PANEL, Colours::Grey), EndContainer(),
 		EndContainer(),
+	EndContainer(),
+
+	/* Detector-only registration timing; other instruction controls keep their layout. */
+	NWidget(NWID_SELECTION, Colours::Invalid, TR_WIDGET_AUTO_REGISTER_SEL),
+		NWidget(WWT_DROPDOWN, Colours::Grey, TR_WIDGET_AUTO_REGISTER), SetMinimalSize(124, 12), SetFill(1, 0), SetResize(1, 0), SetStringTip(STR_TRACE_RESTRICT_AUTO_REGISTER_RESERVATION, STR_TRACE_RESTRICT_AUTO_REGISTER_TOOLTIP),
 	EndContainer(),
 
 	/* Optional extra panel. */

@@ -1844,10 +1844,15 @@ CommandCost TraceRestrictProgram::Validate(const std::span<const TraceRestrictPr
 				case TRIT_AUTO_YIELD_AREA: {
 					const uint32_t config = items[i].base();
 					if (item.GetAuxField() > to_underlying(AutoYieldRole::Exit) ||
-							((config & ~AUTO_YIELD_PLATFORM) >> 16) > 1000 ||
+							GetAutoYieldPercent(config) > 1000 || (config & ~(0xFFFFu | AUTO_YIELD_PERCENT_MASK | AUTO_YIELD_REGISTRATION_MASK | AUTO_YIELD_PLATFORM)) != 0 ||
+							GetAutoYieldRegistration(config) > AutoYieldRegistration::Tail ||
+							((config & AUTO_YIELD_REGISTRATION_MASK) && item.GetAuxField() != to_underlying(AutoYieldRole::Approach)) ||
 							((config & AUTO_YIELD_PLATFORM) && !IsAutoYieldLaneRole(static_cast<AutoYieldRole>(item.GetAuxField())))) return unknown_instruction();
 					actions_used_flags |= TRPAUF_PF | TRPAUF_WAIT_AT_PBS | TRPAUF_SLOT_ACQUIRE | TRPAUF_SLOT_CONDITIONALS | TRPAUF_PBS_RES_END_SLOT;
-					if (item.GetAuxField() == to_underlying(AutoYieldRole::Approach)) actions_used_flags |= TRPAUF_SLOT_RELEASE_FRONT;
+					if (item.GetAuxField() == to_underlying(AutoYieldRole::Approach)) {
+						actions_used_flags |= TRPAUF_SLOT_RELEASE_FRONT;
+						if (GetAutoYieldRegistration(config) == AutoYieldRegistration::Tail) actions_used_flags |= TRPAUF_SLOT_RELEASE_BACK;
+					}
 					if (item.GetAuxField() == to_underlying(AutoYieldRole::Main)) actions_used_flags |= TRPAUF_PBS_RES_END_WAIT;
 					if (item.GetAuxField() == to_underlying(AutoYieldRole::Exit)) actions_used_flags |= TRPAUF_PBS_RES_END_WAIT | TRPAUF_PBS_RES_END_SIMULATE;
 					break;
@@ -2794,6 +2799,9 @@ CommandCost CmdProgramSignalTraceRestrict(DoCommandFlags flags, TileIndex tile, 
 			}
 			if (item.GetType() == TRIT_AUTO_YIELD_AREA && !IsAutoYieldLaneRole(static_cast<AutoYieldRole>(item.GetAuxField()))) {
 				old_iter.SecondaryRef() &= ~AUTO_YIELD_PLATFORM;
+			}
+			if (item.GetType() == TRIT_AUTO_YIELD_AREA && item.GetAuxField() != to_underlying(AutoYieldRole::Approach)) {
+				old_iter.SecondaryRef() &= ~AUTO_YIELD_REGISTRATION_MASK;
 			}
 			break;
 		}

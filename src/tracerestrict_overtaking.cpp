@@ -34,6 +34,7 @@ struct Binding {
 	Trackdir td;
 	bool platform = false;
 	uint16_t speed_cap = 0; ///< Approach only; zero follows the current rail type limit.
+	AutoYieldRegistration registration = AutoYieldRegistration::Reservation;
 };
 struct Area {
 	CompanyID owner;
@@ -41,6 +42,7 @@ struct Area {
 	uint16_t percent = 0; ///< Strictest configured approach threshold; areas without an approach remain disabled.
 	std::vector<Binding> bindings;
 	TraceRestrictSlot *detection = nullptr;
+	TraceRestrictSlot *pending = nullptr; ///< Registered by reservation, not physically past a detector yet.
 	std::map<TraceRestrictRefId, TraceRestrictSlot *> lanes;
 	std::vector<SignalReference> signal_dependants;
 	bool exit_only = false; ///< An exit marks and claims its whole siding when no entrance markers are configured.
@@ -62,10 +64,16 @@ constexpr size_t MAX_ROUTE_NODES = 256;
 /* A condition or marker may ask several related questions (free siding,
  * evacuation, and route length). Share a budget across those searches. */
 constexpr size_t MAX_PROBE_NODES_PER_EVALUATION = 1024;
+constexpr uint SAME_SPEED_PASSENGER_GAP = 16; ///< Maximum clear gap behind a freight train, in route tiles.
+constexpr uint SHORT_STATION_STOP_TICKS = 256; ///< Never hold traffic indefinitely for station work.
 size_t probe_budget_remaining = 0;
 struct PassengerPriorityEntry { const Train *train; bool loaded; };
 std::array<PassengerPriorityEntry, MAX_PARTICIPANTS> passenger_priority_cache;
 size_t passenger_priority_count = 0; // Only valid within one read-only evaluation.
+struct MergeProofEntry { const Area *area; const Train *train; TileIndex start; Trackdir td; std::optional<uint> distance; };
+std::array<MergeProofEntry, MAX_PARTICIPANTS + 1> merge_proof_cache;
+size_t merge_proof_count = 0;
+size_t merge_probe_remaining = 0; ///< Shared optional allowance, inside the existing total probe cap.
 
 class AutoYieldProbeBudget {
 public:
@@ -74,6 +82,8 @@ public:
 		if (probe_depth == 0) {
 			probe_budget_remaining = MAX_PROBE_NODES_PER_EVALUATION;
 			passenger_priority_count = 0;
+			merge_proof_count = 0;
+			merge_probe_remaining = MAX_ROUTE_NODES;
 		}
 	}
 	~AutoYieldProbeBudget() { probe_budget_remaining = previous; }
@@ -84,7 +94,7 @@ private:
 /** A soft preference must leave room for the authoritative exit/claim checks. */
 class AutoYieldPreferenceBudget {
 public:
-	AutoYieldPreferenceBudget() : previous(probe_budget_remaining), allowance(std::min(probe_budget_remaining / 2, MAX_ROUTE_NODES))
+	explicit AutoYieldPreferenceBudget(size_t limit = MAX_ROUTE_NODES) : previous(probe_budget_remaining), allowance(std::min(probe_budget_remaining / 2, limit))
 	{
 		probe_budget_remaining = allowance;
 	}
@@ -103,7 +113,7 @@ const Area *FindArea(const Train *v, uint16_t id)
 {
 	if (v == nullptr || probe_depth != 0 || dirty) return nullptr;
 	const TraceRestrictSlot *slot = TraceRestrictSlot::GetIfValid(id);
-	if (slot == nullptr || slot->automatic_yield_area != 0 || slot->vehicle_type != VehicleType::Train || !slot->IsUsableByOwner(v->owner)) return nullptr;
+	if (slot == nullptr || slot->automatic_yield_area != 0 || slot->vehicle_type != VehicleType::Train) return nullptr;
 	auto found = areas.find({CompanyID{slot->owner}, id});
 	if (found == areas.end() || !found->second.enabled || found->second.detection == nullptr || found->second.detection->occupants.size() > MAX_PARTICIPANTS) return nullptr;
 	return &found->second;
@@ -130,7 +140,8 @@ bool HasPassengerPriority(const Train *v)
 	for (size_t i = 0; i < passenger_priority_count; i++) if (passenger_priority_cache[i].train == v) return passenger_priority_cache[i].loaded;
 	bool loaded = false;
 	for (const Train *part = v; part != nullptr; part = part->Next()) {
-		if (part->cargo_type < NUM_CARGO && part->cargo.StoredCount() != 0 && IsCargoInClass(part->cargo_type, CargoClass::Passengers)) { loaded = true; break; }
+		if (part->cargo_type < NUM_CARGO && IsCargoInClass(part->cargo_type, CargoClass::Passengers) &&
+				(part->cargo.StoredCount() != 0 || (v->current_order.IsAnyLoadingType() && part->cargo_cap != 0))) { loaded = true; break; }
 	}
 	if (passenger_priority_count < passenger_priority_cache.size()) passenger_priority_cache[passenger_priority_count++] = {v, loaded};
 	return loaded;
@@ -231,17 +242,28 @@ std::optional<uint> RouteToRole(const Area &area, const Train *v, TileIndex star
 		{
 			CFollowTrackRail follower(v);
 			if (!follower.Follow(current.tile, current.td)) continue;
-			/* A platform is straight, but each skipped tile still needs its own
-			 * occupancy/reservation check. Wormholes remain unproved. */
-			if (free_path && follower.tiles_skipped != 0) {
-				if (!follower.is_station || size_t(follower.tiles_skipped) > probe_budget_remaining) continue;
-				bool clear = true;
-				const TileIndexDiff step = TileOffsByDiagDir(follower.exitdir);
-				for (int i = follower.tiles_skipped; i > 0; --i) {
-					probe_budget_remaining--;
-					if (!FreeTrackTile(v, follower.new_tile - step * i, FindFirstTrackdir(follower.new_td_bits), departing)) { clear = false; break; }
+			/* A platform needs per-tile checks. An ordinary tunnel/bridge can
+			 * be proved through its two PBS ends and the existing vehicle query;
+			 * do not inspect surface tiles underneath it as railway tiles. Signal
+			 * simulation is accepted only when the entire span is empty and both
+			 * ends unreserved; partial block availability is never guessed. */
+			if (free_path && (follower.tiles_skipped != 0 || follower.is_tunnel || follower.is_bridge)) {
+				if (size_t(follower.tiles_skipped) > probe_budget_remaining) continue;
+				if (follower.is_station) {
+					bool clear = true;
+					const TileIndexDiff step = TileOffsByDiagDir(follower.exitdir);
+					for (int i = follower.tiles_skipped; i > 0; --i) {
+						probe_budget_remaining--;
+						if (!FreeTrackTile(v, follower.new_tile - step * i, FindFirstTrackdir(follower.new_td_bits), departing)) { clear = false; break; }
+					}
+					if (!clear) continue;
+				} else {
+					if (!follower.is_tunnel && !follower.is_bridge) continue;
+					const bool simulated = IsTunnelBridgeWithSignalSimulation(current.tile) || IsTunnelBridgeWithSignalSimulation(follower.new_tile);
+					if (simulated && (HasAcrossTunnelBridgeReservation(current.tile) || HasAcrossTunnelBridgeReservation(follower.new_tile))) continue;
+					if (TunnelBridgeIsFree(current.tile, follower.new_tile, simulated ? nullptr : v, TBIFM_ACROSS_ONLY).Failed()) continue;
+					probe_budget_remaining -= follower.tiles_skipped;
 				}
-				if (!clear) continue;
 			}
 			for (TrackdirBits bits = follower.new_td_bits; bits != TRACKDIR_BIT_NONE; bits = KillFirstBit(bits)) {
 				queue.push({follower.new_tile, FindFirstTrackdir(bits), current.distance + uint(1 + follower.tiles_skipped)});
@@ -341,6 +363,15 @@ PlatformInfo GetPlatformInfo(const Area &area, const Train *v, TraceRestrictRefI
 	return result;
 }
 
+/** Only a positively identified, scheduled stop can request a platform turn. */
+bool ScheduledPlatformStop(const Train *v, const PlatformInfo &platform)
+{
+	if (!platform.marked || !platform.known || !v->current_order.IsType(OT_GOTO_STATION)) return false;
+	return std::any_of(platform.stations.begin(), platform.stations.end(), [v](StationID station) {
+		return v->current_order.GetDestination().ToStationID() == station && v->current_order.ShouldStopAtStation(v, station, false);
+	});
+}
+
 /** Preserve mandatory station, waypoint and PXP coupling destinations. */
 bool RequiresPlatform(const Train *v, const PlatformInfo &platform)
 {
@@ -390,15 +421,48 @@ struct MainApproach {
 	const Train *train;
 	uint distance;
 	std::optional<TraceRestrictRefId> main;
+	bool clearance_only = false; ///< Requires a positive merge proof; not an unknown follower.
+	uint priority_gap = UINT_MAX; ///< Precomputed before sorting; probes never run in a comparator.
 };
-std::vector<MainApproach> GetMainApproaches(const Area &area)
+/** Same-speed priority is local. Compare forward routes to the common clearance
+ * marker, including the freight consist length, rather than map distance (which
+ * could confuse opposite directions or unrelated tracks). An incomplete proof
+ * cannot introduce a new same-speed wait. Actual PBS remains authoritative. */
+bool ClosePassenger(const Area &area, const Train *passenger, const Train *freight)
+{
+	AutoYieldPreferenceBudget preference_budget;
+	const Train *p = passenger->GetMovingFront(), *f = freight->GetMovingFront();
+	const auto pd = RouteToRole(area, passenger, p->tile, p->GetVehicleTrackdir(), AutoYieldRole::Clear, false);
+	const auto fd = RouteToRole(area, freight, f->tile, f->GetVehicleTrackdir(), AutoYieldRole::Clear, false);
+	if (!pd || !fd) return false;
+	if (*pd >= *fd) return *pd - *fd <= SAME_SPEED_PASSENGER_GAP + CeilDiv(freight->gcache.cached_total_length, TILE_SIZE);
+	/* Once it is alongside/ahead, protect its tail through the shared merge. */
+	return *fd - *pd <= SAME_SPEED_PASSENGER_GAP + CeilDiv(passenger->gcache.cached_total_length, TILE_SIZE);
+}
+
+/** Loading is not loss of priority. Preserve a normal short stop, but release
+ * indefinite full-load/cargo-specific waits and coupling work. All inputs are
+ * saved simulation state; no wall clock, local player or persistent cache. */
+bool StationPriorityPaused(const Area &area, const Train *v)
+{
+	if (!ServingPlatform(area, v)) return false;
+	return !v->current_order.IsAnyLoadingType() || v->current_order.IsFullLoadOrder() ||
+			v->current_order.GetLoadType() == OrderLoadType::CargoTypeLoad ||
+			v->current_order.GetWaitTime() > SHORT_STATION_STOP_TICKS || v->current_order_time >= SHORT_STATION_STOP_TICKS;
+}
+std::vector<MainApproach> GetMainApproaches(const Area &area, const Train *focus = nullptr)
 {
 	if (area.main_count == 0) return {};
 	std::vector<MainApproach> result;
-	result.reserve(area.detection->occupants.size());
-	for (VehicleID id : area.detection->occupants) {
-		const Train *train = GetTrain(id);
-		if (!Active(train) || !area.detection->IsUsableByOwner(train->owner) || ServingPlatform(area, train)) continue;
+	result.reserve(area.detection->occupants.size() + 1);
+	/* Classifying distant members must leave room to prove admission to a
+	 * free siding. Resolve the train choosing its branch first; otherwise
+	 * earlier slot occupants can consume even its own route proof. Unknown
+	 * followers retain the existing conservative priority handling. */
+	std::optional<AutoYieldPreferenceBudget> classification_budget;
+	if (focus != nullptr) classification_budget.emplace(MAX_PROBE_NODES_PER_EVALUATION / 2);
+	const auto append = [&](const Train *train) {
+		if (!Active(train) || ServingPlatform(area, train)) return;
 		bool incomplete = false;
 		std::optional<TraceRestrictRefId> main;
 		auto distance = RouteToRole(area, train, train->GetMovingFront()->tile, train->GetMovingFront()->GetVehicleTrackdir(), AutoYieldRole::Main, false, std::nullopt, &incomplete, nullptr, &main);
@@ -406,17 +470,106 @@ std::vector<MainApproach> GetMainApproaches(const Area &area)
 		 * potential followers. A computational cap must not become a hidden
 		 * detection distance. Unknown membership never grants track access. */
 		if (distance || incomplete) result.push_back({train, distance.value_or(UINT_MAX), main});
+		else if (area.main_count > 1 && !HasLaneClaim(area, train)) result.push_back({train, UINT_MAX, std::nullopt, true});
+	};
+	if (focus != nullptr) append(focus);
+	for (VehicleID id : area.detection->occupants) {
+		const Train *train = GetTrain(id);
+		if (train != focus) append(train);
 	}
 	return result;
 }
 bool FreeLane(const Area &area, const Train *v, bool approaching = false, bool ordinary_only = false, std::optional<TraceRestrictRefId> exact_ref = std::nullopt);
 
-/** Distances to different tracks cannot establish which train is following.
- * An unfinished proof retains the old conservative unknown-follower handling. */
-bool FollowingThreat(const Area &area, const MainApproach &fast, const MainApproach &slow)
+/** Prove a unique forward continuation to the area's directed clearance point.
+ * A branch, loop, opposing signal or exhausted budget cannot establish a shared
+ * bottleneck. Results live only in this evaluation; rail edits and joining
+ * clients read the same saved layout, without a persistent topology cache. */
+std::optional<uint> MergeClearanceDistance(const Area &area, const MainApproach &approach)
 {
-	return fast.train != slow.train && (!fast.main || !slow.main || fast.main == slow.main) &&
-			HigherPriority(area, fast.train, slow.train, area.percent) && fast.distance > slow.distance;
+	if (!approach.main && !approach.clearance_only) return std::nullopt;
+	const Binding *main = approach.main ? FindBinding(area, *approach.main) : nullptr;
+	if (approach.main && main == nullptr) return std::nullopt;
+	const Train *front = approach.train->GetMovingFront();
+	const TileIndex start = main != nullptr ? GetTraceRestrictRefIdTileIndex(main->ref) : front->tile;
+	const Trackdir start_td = main != nullptr ? main->td : front->GetVehicleTrackdir();
+	const auto total = [&](std::optional<uint> distance) -> std::optional<uint> {
+		if (!distance || (main != nullptr && approach.distance == UINT_MAX)) return std::nullopt;
+		return *distance + (main != nullptr ? approach.distance : 0);
+	};
+	for (size_t i = 0; i < merge_proof_count; i++) {
+		const auto &entry = merge_proof_cache[i];
+		if (entry.area == &area && entry.train == approach.train && entry.start == start && entry.td == start_td) return total(entry.distance);
+	}
+	std::optional<uint> distance;
+	{
+		AutoYieldPreferenceBudget preference_budget;
+		AutoRestoreBackup guard(probe_depth, probe_depth + 1);
+		TileIndex tile = start;
+		Trackdir td = start_td;
+		uint travelled = 0;
+		std::set<std::pair<TileIndex, Trackdir>> seen;
+		while (probe_budget_remaining > 0 && merge_probe_remaining > 0 && seen.size() < MAX_ROUTE_NODES) {
+			if (!IsValidTile(tile) || !IsValidTrackdir(td) || !seen.emplace(tile, td).second) break;
+			probe_budget_remaining--;
+			merge_probe_remaining--;
+			if (HasOnewaySignalBlockingTrackdir(tile, td)) break;
+			const bool signal_tile = IsPlainRailTile(tile) ||
+					(IsTileType(tile, TileType::TunnelBridge) && IsTunnelBridgeWithSignalSimulation(tile));
+			if (const TraceRestrictProgram *program = signal_tile ? GetExistingTraceRestrictProgram(tile, TrackdirToTrack(td)) : nullptr; program != nullptr) {
+				TraceRestrictProgramInput input(tile, td, nullptr, nullptr);
+				TraceRestrictProgramResult out;
+				program->Execute(approach.train, input, out);
+				if (out.flags & (TRPRF_DENY | TRPRF_WAIT_AT_PBS)) break;
+			}
+			if (AtRole(area, tile, td, AutoYieldRole::Clear)) { distance = travelled; break; }
+			/* Serial controls on one line are not two independent feeders. */
+			if (tile != start && AtRole(area, tile, td, AutoYieldRole::Main)) break;
+			CFollowTrackRail follow(approach.train);
+			if (!follow.Follow(tile, td) || follow.new_td_bits == TRACKDIR_BIT_NONE || KillFirstBit(follow.new_td_bits) != TRACKDIR_BIT_NONE) break;
+			tile = follow.new_tile;
+			td = FindFirstTrackdir(follow.new_td_bits);
+			travelled += 1 + follow.tiles_skipped;
+		}
+	}
+	if (merge_proof_count < merge_proof_cache.size()) merge_proof_cache[merge_proof_count++] = {&area, approach.train, start, start_td, distance};
+	return total(distance);
+}
+
+/** Different Main distances are comparable only after a positive common-exit proof. */
+bool FollowingThreat(const Area &area, const MainApproach &fast, const MainApproach &slow, bool *merging = nullptr)
+{
+	if (fast.train == slow.train || !HigherPriority(area, fast.train, slow.train, area.percent)) return false;
+	const bool distinct = fast.clearance_only || slow.clearance_only || (fast.main && slow.main && fast.main != slow.main);
+	if (distinct) {
+		const auto fd = MergeClearanceDistance(area, fast), sd = MergeClearanceDistance(area, slow);
+		if (!fd || !sd || *fd < *sd) return false;
+		if (DetectionSpeed(area, fast.train) == DetectionSpeed(area, slow.train) &&
+				*fd - *sd > SAME_SPEED_PASSENGER_GAP + CeilDiv(slow.train->gcache.cached_total_length, TILE_SIZE)) return false;
+		if (merging != nullptr) *merging = true;
+		return true;
+	}
+	return fast.distance > slow.distance &&
+			(DetectionSpeed(area, fast.train) != DetectionSpeed(area, slow.train) ||
+					(fast.main && slow.main && fast.distance != UINT_MAX && slow.distance != UINT_MAX &&
+					 fast.distance - slow.distance <= SAME_SPEED_PASSENGER_GAP + CeilDiv(slow.train->gcache.cached_total_length, TILE_SIZE)));
+}
+
+/** Slowest first; among otherwise equal contenders prefer the closest follower gap. */
+void SetApproachGaps(const Area &area, std::vector<MainApproach> &candidates, const std::vector<MainApproach> &approaches)
+{
+	for (MainApproach &slow : candidates) {
+		slow.priority_gap=UINT_MAX;
+		for (const MainApproach &fast : approaches) {
+			if (!FollowingThreat(area,fast,slow)) continue;
+			if (!fast.clearance_only && !slow.clearance_only && fast.main && fast.main==slow.main && fast.distance!=UINT_MAX && slow.distance!=UINT_MAX) {
+				slow.priority_gap=std::min(slow.priority_gap,fast.distance-slow.distance);
+			} else {
+				const auto fd=MergeClearanceDistance(area,fast),sd=MergeClearanceDistance(area,slow);
+				if (fd && sd && *fd>=*sd) slow.priority_gap=std::min(slow.priority_gap,*fd-*sd);
+			}
+		}
+	}
 }
 
 /** A proven free parallel Main avoids an unnecessary diversion. This is only
@@ -434,20 +587,25 @@ bool NeedsSiding(const Area &area, const Train *v, const std::vector<MainApproac
 {
 	if (!Active(v)) return false;
 	MainApproach own{v, UINT_MAX, std::nullopt};
-	std::vector<MainApproach> approaches = known_approaches != nullptr ? *known_approaches : GetMainApproaches(area);
+	std::vector<MainApproach> approaches = known_approaches != nullptr ? *known_approaches : GetMainApproaches(area, v);
 	for (const MainApproach &approach : approaches) if (approach.train == v) own = approach;
 	if (own.distance == UINT_MAX) {
 		auto distance = RouteToRole(area, v, v->GetMovingFront()->tile, v->GetMovingFront()->GetVehicleTrackdir(), AutoYieldRole::Main, false, std::nullopt, nullptr, nullptr, &own.main);
 		if (!distance) return false;
 		own.distance = *distance;
 	}
-	const auto threatened = [&](const MainApproach &slow) {
+	const auto threatened = [&](const MainApproach &slow, bool *merging = nullptr) {
+		bool found = false;
 		for (const MainApproach &approach : approaches) {
-			if (FollowingThreat(area, approach, slow)) return true;
+			bool joined = false;
+			if (!FollowingThreat(area, approach, slow, &joined)) continue;
+			found = true;
+			if (merging != nullptr && joined) *merging = true;
 		}
-		return false;
+		return found;
 	};
-	if (!threatened(own) || FreeParallelMain(area, own)) return false;
+	bool merging = false;
+	if (!threatened(own, &merging) || (!merging && FreeParallelMain(area, own))) return false;
 	/* Allocate scarce sidings to the slowest reachable contenders first.
 	 * Existing claims remain authoritative; no train is held on the main line
 	 * merely to wait for a slower train to arrive. Equal speeds use distance,
@@ -456,16 +614,18 @@ bool NeedsSiding(const Area &area, const Train *v, const std::vector<MainApproac
 	size_t available = 0;
 	for (const auto &[ref, lane] : area.lanes) if (lane->occupants.empty()) available++;
 	if (available == 0) return true; // Preserve the existing safe evacuation path.
+	SetApproachGaps(area,approaches,approaches);
 	std::sort(approaches.begin(), approaches.end(), [&area](const MainApproach &a, const MainApproach &b) {
-		return std::tuple{DetectionSpeed(area, a.train), HasPassengerPriority(a.train), a.distance, a.train->index} <
-				std::tuple{DetectionSpeed(area, b.train), HasPassengerPriority(b.train), b.distance, b.train->index};
+		return std::tuple{DetectionSpeed(area, a.train), HasPassengerPriority(a.train), a.priority_gap, a.distance, a.train->index} <
+				std::tuple{DetectionSpeed(area, b.train), HasPassengerPriority(b.train), b.priority_gap, b.distance, b.train->index};
 	});
 	size_t priority = 0;
 	for (const MainApproach &approach : approaches) {
 		if (approach.train == v) break;
 		if (DetectionSpeed(area, approach.train) > DetectionSpeed(area, v)) break;
-		if (HasLaneClaim(area, approach.train) || !threatened(approach)) continue;
-		if (!FreeParallelMain(area, approach) && FreeLane(area, approach.train, true) && ++priority >= available) return false;
+		bool contender_merging = false;
+		if (HasLaneClaim(area, approach.train) || !threatened(approach, &contender_merging)) continue;
+		if ((contender_merging || !FreeParallelMain(area, approach)) && FreeLane(area, approach.train, true) && ++priority >= available) return false;
 		if (probe_budget_remaining == 0) return false;
 	}
 	return true;
@@ -494,7 +654,8 @@ bool MustWait(const Area &area, const Train *v)
 	size_t count = 0;
 	for (VehicleID id : area.detection->occupants) {
 		const Train *other = GetTrain(id);
-		if (other != v && Active(other) && area.detection->IsUsableByOwner(other->owner) && HigherPriority(area, other, v, area.percent) && !ServingPlatform(area, other)) {
+		if (other != v && Active(other) && HigherPriority(area, other, v, area.percent) && !StationPriorityPaused(area, other) &&
+				(DetectionSpeed(area, other) != DetectionSpeed(area, v) || ClosePassenger(area, other, v))) {
 			if (count == faster.size()) return true;
 			faster[count++] = other;
 		}
@@ -503,6 +664,24 @@ bool MustWait(const Area &area, const Train *v)
 	 * candidates, leaving the original evacuation and claim checks room. */
 	AutoYieldPreferenceBudget direction_budget;
 	for (size_t i = 0; i < count; i++) if (!ProvenOpposing(area, faster[i])) return true;
+	return false;
+}
+
+/** A nearby same-speed passenger already in a siding is not a following
+ * approach. Protect its departure at Main as well, but only with a positive
+ * free route proof so an unreachable/blocked siding cannot freeze main traffic. */
+bool PrioritisePassengerExit(const Area &area, const Train *incoming)
+{
+	if (HasPassengerPriority(incoming) || HasLaneClaim(area, incoming)) return false;
+	AutoYieldPreferenceBudget preference_budget;
+	for (const auto &[ref, lane] : area.lanes) for (VehicleID id : lane->occupants) {
+		const Train *passenger = GetTrain(id);
+		if (passenger == incoming || !Active(passenger) || !area.detection->IsOccupant(id) ||
+				DetectionSpeed(area, passenger) != DetectionSpeed(area, incoming) || !HasPassengerPriority(passenger) ||
+				StationPriorityPaused(area, passenger) || !ClosePassenger(area, passenger, incoming)) continue;
+		const Train *front = passenger->GetMovingFront();
+		if (RouteToRole(area, passenger, front->tile, front->GetVehicleTrackdir(), AutoYieldRole::Clear, true)) return true;
+	}
 	return false;
 }
 bool FreeLane(const Area &area, const Train *v, bool approaching, bool ordinary_only, std::optional<TraceRestrictRefId> exact_ref)
@@ -530,6 +709,74 @@ bool FreeLane(const Area &area, const Train *v, bool approaching, bool ordinary_
 	}
 	return false;
 }
+constexpr uint EQUAL_SPEED_TURNOVER_GAP = 32;
+
+/** Confirm an actual stopped queue, not just distances on adjacent feeders. */
+bool StoppedQueueBehind(const Train *arrival, const Train *follower)
+{
+	if (arrival->cur_speed != 0 || follower->cur_speed != 0) return false;
+	AutoYieldPreferenceBudget budget;
+	AutoRestoreBackup guard(probe_depth, probe_depth + 1);
+	const Train *front = follower->GetMovingFront();
+	TileIndex tile = front->tile;
+	Trackdir td = front->GetVehicleTrackdir();
+	uint travelled = 0;
+	const auto contact = [&](TileIndex at, Trackdir direction) {
+		for (const Train *part : VehiclesOnTile<VehicleType::Train>(at)) {
+			if (part->Primary() == arrival->Primary() &&
+					(part->track & TrackToTrackBits(TrackdirToTrack(direction)))) return true;
+		}
+		return false;
+	};
+	while (travelled <= EQUAL_SPEED_TURNOVER_GAP && probe_budget_remaining > 0) {
+		probe_budget_remaining--;
+		if (contact(tile,td)) return true;
+		if (HasOnewaySignalBlockingTrackdir(tile,td)) return false;
+		CFollowTrackRail follow(follower);
+		if (!follow.Follow(tile,td) || follow.new_td_bits == TRACKDIR_BIT_NONE || KillFirstBit(follow.new_td_bits) != TRACKDIR_BIT_NONE) return false;
+		const Trackdir next_td = FindFirstTrackdir(follow.new_td_bits);
+		if (follow.is_station) {
+			const TileIndexDiff step = TileOffsByDiagDir(follow.exitdir);
+			for (int i=follow.tiles_skipped; i>0; --i) {
+				if (++travelled > EQUAL_SPEED_TURNOVER_GAP || probe_budget_remaining == 0) return false;
+				probe_budget_remaining--;
+				if (contact(follow.new_tile-step*i,next_td)) return true;
+			}
+		} else if (follow.tiles_skipped > 0) return false;
+		travelled++;
+		tile=follow.new_tile;td=next_td;
+	}
+	return false;
+}
+
+bool PassengerService(const Train *v)
+{
+	for (const Train *part=v->First(); part!=nullptr; part=part->Next()) {
+		if (part->cargo_cap != 0 && part->cargo_type < NUM_CARGO && IsCargoInClass(part->cargo_type,CargoClass::Passengers)) return true;
+	}
+	return false;
+}
+
+/** Equal-speed turnover is normally for distant arrivals. Break a near deadlock
+ * only when the priority follower is physically stopped behind that arrival. */
+bool EqualSpeedTurnover(const Area &area, const Train *v, const MainApproach &arrival, const std::vector<MainApproach> &approaches)
+{
+	{
+		AutoYieldPreferenceBudget budget;
+		const Train *front=arrival.train->GetMovingFront(), *departing=v->GetMovingFront();
+		const auto incoming_distance=RouteToRole(area,arrival.train,front->tile,front->GetVehicleTrackdir(),AutoYieldRole::Clear,false);
+		const auto departing_distance=RouteToRole(area,v,departing->tile,departing->GetVehicleTrackdir(),AutoYieldRole::Clear,false);
+		if (incoming_distance && departing_distance && *incoming_distance > *departing_distance + EQUAL_SPEED_TURNOVER_GAP) return true;
+	}
+	if (v->cur_speed != 0 || arrival.train->cur_speed != 0) return false;
+	for (const MainApproach &follower : approaches) {
+		if (HasLaneClaim(area,follower.train) || StationPriorityPaused(area,follower.train) ||
+				!FollowingThreat(area,follower,arrival) || !HigherPriority(area,follower.train,v,area.percent)) continue;
+		if (StoppedQueueBehind(arrival.train,follower.train)) return true;
+	}
+	return false;
+}
+
 /** A read-only proposal. Actual departure still requires ordinary PBS reservation. */
 struct EvacuationPlan {
 	const Train *departing = nullptr;
@@ -540,41 +787,89 @@ EvacuationPlan Evacuation(const Area &area, const std::vector<MainApproach> *kno
 	const std::vector<MainApproach> local_approaches = known_approaches == nullptr ? GetMainApproaches(area) : std::vector<MainApproach>{};
 	const auto &approaches = known_approaches != nullptr ? *known_approaches : local_approaches;
 	std::vector<MainApproach> incoming;
+	std::vector<const Train *> overtaking_arrivals;
 	for (const MainApproach &slow : approaches) {
 		if (HasLaneClaim(area, slow.train)) continue;
+		bool threatened = false, merging = false;
 		for (const MainApproach &fast : approaches) {
-			if (FollowingThreat(area, fast, slow)) {
-				/* Only threatened arrivals need the optional parallel proof.
-				 * The caller may already have proved this arrival has no bypass. */
-				if (slow.train == known_no_free_lane || !FreeParallelMain(area, slow)) incoming.push_back(slow);
-				break;
-			}
+			if (FollowingThreat(area, fast, slow, &merging)) threatened = true;
 		}
+		const bool overtaking = threatened && (slow.train == known_no_free_lane || merging || !FreeParallelMain(area, slow));
+		if (overtaking) overtaking_arrivals.push_back(slow.train);
+		/* The fastest train may itself require an occupied platform. It has
+		 * no faster follower, so ordinary overtaking cannot free its station. */
+		if (overtaking || (area.has_platform && slow.train->current_order.IsType(OT_GOTO_STATION))) incoming.push_back(slow);
 	}
+	SetApproachGaps(area,incoming,approaches);
 	std::sort(incoming.begin(), incoming.end(), [&area](const MainApproach &a, const MainApproach &b) {
-		return std::tuple{DetectionSpeed(area, a.train), HasPassengerPriority(a.train), a.distance, a.train->index} <
-				std::tuple{DetectionSpeed(area, b.train), HasPassengerPriority(b.train), b.distance, b.train->index};
+		return std::tuple{DetectionSpeed(area, a.train), HasPassengerPriority(a.train), a.priority_gap, a.distance, a.train->index} <
+				std::tuple{DetectionSpeed(area, b.train), HasPassengerPriority(b.train), b.priority_gap, b.distance, b.train->index};
 	});
 	for (const MainApproach &arrival : incoming) {
+		std::vector<TraceRestrictRefId> requested_platforms;
+		if (area.has_platform && arrival.train->current_order.IsType(OT_GOTO_STATION)) {
+			for (const auto &[ref, lane] : area.lanes) {
+				if (ScheduledPlatformStop(arrival.train, GetPlatformInfo(area, arrival.train, ref))) requested_platforms.push_back(ref);
+			}
+		}
+		const bool station_access = !requested_platforms.empty();
+		if (!station_access && std::find(overtaking_arrivals.begin(), overtaking_arrivals.end(), arrival.train) == overtaking_arrivals.end()) continue;
+		/* A free ordinary siding cannot satisfy a scheduled platform stop.
+		 * Conversely, a genuinely free suitable platform needs no eviction. */
+		if (station_access) {
+			bool free_platform = false;
+			for (TraceRestrictRefId ref : requested_platforms) if (FreeLane(area, arrival.train, false, false, ref)) { free_platform = true; break; }
+			if (free_platform) continue;
+		}
 		/* Do not empty an occupied siding when this arrival can already use
 		 * a genuinely free alternative. A closed/occupied approach is not free. */
-		if (arrival.train != known_no_free_lane && FreeLane(area, arrival.train)) continue;
-		const Train *best = nullptr;
+		if (!station_access && arrival.train != known_no_free_lane && FreeLane(area, arrival.train)) continue;
+		struct TurnoverCandidate {
+			const Train *train;
+			bool platform;
+			bool passenger;
+			bool station_demand;
+		};
+		/* Resolve the new same-speed rule first. Comparing platform priority
+		 * only on ties inside the old passenger-first comparator would create
+		 * cycles across three candidates with different speeds. */
+		std::map<uint, TurnoverCandidate> candidates_by_speed;
 		for (const auto &[ref, lane] : area.lanes) for (VehicleID id : lane->occupants) {
 			const Train *v = GetTrain(id);
 			/* Never propose a departure the current station/coupling order cannot
 			 * perform, even if a legacy platform's geometry is not provable. */
-			if (!Active(v) || !area.detection->IsOccupant(id) || !HigherPriority(area, v, arrival.train, 0) || (area.has_platform && DoingStationWork(v))) continue;
+			if (!Active(v) || !area.detection->IsOccupant(id) || DoingStationWork(v)) continue;
+			/* A reserved platform belongs to a train still approaching its own
+			 * scheduled stop until the station order has actually completed. */
+			if (v->current_order.IsType(OT_GOTO_STATION) && ScheduledPlatformStop(v, GetPlatformInfo(area, v, ref))) continue;
+			const bool for_station = station_access && std::find(requested_platforms.begin(), requested_platforms.end(), ref) != requested_platforms.end();
+			if (station_access && !for_station) continue;
+			if (!for_station && DetectionSpeed(area,v) < DetectionSpeed(area,arrival.train)) continue;
+			if (!for_station && DetectionSpeed(area,v) == DetectionSpeed(area,arrival.train) && !EqualSpeedTurnover(area,v,arrival,approaches)) continue;
 			/* A faster train already ahead of this arrival must finish passing
 			 * first. Missing approaches include trains past Main but whose tail
 			 * has not cleared; distant/budget-limited followers remain behind. */
 			bool passing = false;
 			for (VehicleID other_id : area.detection->occupants) {
 				const Train *other = GetTrain(other_id);
-				if (!Active(other) || !area.detection->IsUsableByOwner(other->owner) ||
-						!HigherPriority(area, other, v, area.percent) || HasLaneClaim(area, other) || ServingPlatform(area, other)) continue;
+				/* This arrival cannot pass before entering its occupied platform.
+				 * Exempt only that exact requester, never another passing train. */
+				if (for_station && other == arrival.train) continue;
+				if (!Active(other) ||
+						!HigherPriority(area, other, v, area.percent) || StationPriorityPaused(area, other)) continue;
+				if (DetectionSpeed(area, other) == DetectionSpeed(area, v) && !ClosePassenger(area, other, v)) continue;
+				/* A short priority stop must not be bypassed through the separate
+				 * turnover exception while MustWait deliberately protects it. */
+				if (ServingPlatform(area, other)) { passing = true; break; }
+				if (HasLaneClaim(area, other)) continue;
 				auto position = std::find_if(approaches.begin(), approaches.end(), [other](const MainApproach &a) { return a.train == other; });
-				if (position == approaches.end() || !position->main || !arrival.main || position->main != arrival.main || position->distance <= arrival.distance) { passing = true; break; }
+				if (position == approaches.end()) { passing = true; break; }
+				if (position->main && arrival.main && position->main == arrival.main && !position->clearance_only) {
+					if (position->distance <= arrival.distance) { passing = true; break; }
+				} else {
+					const auto other_distance = MergeClearanceDistance(area, *position), arrival_distance = MergeClearanceDistance(area, arrival);
+					if (!other_distance || !arrival_distance || *other_distance <= *arrival_distance) { passing = true; break; }
+				}
 			}
 			if (passing) continue;
 			if (!RouteToRole(area, v, v->GetMovingFront()->tile, v->GetMovingFront()->GetVehicleTrackdir(), AutoYieldRole::Clear, true)) {
@@ -603,10 +898,54 @@ EvacuationPlan Evacuation(const Area &area, const std::vector<MainApproach> *kno
 			 * through the shared clearance route with its own rail compatibility. */
 			if (!RouteToRole(area, arrival.train, GetTraceRestrictRefIdTileIndex(ref), binding->td,
 					AutoYieldRole::Clear, true, std::nullopt, nullptr, v)) continue;
-			if (best == nullptr || DetectionSpeed(area, v) > DetectionSpeed(area, best) ||
-					(DetectionSpeed(area, v) == DetectionSpeed(area, best) &&
-						std::tuple{!HasPassengerPriority(v), v->index} < std::tuple{!HasPassengerPriority(best), best->index})) best = v;
+			const PlatformInfo platform = GetPlatformInfo(area, v, ref);
+			bool station_demand = for_station;
+			if (!station_demand && platform.marked && platform.known && platform.exit) {
+				for (const MainApproach &following : approaches) {
+					const Train *passenger = following.train;
+					if (HasLaneClaim(area, passenger) || !PassengerService(passenger) ||
+							!passenger->current_order.IsType(OT_GOTO_STATION)) continue;
+					const bool stopping = std::any_of(platform.stations.begin(), platform.stations.end(), [passenger](StationID station) {
+						return passenger->current_order.ShouldStopAtStation(passenger, station, false);
+					});
+					if (!stopping) continue;
+					const Train *front = passenger->GetMovingFront();
+					if (RouteToRole(area, passenger, front->tile, front->GetVehicleTrackdir(), AutoYieldRole::Exit, false, platform.exit)) {
+						station_demand = true;
+						break;
+					}
+				}
+			}
+			const TurnoverCandidate candidate{v, platform.marked, PassengerService(v), station_demand};
+			auto [entry, inserted] = candidates_by_speed.try_emplace(DetectionSpeed(area, v), candidate);
+			const auto rank = [](const TurnoverCandidate &c) {
+				return std::tuple{!c.station_demand, !c.platform, !c.passenger, c.train->index};
+			};
+			if (!inserted && rank(candidate) < rank(entry->second)) entry->second = candidate;
 		}
+		/* Retain the existing passenger/fastest policy between speed groups.
+		 * Only candidates that passed every station and route check participate. */
+		const Train *best = nullptr, *best_platform = nullptr;
+		std::tuple<bool, uint, VehicleID> best_rank;
+		std::tuple<uint, bool, VehicleID> best_platform_rank;
+		for (const auto &[speed, candidate] : candidates_by_speed) {
+			/* A following scheduled passenger needs a platform, not an ordinary
+			 * siding. Clear its fastest eligible platform occupant first; use
+			 * passenger service only as a speed tie-break, never to skip work. */
+			if (candidate.station_demand) {
+				const auto rank = std::tuple{UINT_MAX - speed, !candidate.passenger, candidate.train->index};
+				if (best_platform == nullptr || rank < best_platform_rank) {
+					best_platform = candidate.train;
+					best_platform_rank = rank;
+				}
+			}
+			const auto rank = std::tuple{!candidate.passenger, UINT_MAX - speed, candidate.train->index};
+			if (best == nullptr || rank < best_rank) {
+				best = candidate.train;
+				best_rank = rank;
+			}
+		}
+		if (best_platform != nullptr) return {best_platform, arrival.train};
 		if (best != nullptr) return {best, arrival.train};
 		if (probe_budget_remaining == 0) return {};
 	}
@@ -653,6 +992,7 @@ void AutoYieldSlotVacated(TraceRestrictSlotID slot_id, VehicleID vehicle)
 	}
 	auto area = areas.find({CompanyID{slot->owner}, slot_id.base()});
 	if (area == areas.end()) return;
+	if (area->second.pending != nullptr) area->second.pending->VacateByID(vehicle);
 	for (const auto &[ref, lane] : area->second.lanes) lane->VacateByID(vehicle);
 }
 
@@ -698,9 +1038,9 @@ void UpdateAutoYieldAreas()
 			area.detection = slot;
 			const AutoYieldRole role = item.GetType() == TRIT_AUTO_YIELD_CLEAR ? AutoYieldRole::Clear : static_cast<AutoYieldRole>(item.GetAuxField());
 			const bool platform = IsAutoYieldLaneRole(role) && (iter.Secondary() & AUTO_YIELD_PLATFORM);
-			area.bindings.push_back({ref, role, td, platform, role == AutoYieldRole::Approach ? uint16_t(iter.Secondary() & 0xFFFF) : uint16_t{0}});
+			area.bindings.push_back({ref, role, td, platform, role == AutoYieldRole::Approach ? uint16_t(iter.Secondary() & 0xFFFF) : uint16_t{0}, GetAutoYieldRegistration(iter.Secondary())});
 			area.has_platform |= platform;
-			if (role == AutoYieldRole::Approach) area.percent = std::max<uint16_t>(area.percent, iter.Secondary() >> 16);
+			if (role == AutoYieldRole::Approach) area.percent = std::max<uint16_t>(area.percent, GetAutoYieldPercent(iter.Secondary()));
 		}
 	}
 	for (auto &entry : areas) {
@@ -742,9 +1082,18 @@ void UpdateAutoYieldAreas()
 		area.signal_dependants = std::move(condition_dependants[key]);
 		/* Invalid/incomplete layouts are inert, including resource allocation. */
 		if (!valid_bindings || approach_count == 0 || approach_count > MAX_APPROACH_MARKERS || clear_count != 1 || exit_count == 0 || main_count == 0 || main_count > MAX_MAIN_MARKERS || refs.empty() || refs.size() > MAX_SIDINGS) continue;
-		size_t missing = 0;
+		size_t missing = !resources.contains({area.owner, resource_area, AUTO_YIELD_PENDING_REF});
 		for (uint32_t ref : refs) missing += !resources.contains({area.owner, resource_area, ref});
 		if (!TraceRestrictSlot::CanAllocateItem(missing)) continue;
+		TraceRestrictSlot *&pending = resources[{area.owner, resource_area, AUTO_YIELD_PENDING_REF}];
+		if (pending == nullptr) {
+			pending = TraceRestrictSlot::Create(area.owner);
+			pending->automatic_yield_area = resource_area;
+			pending->automatic_yield_signal = AUTO_YIELD_PENDING_REF;
+			pending->max_occupancy = UINT32_MAX;
+			pending->name = "Automatic yielding pending " + std::to_string(area.id);
+		}
+		area.pending = pending;
 		for (uint32_t ref : refs) {
 			auto resource_key = std::make_tuple(area.owner, resource_area, ref);
 			TraceRestrictSlot *&slot = resources[resource_key];
@@ -761,9 +1110,17 @@ void UpdateAutoYieldAreas()
 	std::vector<TraceRestrictSlot *> unused;
 	for (const auto &[key, slot] : resources) {
 		auto a = areas.find({std::get<0>(key), uint16_t(std::get<1>(key) - 1)});
-		if (a == areas.end() || !a->second.lanes.contains(std::get<2>(key))) unused.push_back(slot);
+		if (a == areas.end() || (a->second.pending != slot && !a->second.lanes.contains(std::get<2>(key)))) unused.push_back(slot);
 	}
-	for (TraceRestrictSlot *slot : unused) { TraceRestrictRemoveSlotID(slot->index); delete slot; }
+	for (TraceRestrictSlot *slot : unused) {
+		if (slot->automatic_yield_signal == AUTO_YIELD_PENDING_REF) {
+			if (TraceRestrictSlot *source = TraceRestrictSlot::GetIfValid(slot->automatic_yield_area - 1)) {
+				const auto occupants = slot->occupants;
+				for (VehicleID id : occupants) source->VacateByID(id);
+			}
+		}
+		TraceRestrictRemoveSlotID(slot->index); delete slot;
+	}
 	dirty = false;
 }
 
@@ -829,7 +1186,13 @@ void AutoYieldSettingsChanged()
 	InvalidateAutoYieldAreas();
 	UpdateAutoYieldAreas();
 	if (!_settings_game.vehicle.automatic_yield) {
-		for (auto &[key, area] : areas) for (const auto &[ref, lane] : area.lanes) lane->Clear();
+		for (auto &[key, area] : areas) {
+			if (area.pending != nullptr) {
+				const auto occupants = area.pending->occupants;
+				for (VehicleID id : occupants) area.detection->VacateByID(id);
+			}
+			for (const auto &[ref, lane] : area.lanes) lane->Clear();
+		}
 	}
 	for (const auto &[key, area] : areas) UpdateAutoYieldSlotSignals(area.detection);
 }
@@ -842,6 +1205,18 @@ void AutoYieldGameTick()
 	/* Reconcile changed ownership/topology and only inspect registered vehicles. */
 	for (auto &[key, area] : areas) {
 		if (!area.enabled || area.detection == nullptr || area.detection->occupants.empty()) continue;
+		std::set<VehicleID> approaching;
+		if (area.pending != nullptr && !area.pending->occupants.empty()) {
+			/* Query each detector once, not once per train. The PBS owner and
+			 * saved pending slot reconstruct the same answer on a joining client. */
+			for (const Binding &binding : area.bindings) {
+				if (binding.role != AutoYieldRole::Approach || binding.registration != AutoYieldRegistration::Reservation) continue;
+				const TileIndex tile = GetTraceRestrictRefIdTileIndex(binding.ref);
+				const Track track = GetTraceRestrictRefIdTrack(binding.ref);
+				if (!(GetReservedTrackbits(tile) & TrackToTrackBits(track))) continue;
+				if (const Train *owner = GetTrainForReservation(tile, track)) approaching.insert(owner->Primary()->index);
+			}
+		}
 		/* A user slot can contain far more vehicles than the active-area limit.
 		 * Reconcile a deterministic window, never copy/scan the entire slot.
 		 * Derive it from the saved game tick so joining clients use the same window. */
@@ -853,7 +1228,11 @@ void AutoYieldGameTick()
 		for (size_t i = 0; i < count; i++) ids.push_back(occupants[(first + i) % occupants.size()]);
 		for (VehicleID id : ids) {
 			const Train *v = GetTrain(id);
-			bool invalid = v == nullptr || !v->IsPrimaryVehicle() || v->IsVirtualOrCarried() || v->IsInDepot() || !IsValidTile(v->tile) || !area.detection->IsUsableByOwner(v->owner);
+			bool invalid = v == nullptr || !v->IsPrimaryVehicle() || v->IsVirtualOrCarried() || v->IsInDepot() || !IsValidTile(v->tile);
+			/* Before physical entry, cancellation/rerouting must not leave a
+			 * phantom contender. Once entered, only ordinary tail clearance or
+			 * explicit slot cancellation ends membership. */
+			invalid |= area.pending != nullptr && area.pending->IsOccupant(id) && !approaching.contains(id);
 			if (invalid) {
 				area.detection->VacateByID(id);
 				/* A physical lane is still protected by PBS. Only invalid/deleted or
@@ -891,21 +1270,12 @@ void ExecuteAutoYield(const Train *v, const TraceRestrictProgramInput &input, Tr
 		 * its participant budget. Vacating also releases this train's lanes. */
 		TraceRestrictSlot *slot = TraceRestrictSlot::GetIfValid(id);
 		if (slot != nullptr && slot->automatic_yield_area == 0 && slot->vehicle_type == VehicleType::Train &&
-				slot->IsUsableByOwner(v->owner) && (input.permitted_slot_operations & TRPISP_RELEASE_BACK)) {
+				(input.permitted_slot_operations & TRPISP_RELEASE_BACK)) {
 			slot->Vacate(v);
 		}
 		return;
 	}
 	if (!_settings_game.vehicle.automatic_yield || !Active(v)) return;
-	/* Physical detection is independent of downstream role validation and
-	 * cache rebuild timing, just like tail clearance above. An invalid exit
-	 * may disable yielding, but must not erase the section's membership. */
-	if (role == AutoYieldRole::Approach && (input.permitted_slot_operations & TRPISP_RELEASE_FRONT) &&
-			!(input.permitted_slot_operations & TRPISP_ACQUIRE_TEMP_STATE)) {
-		TraceRestrictSlot *slot = TraceRestrictSlot::GetIfValid(id);
-		if (slot != nullptr && slot->automatic_yield_area == 0 && slot->vehicle_type == VehicleType::Train && slot->IsUsableByOwner(v->owner)) slot->Occupy(v);
-		return;
-	}
 	const Area *area = FindArea(v, id);
 	if (area == nullptr) return;
 	if (role != AutoYieldRole::Approach && !area->detection->IsOccupant(v->index)) return;
@@ -941,21 +1311,60 @@ void ExecuteAutoYield(const Train *v, const TraceRestrictProgramInput &input, Tr
 		}
 	}
 	if (role == AutoYieldRole::Approach) {
-		/* Detection is not a batch-entry gate: an occupied siding must not
-		 * stop unregistered traffic before it can join the section. Keep source
-		 * capacity protection; only physical front passage commits membership. */
-		if (!area->detection->OccupyDryRun(v->index)) out.flags |= TRPRF_WAIT_AT_PBS;
+		const Binding *binding = FindBinding(*area, MakeTraceRestrictRefId(input.tile, TrackdirToTrack(input.trackdir)));
+		if (binding == nullptr) return;
+		const auto mode = binding->registration;
+		const auto permissions = input.permitted_slot_operations;
+		const bool physical = permissions & (TRPISP_RELEASE_FRONT | TRPISP_RELEASE_BACK);
+		if (physical && !(permissions & TRPISP_ACQUIRE_TEMP_STATE)) {
+			const bool crossed = mode == AutoYieldRegistration::Front ? (permissions & TRPISP_RELEASE_FRONT) :
+					mode == AutoYieldRegistration::Tail && (permissions & TRPISP_RELEASE_BACK);
+			if (crossed) area->detection->Occupy(v);
+			/* Physical passage confirms a reservation claim, but never reclaims
+			 * cancelled membership in reservation mode. Tail mode waits for tail. */
+			if (mode != AutoYieldRegistration::Tail || (permissions & TRPISP_RELEASE_BACK)) area->pending->VacateByID(v->index);
+			return;
+		}
+		if (mode != AutoYieldRegistration::Reservation) {
+			if (!area->detection->OccupyDryRun(v->index)) out.flags |= TRPRF_WAIT_AT_PBS;
+			return;
+		}
+		const bool member = area->detection->IsOccupant(v->index);
+		bool committed = input.permitted_slot_operations & TRPISP_PBS_RES_END_ACQUIRE;
+		/* Some ordinary PBS entry callbacks run before attempting a reservation.
+		 * They may confirm an existing owned path, never invent a successful one. */
+		if (!committed && (input.permitted_slot_operations & TRPISP_ACQUIRE) &&
+				(GetReservedTrackbits(input.tile) & TrackToTrackBits(TrackdirToTrack(input.trackdir)))) {
+			const Train *owner = GetTrainForReservation(input.tile, TrackdirToTrack(input.trackdir));
+			committed = owner != nullptr && owner->Primary() == v->Primary();
+		}
+		if (input.permitted_slot_operations & TRPISP_ACQUIRE_TEMP_STATE) {
+			Acquire(area->detection, v, input, out);
+			if (!member && area->detection->IsOccupant(v->index)) Acquire(area->pending, v, input, out);
+		} else if (committed) {
+			if (area->detection->Occupy(v)) {
+				if (!member) area->pending->Occupy(v);
+			} else out.flags |= TRPRF_WAIT_AT_PBS;
+		} else if (!area->detection->OccupyDryRun(v->index)) out.flags |= TRPRF_WAIT_AT_PBS;
 	} else if (role == AutoYieldRole::Main) {
+		if (PrioritisePassengerExit(*area, v)) {
+			out.flags |= TRPRF_WAIT_AT_PBS | TRPRF_PBS_RES_END_WAIT;
+			return;
+		}
 		/* Keep the admission and evacuation decisions within the same bounded
 		 * proof. Repeating the approach scan could spend the budget before
 		 * rediscovering a departure which the siding's exit already permits. */
-		const auto approaches = GetMainApproaches(*area);
+		const auto approaches = GetMainApproaches(*area, v);
 		if (NeedsSiding(*area, v, &approaches)) {
 			if (FreeLane(*area, v)) out.flags |= TRPRF_DENY | TRPRF_WAIT_AT_PBS | TRPRF_PBS_RES_END_WAIT;
 			/* Reserving up to Main would already commit the straight branch.
 			 * Keep the reservation endpoint before the fork while a selected
 			 * departure clears, so the next retry can actually enter its siding. */
 			else if (Evacuation(*area, &approaches, v).incoming == v) out.flags |= TRPRF_WAIT_AT_PBS | TRPRF_PBS_RES_END_WAIT;
+		} else if (area->has_platform && v->current_order.IsType(OT_GOTO_STATION) && Evacuation(*area, &approaches).incoming == v) {
+			/* Keep the station requester before the fork while its platform is
+			 * being freed, just as for the existing overtaking turnover. */
+			out.flags |= TRPRF_WAIT_AT_PBS | TRPRF_PBS_RES_END_WAIT;
 		}
 	} else if (role == AutoYieldRole::Siding) {
 		auto lane = area->lanes.find(MakeTraceRestrictRefId(input.tile, TrackdirToTrack(input.trackdir)));
