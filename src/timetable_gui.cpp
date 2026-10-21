@@ -91,10 +91,14 @@ static bool CanDetermineTimeTaken(const Order *order, bool travelling)
 	if (order->IsType(OT_CONDITIONAL) || order->IsType(OT_IMPLICIT)) return false;
 	/* No travel time and we have not already finished travelling */
 	if (travelling && !order->IsTravelTimetabled()) return false;
-	/* No wait time but we are loading at this timetabled station */
-	if (!travelling && !order->IsWaitTimetabled() && order->IsType(OT_GOTO_STATION) &&
-			!(order->GetNonStopType() & ONSF_NO_STOP_AT_DESTINATION_STATION)) {
-		return false;
+	if (!travelling && !order->IsWaitTimetabled() && order->IsType(OT_GOTO_STATION)) {
+		/* Stations only stopped at to decouple do not load, so their wait time
+		 * is never measured and timetabled. The dwell there belongs to the
+		 * decoupling operation itself and is predicted as zero, instead of
+		 * aborting the whole arrival/departure prediction at this station. */
+		if (order->GetDecouple() == ODF_DECOUPLE) return true;
+		/* No wait time but we are loading at this timetabled station */
+		if (!(order->GetNonStopType() & ONSF_NO_STOP_AT_DESTINATION_STATION)) return false;
 	}
 
 	return true;

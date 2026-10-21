@@ -917,7 +917,9 @@ static inline bool IsOrderUsableForSeparation(const Order *order)
 
 	if (order->GetWaitTime() == 0 && order->IsType(OT_GOTO_STATION) && !(order->GetNonStopType() & ONSF_NO_STOP_AT_DESTINATION_STATION)) {
 		// non-station orders are permitted to have 0 wait times
-		return false;
+		// Decouple stations never load, so their wait time is timetabled as
+		// zero on purpose; that is a valid state for separation.
+		if (order->GetDecouple() != ODF_DECOUPLE) return false;
 	}
 
 	if (order->GetTravelTime() == 0 && !order->IsTravelTimetabled()) {
@@ -1346,7 +1348,14 @@ void UpdateVehicleTimetable(Vehicle *v, bool travelling)
 		UpdateSeparationOrder(v);
 		v->current_order_time = 0;
 		v->current_loading_time = 0;
-	} else {
+	} else if (!real_timetable_order->HasNoTimetableTimes()) {
+		/* Orders that cannot carry timetable times (decouple markers, wait-for-
+		 * couple orders, slot/counter/label orders) have no timetabled duration
+		 * to settle against: their IsTravelTimetabled()/IsWaitTimetabled() only
+		 * pretend to be timetabled in order to lock the timetable fields.
+		 * Without this check the actual time spent is charged in full to the
+		 * lateness counter, e.g. the whole inbound leg of a wait-for-couple
+		 * order. */
 		v->lateness_counter -= (timetabled - time_taken);
 	}
 

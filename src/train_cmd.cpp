@@ -6606,6 +6606,16 @@ static bool AdoptDecoupleSchedule(Train *part, OrderListID schedule_id, StationI
 	part->cur_timetable_order_index = INVALID_VEH_ORDER_ID;
 	part->UpdateRealOrderIndex();
 	part->current_order.Free();
+	if (!load_before_schedule) {
+		/* The part starts a fresh schedule with no one-off station stop, so the
+		 * per-leg timer must not carry the elapsed inbound leg of the decouple
+		 * station into the first leg of the adopted schedule. The
+		 * load-before-schedule variant keeps it: its copied station order is
+		 * the arrival order, and BeginLoading still has to book the inbound
+		 * leg onto it. */
+		part->current_order_time = 0;
+		part->current_loading_time = 0;
+	}
 
 	/* The wrapper mirrors the part's dispatch/separation state while it is the home list. */
 	part->orders->SetDispatchEnabled(part->vehicle_flags.Test(VehicleFlag::ScheduledDispatch));
@@ -6615,7 +6625,7 @@ static bool AdoptDecoupleSchedule(Train *part, OrderListID schedule_id, StationI
 
 
 
-static void SplitOrders(Train *v, Train *u, uint8_t &load_trains, std::unique_ptr<OrderList> (&wait_orders)[2])
+static void SplitOrders(Train *v, Train *u, uint8_t &load_trains, std::unique_ptr<OrderList> (&wait_orders)[2], uint32_t inbound_time)
 {
 	/* The decouple marker has to sit behind the implicit index, which every
 	 * caller guarantees (see #TrainEnterStation). Re-check it instead of
@@ -6662,7 +6672,12 @@ static void SplitOrders(Train *v, Train *u, uint8_t &load_trains, std::unique_pt
 				 * part loads at. This applies to every mode that shares the list, not only to
 				 * the ones that insert a wait order. */
 				u->cur_timetable_order_index = order_state.cur_timetable_order_index;
-				u->current_order_time = order_state.current_order_time;
+				/* The per-leg timer is not taken over wholesale: the elapsed
+				 * inbound leg to the decouple station is booked once, either
+				 * already by TrainEnterStation or now by BeginLoading when this
+				 * part loads here. When the part does not load, drop the timer
+				 * so the leg is not charged to its first post-split leg. */
+				u->current_order_time = (load_trains & DECOUPLE_LOAD_SECOND) != 0 ? inbound_time : 0;
 				u->lateness_counter = order_state.lateness_counter;
 				u->timetable_start = order_state.timetable_start;
 				u->dispatch_records = order_state.dispatch_records;
@@ -7755,7 +7770,11 @@ static void AdoptCoupleWaitingSchedule(Train *v, Train *u)
 	v->cur_real_order_index = u->cur_real_order_index;
 	v->cur_implicit_order_index = u->cur_implicit_order_index;
 	v->cur_timetable_order_index = u->cur_timetable_order_index;
-	v->current_order_time = u->current_order_time;
+	/* Do not take over the waiting consist's per-leg timer: it counts the whole
+	 * wait-for-couple dwell, which must not be charged to the first leg the
+	 * merged consist measures. The approach leg of the couple order was already
+	 * booked and cleared in Couple() above. */
+	v->current_order_time = 0;
 	v->lateness_counter = u->lateness_counter;
 	v->timetable_start = u->timetable_start;
 	v->dispatch_records = u->dispatch_records;
@@ -7798,6 +7817,19 @@ static void Couple(Train *v, Train *u)
 	v->cur_speed = 0;
 	v->subspeed = 0;
 	v->progress = 0;
+
+	/* Book the approach leg of the couple order and reset the per-leg timer.
+	 * Reaching a couple order never passes through TrainEnterStation or
+	 * BeginLoading, so without this the approach time is neither recorded in
+	 * the timetable nor removed from the timer; the merged consist would
+	 * charge the whole approach (and anything waited before it) to its first
+	 * post-couple leg. When the waiting consist's schedule is adopted below,
+	 * the booking on this order's list is simply abandoned together with this
+	 * schedule; the timer reset is what matters there. */
+	if (v->current_order.IsType(OT_GOTO_COUPLE)) {
+		if (v->cur_timetable_order_index == INVALID_VEH_ORDER_ID) v->cur_timetable_order_index = v->cur_real_order_index;
+		if (v->cur_timetable_order_index == v->cur_real_order_index) UpdateVehicleTimetable(v, true);
+	}
 
 	/* The couple order may instruct the consist to adopt the waiting
 	 * consist's schedule; current_order is still that order here. */
@@ -8219,6 +8251,50 @@ static void TrainEnterStation(Train *consist, StationID station)
 		AddVehicleAdviceNewsItem(AdviceType::Order, GetEncodedString(STR_NEWS_ORDER_DECOUPLE_FAILED_REASON, consist->index, order_failure), consist->index);
 	}
 	if (want_decouple && order_failure == STR_NULL) {
+		/* Remember the elapsed inbound leg before any rebooking: when a part
+		 * loads at the decouple station, #SplitOrders hands this value to the
+		 * part so BeginLoading books the leg from it; when a part does not
+		 * load, the value is dropped so it cannot inflate the part's first
+		 * measured leg after the split. */
+		uint32_t decouple_inbound_time = consist->current_order_time;
+		/* Book the inbound leg to the decouple station now, while the order
+		 * indices still point at the station order that carries the decouple
+		 * flag: after the split each part runs its own (possibly replaced)
+		 * schedule and this leg would be lost. Only done when the front part
+		 * will not load here -- when it loads, BeginLoading below measures
+		 * and books the same leg through the regular arrival path, and a
+		 * pre-booking would let it re-book a near-zero value instead. */
+		const OrderDecoupleOrdersFlags first_orders_type = decouple_flags_order->GetDecoupleFirstOrdersType();
+		const bool first_part_loads = first_orders_type == ODOF_LOAD_AND_WAIT || first_orders_type == ODOF_KEEP_ORDERS || first_orders_type == ODOF_LOAD_AND_SCHEDULE;
+		if (!first_part_loads) {
+			/* A via-station stop leaves the timetable index invalid after the
+			 * realignment above; the leg belongs to the real current order. */
+			if (consist->cur_timetable_order_index == INVALID_VEH_ORDER_ID) consist->cur_timetable_order_index = consist->cur_real_order_index;
+			UpdateVehicleTimetable(consist, true);
+		}
+		/* When the front part does not load here, nobody runs the loading flow
+		 * on this (original) order list: rear parts that load get their own
+		 * private copy of the order list (or a schedule wrapper), so the wait
+		 * time measured during their loading is booked on the copy and this
+		 * list's station order would never be timetabled. Book the dwell here:
+		 * from this schedule's viewpoint the vehicle stops only to split and
+		 * leaves right away, so the wait is about zero. Only ODOF_KEEP_ORDERS
+		 * keeps the rear part on this very shared list, and its loading flow
+		 * then books the real wait time, so skip the pre-booking for it. */
+		const OrderDecoupleOrdersFlags second_orders_type = decouple_flags_order->GetDecoupleSecondOrdersType();
+		if (second_orders_type != ODOF_KEEP_ORDERS) {
+			Order *station_order = consist->GetOrder(consist->cur_real_order_index);
+			if (station_order != nullptr && station_order->IsType(OT_GOTO_STATION) && !station_order->IsWaitTimetabled()) {
+				int total_delta = -station_order->GetWaitTime();
+				int timetable_delta = -station_order->GetTimetabledWait();
+				station_order->SetWaitTime(0);
+				station_order->SetWaitTimetabled(true);
+				consist->current_order.SetWaitTime(0);
+				consist->current_order.SetWaitTimetabled(true);
+				consist->orders->UpdateTotalDuration(total_delta);
+				consist->orders->UpdateTimetableDuration(timetable_delta);
+			}
+		}
 		bool consist_in_rear = false;
 		StringID decouple_failure_reason;
 		u = DecoupleTrain(consist, consist_in_rear, decouple_failure_reason);
@@ -8263,7 +8339,7 @@ static void TrainEnterStation(Train *consist, StationID station)
 				u = u->Primary();
 			}
 		}
-		SplitOrders(consist, u, load_trains, wait_orders);
+		SplitOrders(consist, u, load_trains, wait_orders, decouple_inbound_time);
 		if (consist->current_order.IsType(OT_WAIT_COUPLE)) FreeTrainTrackReservation(consist);
 		if (u != nullptr && u->current_order.IsType(OT_WAIT_COUPLE)) FreeTrainTrackReservation(u);
 		/* The split moved vehicles -- and the primary that carries the breakdown
