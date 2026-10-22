@@ -188,6 +188,7 @@ void Order::Free()
 	this->dest  = 0;
 	this->couple_speed_value1 = this->couple_speed_value2 = 0;
 	this->couple_speed_unit1 = this->couple_speed_unit2 = 1;
+	this->couple_speed_comparator1 = this->couple_speed_comparator2 = 0;
 	DeAllocExtraInfo();
 }
 
@@ -311,6 +312,7 @@ void Order::MakeGoToCouple()
 	this->flags = 0;
 	this->couple_speed_value1 = this->couple_speed_value2 = 0;
 	this->couple_speed_unit1 = this->couple_speed_unit2 = 1;
+	this->couple_speed_comparator1 = this->couple_speed_comparator2 = 0;
 }
 
 /**
@@ -576,6 +578,8 @@ void Order::AssignOrder(const Order &other)
 	this->couple_speed_value2 = other.couple_speed_value2;
 	this->couple_speed_unit1 = other.couple_speed_unit1;
 	this->couple_speed_unit2 = other.couple_speed_unit2;
+	this->couple_speed_comparator1 = other.couple_speed_comparator1;
+	this->couple_speed_comparator2 = other.couple_speed_comparator2;
 
 	if (other.extra != nullptr) {
 		this->AllocExtraInfo();

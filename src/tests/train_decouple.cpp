@@ -256,7 +256,7 @@ TEST_CASE_METHOD(TrainDecoupleFixture, "Couple - network snapshot preserves wide
 	DeallocateMap();
 	REQUIRE(result == SaveLoadResult::Ok);
 	/* Older clients must reject snapshots whose coupling criteria they cannot enforce. */
-	for (const std::string field : {"current_order.couple_speed_value1", "current_order.couple_speed_value2", "current_order.couple_speed_unit1", "current_order.couple_speed_unit2"}) {
+	for (const std::string field : {"current_order.couple_speed_value1", "current_order.couple_speed_value2", "current_order.couple_speed_unit1", "current_order.couple_speed_unit2", "current_order.couple_speed_comparator1", "current_order.couple_speed_comparator2"}) {
 		CHECK(std::search(snapshot->bytes.begin(), snapshot->bytes.end(), field.begin(), field.end()) != snapshot->bytes.end());
 	}
 	const std::string speed_feature = "couple_speed_filter";
