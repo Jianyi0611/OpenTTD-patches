@@ -1263,3 +1263,89 @@ TEST_CASE_METHOD(CouplePowerFixture, "Couple power - either speed bound enables 
 	ClaimCoupleTarget(low, waiting, 0);
 	CHECK(GetCoupleClaimant(waiting) == strong);
 }
+
+/** A goto-couple train directly behind an unclaimed waiting partner. */
+class CoupleBlockingPartnerFixture : public TrainDecoupleFixture {
+protected:
+	AutoRestoreBackup<CompanyID> company_backup{_current_company, AutoRestoreBackupNoNewValueTag{}};
+	AutoRestoreBackup<uint8_t> length_limit{_settings_game.vehicle.max_train_length, uint8_t{8}};
+	AutoRestoreBackup<RailTypes> rail_direct{const_cast<RailTypeInfo *>(GetRailTypeInfo(RAILTYPE_RAIL))->compatible_railtypes, RailTypes{RAILTYPE_RAIL}};
+	AutoRestoreBackup<RailTypes> rail_power{const_cast<RailTypeInfo *>(GetRailTypeInfo(RAILTYPE_RAIL))->powered_railtypes, RailTypes{RAILTYPE_RAIL}};
+	AutoRestoreBackup<RailTypes> rail_compatibility{const_cast<RailTypeInfo *>(GetRailTypeInfo(RAILTYPE_RAIL))->indirect_compatible_railtypes, RailTypes{RAILTYPE_RAIL}};
+	Train *moving;
+	Train *waiting;
+	Station *station;
+
+	CoupleBlockingPartnerFixture()
+	{
+		REQUIRE(Company::GetNumItems() == 0);
+		REQUIRE(Station::GetNumItems() == 0);
+		ResetVehicleHash();
+		AllocateMap(64, 64);
+		_current_company = Company::Create()->index;
+		for (uint x = 9; x <= 12; x++) MakeRailNormal(TileXY(x, 10), _current_company, TRACK_BIT_X, RAILTYPE_RAIL);
+		station = Station::Create(TileXY(12, 10));
+		station->owner = _current_company;
+		station->facilities = {StationFacility::Train};
+		station->train_station = TileArea(station->xy, 1, 1);
+		station->rect.BeforeAddTile(station->xy, StationRect::ADD_FORCE);
+		MakeRailStation(station->xy, _current_company, station->index, Axis::X, 0, RAILTYPE_RAIL);
+		moving = MakeTrain();
+		waiting = MakeTrain();
+		Place(moving, 10);
+		Place(waiting, 12);
+		for (Train *train : {moving, waiting}) {
+			train->SetFrontEngine();
+			train->owner = _current_company;
+			train->track = TRACK_BIT_X;
+			train->direction = Direction::SW;
+			train->compatible_railtypes.Set(RAILTYPE_RAIL);
+			train->railtypes.Set(RAILTYPE_RAIL);
+			train->vcache.cached_max_speed = 120;
+			train->gcache.cached_total_length = VEHICLE_LENGTH;
+		}
+		moving->current_order.MakeGoToCouple();
+		moving->current_order.SetCoupleSlot(TraceRestrictSlotID::Invalid());
+		waiting->current_order.MakeWaitCouple();
+		waiting->current_order.SetCoupleSlot(TraceRestrictSlotID::Invalid());
+		waiting->last_station_visited = station->index;
+		/* Both consists have their current tile reserved. The waiting train
+		 * occupies the only exit line, exactly where the approach starts. */
+		REQUIRE(TryReserveRailTrack(moving->tile, TRACK_X));
+		REQUIRE(TryReserveRailTrack(waiting->tile, TRACK_X));
+	}
+
+	~CoupleBlockingPartnerFixture()
+	{
+		_vehicle_pool.CleanPool();
+		ResetVehicleHash();
+		_orderlist_pool.CleanPool();
+		_station_pool.CleanPool();
+		_company_pool.CleanPool();
+		ClearOrderDestinationRefcountMap();
+		DeallocateMap();
+	}
+
+	void Place(Train *train, uint x)
+	{
+		train->tile = TileXY(x, 10);
+		train->x_pos = x * TILE_SIZE + 8;
+		train->y_pos = 10 * TILE_SIZE + 8;
+		train->z_pos = 0;
+		UpdateVehicleTileHash(train, false);
+	}
+};
+
+TEST_CASE_METHOD(CoupleBlockingPartnerFixture, "Couple - goto couple claims a waiting partner blocking the line")
+{
+	GameRandomSeedChecker random_checker;
+	ClearCoupleSearchLastFail();
+	/* The first extension stops at the waiting train before the target search
+	 * has run. The approach must claim that partner and reserve up to it. */
+	REQUIRE(TryPathReserve(moving));
+	CHECK(moving->couple_target == waiting->index);
+	CHECK(GetCoupleClaimant(waiting) == moving);
+	CHECK(GetRailReservationTrackBits(TileXY(11, 10)) != TRACK_BIT_NONE);
+	CHECK(random_checker.Check());
+	for (Train *train : {moving, waiting}) CHECK(ValidateVehicleTileHash(train));
+}

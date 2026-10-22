@@ -4743,15 +4743,36 @@ static bool HasWaitingCoupleTrain()
 }
 
 /**
+ * If a foreign consist on \a tile is a plausible waiting couple target, return
+ * its primary. This is only a cheap pre-check; the couple pathfinder performs
+ * the full validation (cargo, speed, arrangement, claim, ...).
+ */
+static const Train *GetWaitingCoupleCandidateOnTile(const Train *v, TileIndex tile)
+{
+	for (const Train *u : VehiclesOnTile<VehicleType::Train>(tile)) {
+		Train *candidate = u->Primary();
+		if (candidate == v->Primary()) continue;
+		if (!candidate->current_order.IsType(OT_WAIT_COUPLE)) continue;
+		if (!IsHoldingForCouple(candidate)) continue;
+		if (!IsTrainCouplingAllowed(v->owner, candidate->owner)) continue;
+		return candidate;
+	}
+	return nullptr;
+}
+
+/**
  * Find the track to take when going to couple with another train.
  * @param v The train.
  * @param do_track_reservation Whether to reserve the path.
  * @param couple_target Optionally returns the contact-end vehicle of the
  *   waiting train the path leads to.
  * @param couple_cost Optionally returns the path cost of the found route.
+ * @param only_target Optional exclusive target. Used when the target is already
+ *   known to be the consist blocking a reservation.
  * @return The track to take, or #INVALID_TRACK if no path was found.
  */
-static Track DoTrainCouplePathfind(const Train *v, bool do_track_reservation, Train **couple_target, uint32_t *couple_cost)
+static Track DoTrainCouplePathfind(const Train *v, bool do_track_reservation, Train **couple_target, uint32_t *couple_cost,
+		const Train *only_target = nullptr)
 {
 	const VehicleID id = v->Primary()->index;
 	/* Vehicle ticks, not date ticks: _scaled_tick_counter advances once per
@@ -4791,7 +4812,7 @@ static Track DoTrainCouplePathfind(const Train *v, bool do_track_reservation, Tr
 		}
 	}
 
-	Track ret = YapfTrainCoupleTrack(v, !do_track_reservation, couple_target, couple_cost);
+	Track ret = YapfTrainCoupleTrack(v, !do_track_reservation, couple_target, couple_cost, nullptr, only_target);
 	if (ret == INVALID_TRACK) {
 		_couple_search_last_fail[id] = now;
 	} else {
@@ -4808,11 +4829,15 @@ static Track DoTrainCouplePathfind(const Train *v, bool do_track_reservation, Tr
  * @param new_tracks [out] Tracks to choose from when encountering a choice
  * @param enterdir [out] The direction from which the choice tile is to be entered
  * @param temporary_slot_state The temporary slot to use (will be activated/deactivated as necessary if it isn't already)
+ * @param blocking_candidate [out] Set to the waiting couple candidate that
+ *   blocked the reservation, if any.
  * @return INVALID_TILE indicates that the reservation failed.
  */
-static PBSTileInfo ExtendTrainReservation(const Train *v, const PBSTileInfo &origin, TrackBits *new_tracks, DiagDirection *enterdir, TraceRestrictSlotTemporaryState &temporary_slot_state)
+static PBSTileInfo ExtendTrainReservation(const Train *v, const PBSTileInfo &origin, TrackBits *new_tracks, DiagDirection *enterdir, TraceRestrictSlotTemporaryState &temporary_slot_state, const Train **blocking_candidate = nullptr)
 {
 	CFollowTrackRail ft(v);
+
+	if (blocking_candidate != nullptr) *blocking_candidate = nullptr;
 
 	int extend_steps = 0;
 	TileIndex tile = origin.tile;
@@ -4839,6 +4864,7 @@ static PBSTileInfo ExtendTrainReservation(const Train *v, const PBSTileInfo &ori
 		if (v->current_order.IsType(OT_GOTO_COUPLE)) {
 			TileIndexDiff step = TileOffsByDiagDir(ft.exitdir);
 			bool foreign = false;
+			TileIndex foreign_tile = INVALID_TILE;
 			for (int i = 1; i <= ft.tiles_skipped + 1; i++) {
 				TileIndex t = ft.new_tile - step * (ft.tiles_skipped + 1 - i);
 				if (!IsValidTile(t)) continue;
@@ -4846,10 +4872,14 @@ static PBSTileInfo ExtendTrainReservation(const Train *v, const PBSTileInfo &ori
 				if (IsCouplePartnerVehicleTile(v, t)) break;
 				if (HasForeignConsistOnTile(v, t)) {
 					foreign = true;
+					foreign_tile = t;
 					break;
 				}
 			}
-			if (foreign) break;
+			if (foreign) {
+				if (blocking_candidate != nullptr) *blocking_candidate = GetWaitingCoupleCandidateOnTile(v, foreign_tile);
+				break;
+			}
 		}
 
 		/* Station, depot or waypoint are a possible target. */
@@ -5566,7 +5596,38 @@ static ChooseTrainTrackResult ChooseTrainTrack(Train *consist, const TileIndex t
 	PBSTileInfo   res_dest(tile, INVALID_TRACKDIR, false);
 	DiagDirection dest_enterdir = enterdir;
 	if (do_track_reservation) {
-		res_dest = ExtendTrainReservation(consist, origin, &tracks, &dest_enterdir, temporary_slot_state);
+		const Train *blocking_candidate = nullptr;
+		res_dest = ExtendTrainReservation(consist, origin, &tracks, &dest_enterdir, temporary_slot_state, &blocking_candidate);
+
+		/* A goto-couple train whose first obstacle is its waiting partner cannot
+		 * recognise that partner yet: ExtendTrainReservation() only permits an
+		 * already claimed partner to share the approach path, while the target
+		 * search runs later in this function. This happens when a depot exit
+		 * leads directly to a waiting train with no signal or choice in between.
+		 * Claim the blocking candidate and retry the extension so the normal
+		 * partner handling can take over. */
+		if (res_dest.tile == INVALID_TILE && blocking_candidate != nullptr &&
+				consist->current_order.IsType(OT_GOTO_COUPLE) &&
+				!(flags & CTTF_NO_LOOKAHEAD_VALIDATE) &&
+				GetClaimedCoupleTarget(consist) == nullptr) {
+			Train *couple_target = nullptr;
+			uint32_t couple_cost = 0;
+			if (DoTrainCouplePathfind(consist, false, &couple_target, &couple_cost, blocking_candidate) != INVALID_TRACK &&
+					couple_target != nullptr) {
+				consist->couple_target = couple_target->index;
+				ClaimCoupleTarget(consist, couple_target->Primary(), couple_cost);
+				if (GetClaimedCoupleTarget(consist) != nullptr) {
+					blocking_candidate = nullptr;
+					res_dest = ExtendTrainReservation(consist, origin, &tracks, &dest_enterdir, temporary_slot_state, &blocking_candidate);
+				} else {
+					/* The claim may have been delegated to another power car. Do
+					 * not leave a target that this consist does not actually own:
+					 * IsCouplePartnerVehicleTile() trusts couple_target alone. */
+					consist->couple_target = VehicleID::Invalid();
+				}
+			}
+		}
+
 		if (res_dest.tile == INVALID_TILE) {
 			/* Reservation failed? */
 			if (mark_stuck) MarkTrainAsStuck(consist);
