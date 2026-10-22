@@ -1119,7 +1119,9 @@ void UpdateTrainGroupID(Train *v)
 {
 	assert(v->IsFrontEngine() || v->IsFreeWagon() || v->IsFrontWagon());
 
-	GroupID new_g = v->IsFrontEngine() ? v->group_id : (GroupID)DEFAULT_GROUP;
+	/* A decoupled engine-less part is a front wagon but still a primary
+	 * vehicle here; keep its group instead of falling back to the default. */
+	GroupID new_g = v->IsPrimaryVehicle() ? v->group_id : (GroupID)DEFAULT_GROUP;
 	/* Never propagate a group that its owner does not own (see IsGroupIDUsableByOwner). */
 	if (!IsGroupIDUsableByOwner(new_g, v->owner)) new_g = DEFAULT_GROUP;
 	/* A consist may mix companies after a cross-company couple. Only the head's

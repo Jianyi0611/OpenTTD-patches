@@ -6906,7 +6906,14 @@ static Train *DecoupleTrain(Train *v, bool &consist_in_rear, StringID &failure_r
 		dec_prim->decouple_part = 2;
 	}
 
-	SetTrainGroupID(dec_head, DEFAULT_GROUP);
+	/* The decoupled part keeps the vehicle group of the original consist.
+	 * dec_head can be a front wagon ahead of the part's engine; then it is not
+	 * the primary vehicle and SetTrainGroupID() must not be called with a
+	 * non-default group (the engine primary already carries the group). */
+	const GroupID original_group = v->group_id;
+	if (dec_head->IsPrimaryVehicle()) {
+		SetTrainGroupID(dec_head, original_group);
+	}
 	GroupStatistics::CountVehicle(v, -1);
 
 	GroupStatistics::CountVehicle(v, 1);
