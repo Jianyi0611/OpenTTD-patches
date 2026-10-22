@@ -1050,6 +1050,9 @@ public:
 	inline void SetWaitTimetabled(bool timetabled)
 	{
 		if (this->HasNoTimetableTimes()) return;
+		/* Coupling orders have no wait time of their own; flags bit 3 stores the
+		 * "use the waiting consist's schedule" option for them. */
+		if (this->IsType(OT_GOTO_COUPLE)) return;
 		if (this->IsType(OT_CONDITIONAL) || this->IsType(OT_GOTO_DEPOT)) {
 			if (this->extra == nullptr && !timetabled) return;
 			AssignBit(this->GetXFlagsRef(), 0, timetabled);

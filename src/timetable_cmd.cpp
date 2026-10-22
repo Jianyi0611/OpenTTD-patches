@@ -591,8 +591,15 @@ CommandCost CmdBulkChangeTimetable(DoCommandFlags flags, OrderTargetType target_
 				Order *order = ol->GetOrderAt(order_number);
 				if (order == nullptr || order->IsType(OT_IMPLICIT)) continue;
 
-				/* Exclude waypoints from set all wait times command */
-				if (mtf == MTF_WAIT_TIME && !ctrl_flags.Test(ModifyTimetableCtrlFlag::ClearField) && order->IsType(OT_GOTO_WAYPOINT)) continue;
+				/* Waypoints have no editable wait time; coupling orders have no wait
+				 * time at all and use the same flags bit as the "use the waiting
+				 * consist's schedule" option. Skip both so that bulk timetable edits
+				 * cannot toggle that option. */
+				if (mtf == MTF_WAIT_TIME &&
+						(order->IsType(OT_GOTO_COUPLE) ||
+						 (!ctrl_flags.Test(ModifyTimetableCtrlFlag::ClearField) && order->IsType(OT_GOTO_WAYPOINT)))) {
+					continue;
+				}
 
 				CmdChangeTimetable(flags, OrderTargetType::OrderList, id, order_number, mtf, data, ctrl_flags);
 			}
@@ -615,8 +622,15 @@ CommandCost CmdBulkChangeTimetable(DoCommandFlags flags, OrderTargetType target_
 			Order *order = v->GetOrder(order_number);
 			if (order == nullptr || order->IsType(OT_IMPLICIT)) continue;
 
-			/* Exclude waypoints from set all wait times command */
-			if (mtf == MTF_WAIT_TIME && !ctrl_flags.Test(ModifyTimetableCtrlFlag::ClearField) && order->IsType(OT_GOTO_WAYPOINT)) continue;
+			/* Waypoints have no editable wait time; coupling orders have no wait
+			 * time at all and use the same flags bit as the "use the waiting
+			 * consist's schedule" option. Skip both so that bulk timetable edits
+			 * cannot toggle that option. */
+			if (mtf == MTF_WAIT_TIME &&
+					(order->IsType(OT_GOTO_COUPLE) ||
+					 (!ctrl_flags.Test(ModifyTimetableCtrlFlag::ClearField) && order->IsType(OT_GOTO_WAYPOINT)))) {
+				continue;
+			}
 
 			Command<Commands::ChangeTimetable>::Do(flags, OrderTargetType::Vehicle, v->index.base(), order_number, mtf, data, ctrl_flags);
 		}
