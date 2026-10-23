@@ -929,7 +929,7 @@ static inline bool IsOrderUsableForSeparation(const Order *order)
 {
 	if (order->HasNoTimetableTimes()) return true;
 
-	if (order->GetWaitTime() == 0 && order->IsType(OT_GOTO_STATION) && !(order->GetNonStopType() & ONSF_NO_STOP_AT_DESTINATION_STATION)) {
+	if (order->GetWaitTime() == 0 && !order->IsWaitTimetabled() && order->IsType(OT_GOTO_STATION) && !(order->GetNonStopType() & ONSF_NO_STOP_AT_DESTINATION_STATION)) {
 		// non-station orders are permitted to have 0 wait times
 		// Decouple stations never load, so their wait time is timetabled as
 		// zero on purpose; that is a valid state for separation.

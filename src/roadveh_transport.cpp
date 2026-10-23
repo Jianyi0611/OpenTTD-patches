@@ -41,6 +41,7 @@
 #include "station_map.h"
 #include "tilearea_type.h"
 #include "tile_map.h"
+#include "timetable.h"
 #include "train.h"
 #include "tunnelbridge_map.h"
 #include "vehicle_base.h"
@@ -673,6 +674,22 @@ static void RVTransportLeaveBoardingStation(Vehicle *rv)
 static void RVTransportAdvanceCarriedVehicleOrder(Vehicle *rv)
 {
 	if (rv == nullptr || rv->GetNumOrders() == 0) return;
+	/* Being picked up is the moment the "wait to be transported" order ends, but
+	 * the vehicle never runs Vehicle::LeaveStation()/Vehicle::HandleLoading() for
+	 * it, so the station's dwell would never reach the timetable: the order would
+	 * keep an unset wait time, leaving the timetable incomplete and making the
+	 * arrival/departure prediction stop at this station. Book the dwell here,
+	 * like a normal departure does. The whole stay counts, including the waiting
+	 * for a carrier after loading finished (the engine freezes
+	 * current_loading_time once LoadingFinished is set, so take the order time). */
+	if ((rv->current_order.GetRVTransportFlags() & ORVTF_OWN_WAIT) != 0) {
+		if (rv->cur_timetable_order_index == INVALID_VEH_ORDER_ID) rv->cur_timetable_order_index = rv->cur_real_order_index;
+		if (rv->cur_timetable_order_index == rv->cur_real_order_index) {
+			rv->current_loading_time = rv->current_order_time;
+			UpdateVehicleTimetable(rv, false);
+		}
+	}
+
 	/* The same sequence the engine uses when a vehicle finishes an order (Vehicle::HandleWaiting()):
 	 * move the order index on, drop the current order and let the game work out the new one (which also
 	 * evaluates conditional orders). */
