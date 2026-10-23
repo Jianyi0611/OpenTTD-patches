@@ -4179,6 +4179,16 @@ CommandCost Vehicle::SendToDepot(DoCommandFlags flags, DepotCommandFlags command
 	CommandCost ret = CheckOwnership(this->owner);
 	if (ret.Failed()) return ret;
 
+	/* A cross-company coupled train may not be sold as a whole by one of the
+	 * companies. Reject the sell order up front so it cannot be accepted here
+	 * and then fail only when the train arrives in the depot. */
+	if (this->type == VehicleType::Train && command.Test(DepotCommandFlag::Sell) && !command.Test(DepotCommandFlag::Cancel)) {
+		for (const Vehicle *v = this->First(); v != nullptr; v = v->Next()) {
+			CommandCost owner_ret = CheckOwnership(v->owner);
+			if (owner_ret.Failed()) return owner_ret;
+		}
+	}
+
 	if (this->vehstatus.Test(VehState::Crashed)) return CMD_ERROR;
 	if (this->IsStoppedInDepot()) {
 		if (command.Test(DepotCommandFlag::Sell) && !command.Test(DepotCommandFlag::Cancel) && (!command.Test(DepotCommandFlag::Specific) || specific_depot == this->tile)) {

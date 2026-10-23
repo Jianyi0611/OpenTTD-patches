@@ -1149,9 +1149,22 @@ struct DepotWindow : Window {
 				this->sel = VehicleID::Invalid();
 				this->SetDirty();
 
+				const bool sell_chain = v->type == VehicleType::Train && (widget == WID_D_SELL_CHAIN || _ctrl_pressed);
+				bool foreign = v->owner != _local_company;
+				if (!foreign && sell_chain) {
+					for (const Vehicle *u = v->Next(); u != nullptr; u = u->Next()) {
+						if (u->owner != _local_company) {
+							foreign = true;
+							break;
+						}
+					}
+				}
+
 				SellVehicleFlags sell_flags = SellVehicleFlags::BackupOrder;
-				if (v->type == VehicleType::Train && (widget == WID_D_SELL_CHAIN || _ctrl_pressed)) sell_flags |= SellVehicleFlags::SellChain;
-				Command<Commands::SellVehicle>::Post(GetCmdSellVehMsg(v->type), v->tile, v->index, sell_flags, ClientID::Invalid);
+				if (sell_chain) sell_flags |= SellVehicleFlags::SellChain;
+				/* Reuse the move-vehicle error popup ("Can't move vehicle..." /
+				 * "owned by ...") when another company's vehicles are selected. */
+				Command<Commands::SellVehicle>::Post(foreign ? STR_ERROR_CAN_T_MOVE_VEHICLE : GetCmdSellVehMsg(v->type), v->tile, v->index, sell_flags, ClientID::Invalid);
 				break;
 			}
 

@@ -265,7 +265,10 @@ CommandCost CmdSellVehicle(DoCommandFlags flags, TileIndex tile, VehicleID v_id,
 
 	Vehicle *front = v->Primary();
 
-	CommandCost ret = CheckOwnership(front->owner);
+	/* The vehicle the user picked must belong to the current company. The
+	 * sold chain is checked again in CmdSellRailWagon(), as it may contain
+	 * vehicles of other companies after a cross-company coupling. */
+	CommandCost ret = CheckOwnership(v->owner);
 	if (ret.Failed()) return ret;
 
 	if (HasFlag(sell_flags, SellVehicleFlags::VirtualOnly) != HasBit(front->subtype, GVSF_VIRTUAL)) return CMD_ERROR;

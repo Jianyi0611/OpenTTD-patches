@@ -2826,6 +2826,23 @@ CommandCost CmdMoveRailVehicle(DoCommandFlags flags, VehicleID src_veh, VehicleI
 }
 
 /**
+ * Check that every vehicle of a chain about to be sold belongs to the
+ * current company. A cross-company coupled consist keeps the owner of every
+ * vehicle, so the primary vehicle's owner says nothing about the rest of the
+ * chain.
+ * @param sold The chain that will be deleted.
+ * @return Success if the whole chain is owned by the current company.
+ */
+static CommandCost CheckSaleChainOwnership(const Train *sold)
+{
+	for (const Train *part = sold; part != nullptr; part = part->Next()) {
+		CommandCost ret = CheckOwnership(part->owner);
+		if (ret.Failed()) return ret;
+	}
+	return CommandCost();
+}
+
+/**
  * Sell a (single) train wagon/engine.
  * @param flags type of operation
  * @param t     the train wagon to sell
@@ -2858,6 +2875,16 @@ CommandCost CmdSellRailWagon(DoCommandFlags flags, Vehicle *t, bool sell_chain, 
 
 	/* Split the train in the wanted way. */
 	ArrangeTrains(&sell_head, nullptr, &new_head, v, sell_chain);
+
+	/* Never sell vehicles of another company. The check is done on the exact
+	 * chain that ArrangeTrains() selected, so single-wagon sales and chain
+	 * sales both only touch vehicles the current company owns. */
+	CommandCost owner_ret = CheckSaleChainOwnership(sell_head);
+	if (owner_ret.Failed()) {
+		/* Restore the train we had. */
+		RestoreTrainBackup(original);
+		return owner_ret;
+	}
 
 	/* We don't need to validate the second train; it's going to be sold. */
 	CommandCost ret = ValidateTrains(nullptr, nullptr, primary, new_head, !flags.Test(DoCommandFlag::AutoReplace));
@@ -2894,25 +2921,35 @@ CommandCost CmdSellRailWagon(DoCommandFlags flags, Vehicle *t, bool sell_chain, 
 
 		if (primary_sold && new_head != nullptr) {
 			/* The info carrier is sold but the consist survives: materialise
-			 * the surviving chain's own carrier and transfer the consist
-			 * identity (orders, unit number, statistics) to it, so the
-			 * surviving chain keeps running as the same train. */
+			 * the surviving chain's own carrier. Only hand the consist
+			 * identity over when that carrier belongs to the same company.
+			 * After a cross-company coupling the surviving engine may belong
+			 * to another company; it must not inherit the seller's orders,
+			 * unit number, name or statistics. */
 			MaterialiseTrainPrimary(new_head);
 			Train *new_primary = new_head->Primary();
 
-			new_primary->orders = primary->orders;
-			new_primary->primary_order = primary->primary_order;
-			new_primary->primary_order_index = primary->primary_order_index;
-			new_primary->execute_schedule_stack = primary->execute_schedule_stack;
-			new_primary->AddToShared(primary);
-			DeleteVehicleOrders(primary);
+			if (new_primary->owner == primary->owner) {
+				/* Transfer the consist identity (orders, unit number,
+				 * statistics) so the surviving chain keeps running as the
+				 * same train. */
+				new_primary->orders = primary->orders;
+				new_primary->primary_order = primary->primary_order;
+				new_primary->primary_order_index = primary->primary_order_index;
+				new_primary->execute_schedule_stack = primary->execute_schedule_stack;
+				new_primary->AddToShared(primary);
+				DeleteVehicleOrders(primary);
 
-			/* Copy other important data from the old carrier */
-			new_primary->CopyVehicleConfigAndStatistics(primary);
-			new_primary->speed_restriction = primary->speed_restriction;
-			Train::From(new_primary)->flags.Set(VehicleRailFlag::SpeedAdaptationExempt, Train::From(primary)->flags.Test(VehicleRailFlag::SpeedAdaptationExempt));
+				/* Copy other important data from the old carrier */
+				new_primary->CopyVehicleConfigAndStatistics(primary);
+				new_primary->speed_restriction = primary->speed_restriction;
+				Train::From(new_primary)->flags.Set(VehicleRailFlag::SpeedAdaptationExempt, Train::From(primary)->flags.Test(VehicleRailFlag::SpeedAdaptationExempt));
+			}
 
-			GroupStatistics::CountVehicle(new_primary, 1); // after copying over the profit, if required
+			/* The new carrier becomes an independent train again, regardless
+			 * of its owner. GroupStatistics::CountVehicle() is called after
+			 * the identity transfer because that copies the profit values. */
+			GroupStatistics::CountVehicle(new_primary, 1);
 		} else if (primary->IsPrimaryVehicle() && backup_order) {
 			OrderBackup::Backup(primary, user);
 		}
