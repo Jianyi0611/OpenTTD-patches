@@ -2108,6 +2108,10 @@ STR_ORDER_LIST_ALL_SCHEDULES                                    :All schedules
 STR_ORDER_LIST_ALL_SCHEDULES_TOOLTIP                            :{BLACK}Drag a schedule or group here to move it out of its group
 STR_ORDER_WAIT_COUPLE_STATION_TOOLTIP                            :{BLACK}Select a station on the map for the train to wait at. Click again to clear, so the train holds where it is.
 STR_ORDER_WAIT_COUPLE_AT                                        : at {STATION}
+STR_WAIT_COUPLE_DIAGNOSTIC_TOOLTIP                              :{BLACK}Show whether an approaching train has claimed this waiting train
+STR_WAIT_COUPLE_DIAGNOSTIC_CAPTION                              :{WHITE}Wait-for-coupling diagnostics
+STR_WAIT_COUPLE_DIAGNOSTIC_NONE                                 :Not claimed by any train
+STR_WAIT_COUPLE_DIAGNOSTIC_CLAIMED                              :Claimed by {VEHICLE}
 STR_ORDER_COUPLE_CHECK_SELECT                                   :{BLACK}Check location: {RAW_STRING}...
 STR_ORDER_COUPLE_CHECK_LABEL                                    :{BLACK}Early check point
 STR_ORDER_COUPLE_CHECK_ITEM                                     :{BLACK}{RAW_STRING}{RAW_STRING}

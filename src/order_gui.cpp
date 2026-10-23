@@ -1315,6 +1315,21 @@ static void ShowCoupleDiagnostics(const Train *moving, const Order *order, Vehic
 	ShowErrorMessage(GetEncodedString(STR_COUPLE_DIAGNOSTIC_CAPTION), GetEncodedString(STR_JUST_RAW_STRING, report), WarningLevel::Info);
 }
 
+/** Build the wait-for-coupling claim report on demand; no claim state is changed. */
+static void ShowWaitCoupleDiagnostics(const Train *waiting, const Order *order, VehicleOrderID sel)
+{
+	if (waiting == nullptr || order == nullptr || !order->IsType(OT_WAIT_COUPLE)) return;
+
+	/* A claim only applies while this is the wait order being executed. For a
+	 * later order the train is not waiting yet, so nothing can have claimed it. */
+	const bool active = waiting->current_order.IsType(OT_WAIT_COUPLE) && waiting->cur_real_order_index == sel;
+	const Train *claimant = active ? GetCoupleClaimant(waiting) : nullptr;
+	const std::string report = claimant != nullptr
+			? GetString(STR_WAIT_COUPLE_DIAGNOSTIC_CLAIMED, claimant->index)
+			: GetString(STR_WAIT_COUPLE_DIAGNOSTIC_NONE);
+	ShowErrorMessage(GetEncodedString(STR_WAIT_COUPLE_DIAGNOSTIC_CAPTION), GetEncodedString(STR_JUST_RAW_STRING, report), WarningLevel::Info);
+}
+
 /** Widgets of the #CoupleOptionsWindow (coupling selection criteria of a train couple order). */
 enum CoupleCriteriaWidgets : WidgetID {
 	WID_CPO_CAPTION,          ///< Caption of the window.
@@ -3909,6 +3924,13 @@ private:
 		::ShowCoupleDiagnostics(Train::From(this->vehicle)->Primary(), this->OrderAt(this->OrderGetSel()), this->OrderGetSel());
 	}
 
+	/** Build the wait-for-coupling claim report on demand; no claim state is changed. */
+	void ShowWaitCoupleDiagnostics()
+	{
+		if (!this->HasVehicle() || this->vehicle->type != VehicleType::Train) return;
+		::ShowWaitCoupleDiagnostics(Train::From(this->vehicle)->Primary(), this->OrderAt(this->OrderGetSel()), this->OrderGetSel());
+	}
+
 	void OrderClick_OrdersFirst(int index)
 	{
 		this->OrderClick_OrdersType(index, true);
@@ -5011,6 +5033,10 @@ public:
 					/* The widget only exists in the ground-vehicle window layout. */
 					if (this->widget_lookup.find(WID_O_WAIT_COUPLE_STATION) != this->widget_lookup.end()) {
 						this->SetWidgetLoweredState(WID_O_WAIT_COUPLE_STATION, order->HasWaitCoupleStation());
+					}
+					if (this->widget_lookup.find(WID_O_WAIT_COUPLE_DIAGNOSTICS) != this->widget_lookup.end()) {
+						/* Standalone schedules have no train whose claim could be queried. */
+						this->SetWidgetDisabledState(WID_O_WAIT_COUPLE_DIAGNOSTICS, !this->HasVehicle() || this->vehicle->type != VehicleType::Train);
 					}
 					break;
 
@@ -6329,6 +6355,10 @@ public:
 				break;
 			}
 
+			case WID_O_WAIT_COUPLE_DIAGNOSTICS:
+				this->ShowWaitCoupleDiagnostics();
+				break;
+
 			case WID_O_WAIT_COUPLE_STATION: {
 				const Order *sel_order = OrderAt(this->OrderGetSel());
 				if (this->goto_type != OPOS_NONE) {
@@ -7535,7 +7565,8 @@ static constexpr std::initializer_list<NWidgetPart> _nested_orders_train_widgets
 			EndContainer(),
 			NWidget(NWID_HORIZONTAL, NWidContainerFlag::EqualSize),
 				NWidget(WWT_PANEL, Colours::Grey), SetResize(1, 0), EndContainer(),
-				NWidget(WWT_PANEL, Colours::Grey), SetResize(1, 0), EndContainer(),
+				NWidget(WWT_PUSHTXTBTN, Colours::Grey, WID_O_WAIT_COUPLE_DIAGNOSTICS), SetMinimalSize(124, 12), SetFill(1, 0),
+														SetStringTip(STR_COUPLE_DIAGNOSTIC_BUTTON, STR_WAIT_COUPLE_DIAGNOSTIC_TOOLTIP), SetResize(1, 0),
 				NWidget(WWT_PUSHTXTBTN, Colours::Grey, WID_O_WAIT_COUPLE_STATION), SetMinimalSize(124, 12), SetFill(1, 0),
 														SetStringTip(STR_ORDER_COUPLE_STATION_BUTTON, STR_ORDER_WAIT_COUPLE_STATION_TOOLTIP), SetResize(1, 0),
 			EndContainer(),

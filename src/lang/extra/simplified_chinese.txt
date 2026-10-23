@@ -2038,6 +2038,10 @@ STR_ORDER_LIST_ALL_SCHEDULES                                    :全部调度
 STR_ORDER_LIST_ALL_SCHEDULES_TOOLTIP                            :{BLACK}把调度表或分组拖到此处，可将其移出所在的分组
 STR_ORDER_WAIT_COUPLE_STATION_TOOLTIP                            :{BLACK}在地图上选择一个车站作为列车的等待位置。再次点击清除，列车将就地等待。
 STR_ORDER_WAIT_COUPLE_AT                                        :在 {STATION}
+STR_WAIT_COUPLE_DIAGNOSTIC_TOOLTIP                              :{BLACK}显示是否有列车正在前往并与该等待列车对接
+STR_WAIT_COUPLE_DIAGNOSTIC_CAPTION                              :{WHITE}等待连接诊断
+STR_WAIT_COUPLE_DIAGNOSTIC_NONE                                 :未被任何列车认领
+STR_WAIT_COUPLE_DIAGNOSTIC_CLAIMED                              :已被 {VEHICLE} 认领
 STR_ORDER_COUPLE_CHECK_SELECT                                   :{BLACK}检查位置：{STRING}…
 STR_ORDER_COUPLE_CHECK_LABEL                                    :{BLACK}检查位置
 STR_ORDER_COUPLE_CHECK_ITEM                                     :{BLACK}{STRING}{STRING}
