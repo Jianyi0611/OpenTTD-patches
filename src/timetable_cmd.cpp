@@ -925,8 +925,66 @@ CommandCost CmdTimetableSeparation(DoCommandFlags flags, OrderTargetType target_
 	return CommandCost();
 }
 
+/**
+ * Total timetable length of \a ol including the schedules it executes.
+ * The execute-schedule orders themselves carry no times, but a full pass of a
+ * list takes the executed schedule's cycle as well, so that length belongs to
+ * the cycle of the list executing it (recursively).
+ * @param ol The order list to measure.
+ * @param depth Recursion guard for (already runtime-prevented) recursion.
+ * @return The length in ticks using the raw times.
+ */
+static Ticks GetEffectiveTotalDuration(const OrderList *ol, uint depth)
+{
+	if (ol == nullptr || depth > 8) return 0;
+	Ticks total = ol->GetTotalDuration();
+	for (VehicleOrderID i = 0; i < ol->GetNumOrders(); i++) {
+		const Order *order = ol->GetOrderAt(i);
+		if (order == nullptr || !order->IsExecuteScheduleOrder()) continue;
+		total += GetEffectiveTotalDuration(OrderList::GetIfValid(order->GetDestination().ToOrderListID()), depth + 1);
+	}
+	return total;
+}
+
+/**
+ * Same as GetEffectiveTotalDuration() but using the timetabled times.
+ * @return The length in ticks, or INVALID_TICKS when any involved list has an
+ *         incomplete timetable.
+ */
+static Ticks GetEffectiveTimetableTotalDuration(const OrderList *ol, uint depth)
+{
+	if (ol == nullptr || depth > 8) return INVALID_TICKS;
+	Ticks total = ol->GetTimetableTotalDuration();
+	if (total == INVALID_TICKS) return INVALID_TICKS;
+	for (VehicleOrderID i = 0; i < ol->GetNumOrders(); i++) {
+		const Order *order = ol->GetOrderAt(i);
+		if (order == nullptr || !order->IsExecuteScheduleOrder()) continue;
+		const Ticks sub = GetEffectiveTimetableTotalDuration(OrderList::GetIfValid(order->GetDestination().ToOrderListID()), depth + 1);
+		if (sub == INVALID_TICKS) return INVALID_TICKS;
+		total += sub;
+	}
+	return total;
+}
+
+/** Can the cycle of an executed schedule be used for separation? */
+static bool IsExecutedScheduleUsable(const OrderList *ol, uint depth)
+{
+	if (ol == nullptr || depth > 8 || !ol->IsCompleteTimetable()) return false;
+	for (VehicleOrderID i = 0; i < ol->GetNumOrders(); i++) {
+		const Order *order = ol->GetOrderAt(i);
+		if (order == nullptr || !order->IsExecuteScheduleOrder()) continue;
+		if (!IsExecutedScheduleUsable(OrderList::GetIfValid(order->GetDestination().ToOrderListID()), depth + 1)) return false;
+	}
+	return true;
+}
+
 static inline bool IsOrderUsableForSeparation(const Order *order)
 {
+	/* An executed schedule contributes its full cycle to this list, which is
+	 * only known once that schedule is completely timetabled. */
+	if (order->IsExecuteScheduleOrder()) {
+		return IsExecutedScheduleUsable(OrderList::GetIfValid(order->GetDestination().ToOrderListID()), 0);
+	}
 	if (order->HasNoTimetableTimes()) return true;
 
 	if (order->GetWaitTime() == 0 && !order->IsWaitTimetabled() && order->IsType(OT_GOTO_STATION) && !(order->GetNonStopType() & ONSF_NO_STOP_AT_DESTINATION_STATION)) {
@@ -963,6 +1021,10 @@ std::vector<TimetableProgress> PopulateSeparationState(const Vehicle *v_start)
 			}
 			if (!IsOrderUsableForSeparation(order)) separation_valid = false;
 			cumulative_ticks += order->GetTravelTime() + order->GetWaitTime();
+			/* A passed execute-schedule order took the whole executed cycle. */
+			if (order->IsExecuteScheduleOrder()) {
+				cumulative_ticks += GetEffectiveTotalDuration(OrderList::GetIfValid(order->GetDestination().ToOrderListID()), 0);
+			}
 		}
 		if (!vehicle_ok) continue;
 
@@ -1003,7 +1065,7 @@ void UpdateSeparationOrder(Vehicle *v_start)
 	std::vector<TimetableProgress> progress_array = PopulateSeparationState(v_start);
 	if (progress_array.size() < 2) return;
 
-	const uint duration = v_start->orders->GetTotalDuration();
+	const uint duration = GetEffectiveTotalDuration(v_start->orders, 0);
 	Vehicle *v = Vehicle::Get(progress_array.back().id);
 	Vehicle *v_ahead = Vehicle::Get(progress_array.front().id);
 	uint behind_index = (uint)progress_array.size() - 1;
@@ -1379,7 +1441,7 @@ void UpdateVehicleTimetable(Vehicle *v, bool travelling)
 	 * length of a full cycle till lateness is less than the length of a timetable
 	 * cycle. When the timetable isn't fully filled the cycle will be INVALID_TICKS. */
 	if (v->lateness_counter > (int)timetabled) {
-		Ticks cycle = v->orders->GetTimetableTotalDuration();
+		Ticks cycle = GetEffectiveTimetableTotalDuration(v->orders, 0);
 		if (cycle != INVALID_TICKS && v->lateness_counter > cycle) {
 			if (cycle == 0) {
 				v->lateness_counter = 0;

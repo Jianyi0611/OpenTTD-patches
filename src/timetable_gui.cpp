@@ -883,6 +883,12 @@ struct TimetableWindow : GeneralVehicleWindow {
 						} else if (order->IsType(OT_IMPLICIT)) {
 							GetStringInPlace(buffer, STR_TIMETABLE_NOT_TIMETABLEABLE);
 							colour = ExtendedTextColour{(i == selected) ? TextColour::Silver : TextColour::Grey, ExtendedTextColourFlag::NoShade};
+						} else if (v != nullptr && v->IsExecutingSchedule() && order == v->orders->GetOrderAt(0)) {
+							/* The leg from the last order of an executed schedule back to
+							 * its first one is never driven: the vehicle returns to its
+							 * home list instead. Show it as standing by, like the other
+							 * legs that carry no timetable time. */
+							GetStringInPlace(buffer, STR_TIMETABLE_NO_TRAVEL);
 						} else if (!order->IsTravelTimetabled()) {
 							if (order->GetTravelTime() > 0) {
 								auto [str, value] = GetTimetableParameters(order->GetTravelTime());

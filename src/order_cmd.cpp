@@ -406,6 +406,12 @@ void Order::MakeExecuteSchedule()
 	this->type = OT_EXECUTE_SCHEDULE;
 	this->dest = OrderListID::Invalid();
 	this->flags = 0;
+	/* This order is only a marker: it has no travel or wait time of its own
+	 * (see HasNoTimetableTimes()). Clear any values left behind when another
+	 * order type was converted to this one; automatic separation sums the raw
+	 * travel/wait times, so leftovers would be charged to the cycle. */
+	this->SetTravelTime(0);
+	this->SetWaitTime(0);
 }
 
 /**
@@ -5785,6 +5791,30 @@ void FlushAdvanceOrderIndexDeferred(const Vehicle *v, bool apply)
 }
 
 /**
+ * An executed schedule is entered at its first order and left again after its
+ * last one; the leg from the last order back to the first is never driven (the
+ * vehicle returns to its home list instead). Timetable the first order's travel
+ * as zero so the schedule's timetable can be complete and automatic separation
+ * can compute a stable cycle, instead of leaving that field unset forever.
+ * The (measured) drive into the first order when the schedule is entered is
+ * deliberately not booked: the schedule is shared between vehicles entering it
+ * from different places, so a measured value would be overwritten constantly.
+ */
+static void BookExecutedScheduleStartTravel(OrderList *ol)
+{
+	if (ol == nullptr || ol->GetNumOrders() == 0) return;
+	Order *first = ol->GetOrderAt(0);
+	if (first == nullptr || first->IsType(OT_CONDITIONAL) || first->HasNoTimetableTimes() || first->IsTravelTimetabled()) return;
+
+	const int total_delta = -first->GetTravelTime();
+	const int timetable_delta = -first->GetTimetabledTravel();
+	first->SetTravelTime(0);
+	first->SetTravelTimetabled(true);
+	ol->UpdateTotalDuration(total_delta);
+	ol->UpdateTimetableDuration(timetable_delta);
+}
+
+/**
  * A vehicle executing another order list finished one full pass of it: return
  * to its immediate caller, or its primary list for the outermost call.
  * Completed or deleted callers are skipped while unwinding the return stack.
@@ -5821,6 +5851,10 @@ void Vehicle::ReturnFromExecuteSchedule()
 		return;
 	}
 
+	/* The full pass ends here; make sure the un-driven wrap-around leg of the
+	 * executed schedule stays a timetabled zero. */
+	BookExecutedScheduleStartTravel(target);
+
 	/* Detach from the target list's shared chain. */
 	if (target->IsShared()) {
 		this->RemoveFromShared();
@@ -5846,6 +5880,11 @@ void Vehicle::ReturnFromExecuteSchedule()
 	this->cur_real_order_index = resume;
 	this->cur_timetable_order_index = INVALID_VEH_ORDER_ID;
 	this->UpdateRealOrderIndex();
+	/* The vehicle now travels from the last station of the executed schedule to
+	 * the resumed order. Point the timetable at that order so the leg is booked
+	 * on arrival; leaving it unset makes UpdateVehicleTimetable() bail out and
+	 * the leg would never be timetabled (the main list would stay incomplete). */
+	this->cur_timetable_order_index = this->cur_real_order_index;
 
 	this->current_order.Free();
 	this->SetDestTile(INVALID_TILE);
@@ -6022,6 +6061,10 @@ bool UpdateOrderDest(Vehicle *v, const Order *order, int conditional_depth, bool
 				bool recursive = target != nullptr && v->IsExecutingSchedule() && target->index == v->primary_order;
 				for (uint32_t frame : v->execute_schedule_stack) if (target != nullptr && OrderListID{uint16_t(frame)} == target->index) recursive = true;
 				if (target != nullptr && target != v->orders && target->GetNumOrders() > 0 && !recursive && v->execute_schedule_stack.size() < 64 && target->IsPlayerCreated() && target->IsVisibleToCompany(v->owner)) {
+					/* Executing the list starts at its first order; the leg from
+					 * its last order back to the first is never driven (see
+					 * BookExecutedScheduleStartTravel). */
+					BookExecutedScheduleStartTravel(target);
 					/* Execute the target order list: switch this vehicle to it (shared list).
 					 * The primary order list is kept as-is; after one full pass of the
 					 * target list the vehicle returns to it and resumes where it left.
