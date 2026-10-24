@@ -169,6 +169,9 @@ using FollowTrainReservationFlags = EnumBitSet<FollowTrainReservationFlag, uint8
 
 bool ValidateLookAhead(const Train *v);
 PBSTileInfo FollowTrainReservation(const Train *v, Vehicle **train_on_res = nullptr, FollowTrainReservationFlags flags = {});
+
+/** Find a foreign consist standing on the train's reserved path. */
+Train *FindForeignTrainOnReservation(const Train *v);
 void ApplyAvailableFreeTunnelBridgeTiles(TrainReservationLookAhead *lookahead, int free_tiles, TileIndex tile, TileIndex end);
 int AdvanceTrainReservationLookaheadEnd(const Train *v, int lookahead_end_position);
 void SetTrainReservationLookaheadEnd(Train *v);

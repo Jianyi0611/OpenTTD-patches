@@ -6132,8 +6132,19 @@ TryPathReserveResultFlags TryPathReserveWithResultFlags(Train *consist, bool mar
 			return TPRRF_NONE;
 		}
 	}
-	/* If we have a reserved path and the path ends at a safe tile, we are finished already. */
 	if (origin.okay && (moving_front->tile != origin.tile || first_tile_okay)) {
+		/* The chain ahead may carry a foreign consist: a decouple or
+		 * turnaround can leave a part facing its former partner's still-live
+		 * reservation, and adopting that chain departs without the part ever
+		 * reserving towards the next signal. Chain ownership cannot be asked
+		 * (the bits carry no owner, and the part itself stands on the chain's
+		 * near end), so test what actually matters: whether a foreign consist
+		 * occupies the chain. */
+		Train *foreign = FindForeignTrainOnReservation(consist);
+		if (foreign != nullptr && !IsCouplePartnerOf(consist, foreign)) {
+			if (mark_as_stuck) MarkTrainAsStuck(consist);
+			return TPRRF_NONE;
+		}
 		/* Can't be stuck then. */
 		if (consist->flags.Test(VehicleRailFlag::Stuck)) SetWindowWidgetDirty(WindowClass::VehicleView, consist->index, WID_VV_START_STOP);
 		consist->flags.Reset(VehicleRailFlag::Stuck);
@@ -8507,13 +8518,15 @@ static void TrainEnterStation(Train *consist, StationID station)
 		if (decoupled) {
 			if (!consist->flags.Test(VehicleRailFlag::JustDecoupled) && !consist->flags.Test(VehicleRailFlag::SameDirDecouplePending) && CheckReverseTrain(consist)) consist->flags.Set(VehicleRailFlag::Reversing);
 			if (!u->flags.Test(VehicleRailFlag::JustDecoupled) && !u->flags.Test(VehicleRailFlag::SameDirDecouplePending) && CheckReverseTrain(u)) u->flags.Set(VehicleRailFlag::Reversing);
-			/* A part that neither got the forced trailer reversal above nor a
-			 * pending deferred reversal has had no signal check nor reservation
-			 * attempt since the split reshuffled the shared platform: give it
-			 * the same re-check a completed turnaround performs. */
-			const Train *trailer_primary = trailer->Primary();
-			if (consist != trailer_primary && !consist->flags.Test(VehicleRailFlag::Reversing)) RecheckSignalsAndTryReserve(consist);
-			if (u != trailer_primary && !u->flags.Test(VehicleRailFlag::Reversing)) RecheckSignalsAndTryReserve(u);
+			/* Every part gets the full turnaround-style signal re-check and
+			 * reservation attempt right after the split (also the ones the
+			 * forced trailer reversal or a pending deferred reversal already
+			 * covered: the order handling above may have released reservations
+			 * again, and a duplicate attempt on an already valid reservation
+			 * is cheap). Parts that cannot reserve end up stuck and wait for
+			 * the path like any other train. */
+			RecheckSignalsAndTryReserve(consist);
+			RecheckSignalsAndTryReserve(u);
 		}
 		if (u == consist && consist->owner == _local_company) {
 			AddVehicleAdviceNewsItem(AdviceType::Order, GetEncodedString(STR_NEWS_ORDER_DECOUPLE_FAILED_REASON, consist->index, decouple_failure_reason), consist->index);
@@ -10481,6 +10494,10 @@ static bool TrainLocoHandler(Train *consist, bool mode)
 			consist->cur_speed = 0;
 			consist->subspeed = 0;
 			FreeTrainTrackReservation(consist);
+			/* The former partner still holds the shared platform: wait for it
+			 * to clear in the ordinary stuck state, so the regular retry logic
+			 * re-attempts the reservation as soon as the path is free. */
+			MarkTrainAsStuck(consist);
 			return true;
 		}
 		consist->flags.Reset(VehicleRailFlag::SameDirDecouplePending);
@@ -10488,6 +10505,9 @@ static bool TrainLocoHandler(Train *consist, bool mode)
 			consist->flags.Set(VehicleRailFlag::Reversing);
 			return true;
 		}
+		/* Departing straight in the same direction: re-check the signals and
+		 * rebuild the reservation now, like a completed turnaround does. */
+		RecheckSignalsAndTryReserve(consist);
 	}
 
 	/* Keep the requested travel direction, but place a driving cab at the leading
