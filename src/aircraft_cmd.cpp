@@ -1444,6 +1444,10 @@ void UpdateAircraftState(Aircraft *v)
 					v->state = AS_START_TAKEOFF;
 					v->UpdateNextTile(v->tile);
 				} else {
+					/* The plane is on the ground but not at a take-off position, e.g.
+					 * the destination changed while it was taxiing to the old terminal.
+					 * Abandon the stale state so the controller reserves a new path. */
+					if (v->state != AS_HANGAR) v->state = AS_IDLE;
 					v->UpdateNextTile(INVALID_TILE);
 				}
 			}
@@ -2024,7 +2028,11 @@ bool HandleAircraftState(Aircraft *v)
 					if (v->targetairport == GetStationIndex(v->tile)) {
 						AircraftEntersTerminal(v);
 					} else {
-						v->state = GetNextAircraftState(*v);
+						/* The destination changed while the aircraft is parked at a
+						 * terminal. Helicopters can take off directly from any apron
+						 * tile; planes must first taxi to a runway start, so let the
+						 * controller reserve that path from an idle state. */
+						v->state = v->IsHelicopter() ? AS_START_TAKEOFF : AS_IDLE;
 						v->UpdateNextTile(INVALID_TILE);
 					}
 					return true;
@@ -2059,6 +2067,13 @@ bool HandleAircraftState(Aircraft *v)
 			return true;
 
 		case AS_START_TAKEOFF:
+			if (!v->IsHelicopter() && !IsRunwayStart(v->tile)) {
+				/* A plane must never be in the take-off state away from a runway start:
+				 * recover by replanning a taxi path instead of using a bogus next tile. */
+				v->state = AS_IDLE;
+				v->UpdateNextTile(INVALID_TILE);
+				return true;
+			}
 			return HandleAircraftReadyToTakeoff(v);
 
 		case AS_TAKEOFF_BEFORE_FLYING:
