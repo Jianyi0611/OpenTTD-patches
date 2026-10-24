@@ -80,6 +80,10 @@
           )
         ),
         chapter(
+          "en/bluepoint",
+          content: include "content-en/bluepoint/index.typ",
+        ),
+        chapter(
           "en/other-options",
           content: include "content-en/options/index.typ",
           children: (
@@ -171,6 +175,10 @@
               content: include "content-zh/carry-vehicles/cross-comp.typ",
             ),
           )
+        ),
+        chapter(
+          "zh/bluepoint",
+          content: include "content-zh/bluepoint/index.typ",
         ),
         chapter(
           "zh/other-options",

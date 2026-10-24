@@ -42,6 +42,8 @@ Options in the vehicle transport window:
   [Cargo criterion], [Must be used together with the previous option.#linebreak()`must be able to carry` — the carried vehicle must be able to load the specified cargo type#linebreak()`must be carrying` — the carried vehicle must currently be loading the specified cargo type (load amount not equal to 0)],
   [Minimum waiting time], [Restrict the minimum time the loaded vehicles must have waited at the loading station],
   [Trace restrict slot], [Restrict the slot (token) of the vehicles being loaded],
+  [Slot group], [Restrict the loaded vehicles to holding a slot within the specified slot group],
+  [Vehicle group], [Restrict the loaded vehicles to the specified vehicle group],
   [Most vehicles at once], [Restrict the maximum number of vehicles that can be loaded at the same time]
 )
 

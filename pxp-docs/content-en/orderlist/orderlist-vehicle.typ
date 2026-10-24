@@ -1,7 +1,7 @@
 #title[Vehicles Using Custom Order Lists]
 
 = Using them directly in an order
-In a vehicle's order, you can directly select "Execute order list" and pick a custom order list. When this entry is executed, the train's order will be set to the order of that order list.
+In a vehicle's order, you can directly select "Execute schedule" and pick a custom order list. When this entry is executed, the train's order will be set to the order of that order list.
 
 #figure(
   image("../../static/images/execute-orderlist.png", width: 80%),
@@ -11,7 +11,7 @@ In a vehicle's order, you can directly select "Execute order list" and pick a cu
 See also: #link("../decouple/decouple-operation.html")[Choosing the orders after decoupling]
 
 = What actually happens when a vehicle executes a custom order list
-The "Execute order list" entry only executes the target order list *once*, then jumps back to the *vehicle's original order list*. Therefore, in this order, the second "go to depot" entry can still be executed normally:
+The "Execute schedule" entry only executes the target order list *once*, then jumps back to the *vehicle's original order list*. Therefore, in this order, the second "go to depot" entry can still be executed normally:
 
 #figure(
   image("../../static/images/execute-orderlist-out.png", width: 80%),
@@ -23,6 +23,6 @@ When a vehicle is currently executing a custom order list, you can also select t
   image("../../static/images/execute-orderlist-exit.png", width: 80%),
 )
 
-If the vehicle's original order only contains a single "Execute order list" entry, this is equivalent to executing the custom order list repeatedly.
+If the vehicle's original order only contains a single "Execute schedule" entry, this is equivalent to executing the custom order list repeatedly.
 
-*Note: when a custom order list finishes executing, it jumps back to the vehicle's most original order list, not the parent order list. That is, if a custom order list contains an "Execute order list" entry that executes another order list, once the other order list finishes, it will jump back to the vehicle's original order list rather than this custom order list*
+*Note: when a custom order list finishes executing, it jumps back to the vehicle's most original order list, not the parent order list. That is, if a custom order list contains an "Execute schedule" entry that executes another order list, once the other order list finishes, it will jump back to the vehicle's original order list rather than this custom order list*

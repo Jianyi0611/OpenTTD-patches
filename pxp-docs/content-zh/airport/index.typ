@@ -1,6 +1,6 @@
 #title[模块化机场]
 
-*注：列车对接与解挂功能原创于 #link("https://github.com/J0anJosep/OpenTTD/tree/MultitileAirports")[OpenTTD Multitile Airport 补丁]，px-patch 在此补丁的基础上，进行了新版移植于功能完善。*
+*注：列车对接与解挂功能原创于 #link("https://github.com/J0anJosep/OpenTTD/tree/MultitileAirports")[OpenTTD Multitile Airport 补丁]，px-patch 在此补丁的基础上，进行了新版移植与功能完善。*
 
 = 启用模块化机场功能
 模块化机场功能默认不会被启用，你需要在设置中开启`允许建设自定义机场`选项。

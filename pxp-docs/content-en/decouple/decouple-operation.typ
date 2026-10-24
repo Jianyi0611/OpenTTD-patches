@@ -14,8 +14,8 @@ Through the drop-down menus for both parts after decoupling, you can choose diff
   [Load and keep orders], [Keep the original orders, and load/unload at the decoupling station], [The original orders], [Same as above],
   [Wait for couple without loading], [Wait for couple at the decoupling station], [Keep the original order and append a `Wait for couple` order entry after the decoupling station], [],
   [Load and wait for couple], [Load/unload at the decoupling station, then wait for couple], [Same as above], [],
-  [Use a schedule without loading], [After decoupling, execute a player-defined custom order list, without loading/unloading], [An `Execute order list` order entry], [See also #link("../orderlist.html")[Custom Order Lists]],
-  [Load and use a schedule], [After decoupling, load/unload first, then execute the player-defined custom order list], [A `Go to decoupling station` order entry#linebreak()A `Execute order list` order entry#linebreak()A `Conditional jump: always skip to the second entry`], [Same as above],
+  [Use a schedule without loading], [After decoupling, execute a player-defined custom order list, without loading/unloading], [An `Execute schedule` order entry], [See also #link("../orderlist.html")[Custom Order Lists]],
+  [Load and use a schedule], [After decoupling, load/unload first, then execute the player-defined custom order list], [A `Go to decoupling station` order entry#linebreak()A `Execute schedule` order entry#linebreak()A `Conditional jump: always skip to the second entry`], [Same as above],
   [Allow leaving in the same direction once the other part has left], [After decoupling, this part is not forced to leave from the decoupling side; it may wait for the other part to leave the station and then leave from the same side], [Independent of the orders; does not touch the orders], [Only one of the two parts after decoupling may tick this; it cannot be ticked for both parts],
 )
 

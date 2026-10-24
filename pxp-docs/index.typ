@@ -1,6 +1,6 @@
 #title[PX-Patch Introduction]
 
-= 英文文档
+= English Documentation
 
 *#link("./en.html")[Click Here To Read]*
 
