@@ -4895,18 +4895,23 @@ static PBSTileInfo ExtendTrainReservation(const Train *v, const PBSTileInfo &ori
 			}
 		}
 
-		/* A goto-couple train may only travel towards its partner while no
-		 * foreign consist stands on the tiles it passes, including the tiles
-		 * the track follower jumps over (station platforms). */
-		if (v->current_order.IsType(OT_GOTO_COUPLE)) {
+		/* A train may only travel along tiles that no foreign consist stands
+		 * on, including the tiles the track follower jumps over (station
+		 * platforms). The reservation bit carries no owner, so a decoupled
+		 * part standing on the still-reserved platform of its former
+		 * partner's chain would otherwise be driven straight through: after
+		 * a turnaround the extending train re-enters the old chain and the
+		 * per-tile reserve only checks the ownerless bit, never the vehicles.
+		 * A goto-couple train additionally stops scanning at its partner: the
+		 * contact happens there, tiles past it are not travelled. */
+		{
 			TileIndexDiff step = TileOffsByDiagDir(ft.exitdir);
 			bool foreign = false;
 			TileIndex foreign_tile = INVALID_TILE;
 			for (int i = 1; i <= ft.tiles_skipped + 1; i++) {
 				TileIndex t = ft.new_tile - step * (ft.tiles_skipped + 1 - i);
 				if (!IsValidTile(t)) continue;
-				/* The contact happens at the partner; tiles past it are not travelled. */
-				if (IsCouplePartnerVehicleTile(v, t)) break;
+				if (v->current_order.IsType(OT_GOTO_COUPLE) && IsCouplePartnerVehicleTile(v, t)) break;
 				if (HasForeignConsistOnTile(v, t)) {
 					foreign = true;
 					foreign_tile = t;
@@ -4914,7 +4919,7 @@ static PBSTileInfo ExtendTrainReservation(const Train *v, const PBSTileInfo &ori
 				}
 			}
 			if (foreign) {
-				if (blocking_candidate != nullptr) *blocking_candidate = GetWaitingCoupleCandidateOnTile(v, foreign_tile);
+				if (v->current_order.IsType(OT_GOTO_COUPLE) && blocking_candidate != nullptr) *blocking_candidate = GetWaitingCoupleCandidateOnTile(v, foreign_tile);
 				break;
 			}
 		}
