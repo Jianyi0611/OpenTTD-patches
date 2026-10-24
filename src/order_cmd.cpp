@@ -5913,8 +5913,8 @@ static void BookExecutedScheduleStartTravel(OrderList *ol)
 
 /**
  * A vehicle executing another order list finished one full pass of it: return
- * to its immediate caller, or its primary list for the outermost call.
- * Completed or deleted callers are skipped while unwinding the return stack.
+ * to its primary list, no matter how deeply the executed schedule was nested.
+ * Enclosing schedules are abandoned and resume at the remembered position.
  * @note called from the order index wrap-around handling, so the caller must
  *       cope with the vehicle's order list having changed on return.
  */
@@ -5922,18 +5922,11 @@ void Vehicle::ReturnFromExecuteSchedule()
 {
 	OrderList *home = OrderList::GetIfValid(this->primary_order);
 	VehicleOrderID resume = this->primary_order_index;
-	bool nested = false;
-	while (!this->execute_schedule_stack.empty()) {
-		const uint32_t frame = this->execute_schedule_stack.back();
-		this->execute_schedule_stack.pop_back();
-		OrderList *parent = OrderList::GetIfValid(OrderListID{uint16_t(frame)});
-		if (parent == nullptr || (frame >> 16) >= parent->GetNumOrders()) continue;
-		home = parent;
-		resume = frame >> 16;
-		nested = true;
-		break;
-	}
 	OrderList *target = this->orders;
+	/* Finishing any executed schedule returns straight to the primary list,
+	 * no matter how deeply nested the schedule was. Enclosing schedules are
+	 * abandoned; stale return frames from older semantics are dropped. */
+	this->execute_schedule_stack.clear();
 	if (home == nullptr || home == target) {
 		/* The home list is gone (its deletion should have handled this):
 		 * adopt the list we are on as the new home. */
@@ -5969,10 +5962,8 @@ void Vehicle::ReturnFromExecuteSchedule()
 
 	/* Resume where we left the home list when we jumped away. */
 	if (resume == INVALID_VEH_ORDER_ID || resume >= home->GetNumOrders()) resume = 0;
-	if (!nested) {
-		this->primary_order_index = INVALID_VEH_ORDER_ID;
-		this->primary_order = home->index;
-	}
+	this->primary_order_index = INVALID_VEH_ORDER_ID;
+	this->primary_order = home->index;
 	this->cur_implicit_order_index = resume;
 	this->cur_real_order_index = resume;
 	this->cur_timetable_order_index = INVALID_VEH_ORDER_ID;
@@ -6164,8 +6155,7 @@ bool UpdateOrderDest(Vehicle *v, const Order *order, int conditional_depth, bool
 					BookExecutedScheduleStartTravel(target);
 					/* Execute the target order list: switch this vehicle to it (shared list).
 					 * The primary order list is kept as-is; after one full pass of the
-					 * target list the vehicle returns to it and resumes where it left.
-					 * Nested calls preserve their immediate parent in a separate stack. */
+					 * target list the vehicle returns to it and resumes where it left. */
 					OrderList *home = v->orders;
 					if (!v->IsExecutingSchedule()) {
 						/* Step past this execute-schedule order; the resulting position
@@ -6178,10 +6168,10 @@ bool UpdateOrderDest(Vehicle *v, const Order *order, int conditional_depth, bool
 						v->IncrementRealOrderIndex();
 						v->primary_order = home->index;
 						v->primary_order_index = v->cur_real_order_index;
-					} else {
-						const VehicleOrderID resume = v->cur_real_order_index + 1 < home->GetNumOrders() ? v->cur_real_order_index + 1 : INVALID_VEH_ORDER_ID;
-						v->execute_schedule_stack.push_back(home->index.base() | (uint32_t(resume) << 16));
 					}
+					/* A nested execute-schedule order leaves the primary list untouched:
+					 * finishing any executed list returns straight to the primary list
+					 * (see ReturnFromExecuteSchedule), abandoning the enclosing one. */
 
 					/* Remember the home list's dispatch/separation state if it is not
 					 * mirrored by the list itself, so we can restore it when returning. */

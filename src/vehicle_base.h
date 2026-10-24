@@ -1081,7 +1081,15 @@ public:
 	{
 		if (this->cur_implicit_order_index == this->cur_real_order_index) {
 			/* Increment real order index as well */
-			this->SkipToNextRealOrderIndex();
+			bool executing_before = this->IsExecutingSchedule();
+			bool wrapped = this->SkipToNextRealOrderIndex();
+			if (wrapped && executing_before) {
+				/* The skip returned us from an executed schedule: both order
+				 * indexes already point at the order to resume with, so there
+				 * is nothing left to advance here. Advancing anyway would lap
+				 * the whole list and fake a second end-of-pass wrap. */
+				return;
+			}
 		}
 
 		assert(this->cur_real_order_index == 0 || this->cur_real_order_index < this->GetNumOrders());

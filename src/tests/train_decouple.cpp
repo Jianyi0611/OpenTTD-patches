@@ -527,7 +527,7 @@ TEST_CASE_METHOD(TrainDecoupleFixture, "Couple - allow only an adjacent engine o
 	DeallocateMap();
 }
 
-TEST_CASE_METHOD(TrainDecoupleFixture, "Schedule - nested returns resume each caller")
+TEST_CASE_METHOD(TrainDecoupleFixture, "Schedule - finishing any schedule returns to the primary list")
 {
 	Train *v = MakeTrain();
 	auto make_list = []() {
@@ -546,19 +546,17 @@ TEST_CASE_METHOD(TrainDecoupleFixture, "Schedule - nested returns resume each ca
 	v->primary_order_index = 2;
 	v->execute_schedule_stack.push_back(parent->index.base() | (1U << 16));
 	SECTION("ordinary return") {}
-	SECTION("nested call at the end of another list") {
+	SECTION("stale frames from older nested semantics are ignored") {
 		OrderList *completed = make_list();
 		v->execute_schedule_stack.push_back(completed->index.base() | (3U << 16));
 	}
 	v->ReturnFromExecuteSchedule();
-	CHECK(v->orders == parent);
-	CHECK(v->cur_real_order_index == 1);
-	CHECK(v->primary_order == root->index);
-	CHECK(v->IsExecutingSchedule());
-	v->ReturnFromExecuteSchedule();
 	CHECK(v->orders == root);
 	CHECK(v->cur_real_order_index == 2);
+	CHECK(v->primary_order == root->index);
+	CHECK(v->primary_order_index == INVALID_VEH_ORDER_ID);
 	CHECK_FALSE(v->IsExecutingSchedule());
+	CHECK(v->execute_schedule_stack.empty());
 	_vehicle_pool.CleanPool();
 	_orderlist_pool.CleanPool();
 }

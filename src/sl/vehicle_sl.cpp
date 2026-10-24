@@ -315,6 +315,15 @@ void AfterLoadVehiclesPhase1(bool part_of_load)
 					v->primary_order = v->orders->index;
 				}
 			}
+		} else {
+			/* Nested schedules no longer keep per-caller return frames: finishing
+			 * any executed schedule returns straight to the primary list. Drop
+			 * frames saved by builds with the older per-level return semantics,
+			 * as leftover frames would wrongly mark jumps as recursive. */
+			for (Vehicle *v : Vehicle::Iterate()) {
+				si_v = v;
+				v->execute_schedule_stack.clear();
+			}
 		}
 
 		/* Order lists that have no vehicles are never passed to Initialize(); recompute their
