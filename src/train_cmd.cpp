@@ -3243,7 +3243,9 @@ static void ReverseTrainChainOrder(Train *v)
  * ReverseTrainSwapVehicles does, keeping the internal chain order intact, so
  * the "rear follows front" / "articulated parts follow base" invariants are
  * preserved and the new chain front of such a block is always a legal chain
- * head (front dual-headed part / articulated base).
+ * head (front dual-headed part / articulated base). The per-vehicle
+ * VehicleRailFlag::Flipped sprite-orientation flag is toggled for every
+ * vehicle so each renders with its pre-flip facing.
  * @param v First vehicle of the chain to reverse.
  */
 static void ReverseTrainNoSwapVehicles(Train *v)
@@ -3302,7 +3304,7 @@ static void ReverseTrainNoSwapVehicles(Train *v)
 		}
 	}
 
-/* Reverse every block internally, like ReverseTrainSwapVehicles does. */
+	/* Reverse every block internally, like ReverseTrainSwapVehicles does. */
 	for (auto &block : blocks) {
 		int r = static_cast<int>(block.size()) - 1;
 		int l = 0;
@@ -3330,6 +3332,15 @@ static void ReverseTrainNoSwapVehicles(Train *v)
 			l++;
 			r--;
 		}
+
+		/* Every vehicle of the flipped chain renders with its original facing
+		 * again by toggling the per-vehicle sprite orientation flag: in-place
+		 * reversed vehicles (single-vehicle blocks, odd-block middles) as well
+		 * as pairwise-swapped block members, whose UpdateStatusAfterSwap below
+		 * also ends up reversing their direction. Train::GetImage then picks
+		 * the sprite for the pre-flip direction, keeping the visual appearance
+		 * (same mechanism as the depot "turn vehicle around" command). */
+		for (Train *u : block) u->flags.Flip(VehicleRailFlag::Flipped);
 
 		if (block.size() > 1) {
 			/* The vehicles changed place, fully update them. */
@@ -6539,6 +6550,7 @@ struct TrialConsistGuard {
 		NewGRFCache grf_cache;
 		uint8_t user_def_data;
 		uint8_t cached_veh_flags;
+		bool flipped;
 	};
 
 	std::vector<TrialCache> caches;
@@ -6552,7 +6564,7 @@ struct TrialConsistGuard {
 	void SnapshotChain(const TrainList &chain)
 	{
 		for (Train *t : chain) {
-			this->caches.push_back({t, t->grf_cache, t->tcache.user_def_data, t->vcache.cached_veh_flags});
+			this->caches.push_back({t, t->grf_cache, t->tcache.user_def_data, t->vcache.cached_veh_flags, t->flags.Test(VehicleRailFlag::Flipped)});
 		}
 	}
 
@@ -6562,6 +6574,7 @@ struct TrialConsistGuard {
 			cache.vehicle->grf_cache = cache.grf_cache;
 			cache.vehicle->tcache.user_def_data = cache.user_def_data;
 			cache.vehicle->vcache.cached_veh_flags = cache.cached_veh_flags;
+			cache.vehicle->flags.Set(VehicleRailFlag::Flipped, cache.flipped);
 		}
 		if (this->seeds.random.state[0] != _random.state[0] || this->seeds.random.state[1] != _random.state[1]) {
 			Debug(desync, 0, "Trial consist surgery shifted the random seed; restoring it");
@@ -7718,6 +7731,14 @@ static void TrialReverseChainOrder(Train *head)
 	if (ChainFlipsBySwap(head)) return;
 
 	std::vector<std::vector<Train *>> blocks = BuildReversalBlocks(head);
+	/* Mirror the sprite-orientation toggles the real
+	 * ReverseTrainNoSwapVehicles() applies (every vehicle of the flipped
+	 * chain), so a NewGRF reading the reversed state (variable 0x48) sees the
+	 * same values as after the real flip. The guard's destructor restores the
+	 * flags. */
+	for (const auto &block : blocks) {
+		for (Train *t : block) t->flags.Flip(VehicleRailFlag::Flipped);
+	}
 	std::vector<Train *> order;
 	for (auto it = blocks.rbegin(); it != blocks.rend(); ++it) {
 		for (Train *t : *it) order.push_back(t);
