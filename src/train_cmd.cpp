@@ -4922,22 +4922,25 @@ static PBSTileInfo ExtendTrainReservation(const Train *v, const PBSTileInfo &ori
 			}
 		}
 
-		/* A train may only travel along tiles that no foreign consist stands
-		 * on, including the tiles the track follower jumps over (station
-		 * platforms). The reservation bit carries no owner, so a decoupled
-		 * part standing on the still-reserved platform of its former
-		 * partner's chain would otherwise be driven straight through: after
-		 * a turnaround the extending train re-enters the old chain and the
-		 * per-tile reserve only checks the ownerless bit, never the vehicles.
-		 * A goto-couple train additionally stops scanning at its partner: the
-		 * contact happens there, tiles past it are not travelled. */
+		/* A train may only travel along station platform tiles that no foreign
+		 * consist stands on. Only platform tiles need this vehicle check: their
+		 * reservation is a single ownerless bit, so a decoupled part standing on
+		 * the still-reserved platform of its former partner's chain is otherwise
+		 * driven straight through after a turnaround re-enters the old chain.
+		 * Plain rail tiles keep their attributed per-track reservation and are
+		 * already blocked by the reserved-track check further down; scanning
+		 * them for vehicles too would misread normal passing situations
+		 * (vehicles inside wormholes reporting the entrance tile, brief
+		 * crossings) as blocks and gridlock the network. A goto-couple train
+		 * additionally stops scanning at its partner: the contact happens
+		 * there, tiles past it are not travelled. */
 		{
 			TileIndexDiff step = TileOffsByDiagDir(ft.exitdir);
 			bool foreign = false;
 			TileIndex foreign_tile = INVALID_TILE;
 			for (int i = 1; i <= ft.tiles_skipped + 1; i++) {
 				TileIndex t = ft.new_tile - step * (ft.tiles_skipped + 1 - i);
-				if (!IsValidTile(t)) continue;
+				if (!IsValidTile(t) || !IsRailStationTile(t)) continue;
 				if (v->current_order.IsType(OT_GOTO_COUPLE) && IsCouplePartnerVehicleTile(v, t)) break;
 				if (HasForeignConsistOnTile(v, t)) {
 					foreign = true;
