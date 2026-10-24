@@ -2187,7 +2187,16 @@ static void NormaliseSubtypes(Train *chain)
 	}
 	if (has_engine) {
 		chain->ClearFreeWagon();
-		if (chain->IsEngine()) chain->SetFrontEngine();
+		if (chain->IsEngine()) {
+			chain->SetFrontEngine();
+			chain->ClearFrontWagon();
+		} else {
+			/* A wagon head ahead of a mid-chain primary engine needs the front-wagon
+			 * marker (like a decoupled part gets) so it counts as the chain's primary
+			 * entry in statistics; leaving it bare skips GroupStatistics updates. */
+			chain->ClearFrontEngine();
+			chain->SetFrontWagon();
+		}
 	} else {
 		chain->SetFreeWagon();
 	}

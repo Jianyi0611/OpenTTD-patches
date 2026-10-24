@@ -123,7 +123,10 @@ uint16_t GroupStatistics::GetNumEngines(EngineID engine) const
 		if (!v->IsEngineCountable()) continue;
 
 		GroupStatistics::CountEngine(v, 1);
-		if (v->IsPrimaryVehicle()) GroupStatistics::CountVehicle(v, 1);
+		/* A chain whose primary sits mid-chain has both a front wagon at the head and the
+		 * primary engine returning IsPrimaryVehicle(); count each chain exactly once, at
+		 * its primary. */
+		if (v->IsPrimaryVehicle() && v->Primary() == v) GroupStatistics::CountVehicle(v, 1);
 	}
 
 	for (const Company *c : Company::Iterate()) {
