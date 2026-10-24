@@ -4974,6 +4974,7 @@ void CheckOrders(const Vehicle *v)
 		/* Check the order list */
 		int n_st = 0;
 		bool has_depot_order = false;
+		bool has_execute_schedule_order = false; ///< Any execute-schedule, wait-couple or goto-couple order is present
 
 		for (const Order *order : v->Orders()) {
 			/* Dummy order? */
@@ -4993,6 +4994,11 @@ void CheckOrders(const Vehicle *v)
 			if (order->IsType(OT_GOTO_DEPOT)) {
 				has_depot_order = true;
 			}
+			/* Lists taking part in coupling/dispatching may legitimately have
+			 * few station orders; don't complain about those. */
+			if (order->IsExecuteScheduleOrder() || order->IsType(OT_WAIT_COUPLE) || order->IsType(OT_GOTO_COUPLE)) {
+				has_execute_schedule_order = true;
+			}
 		}
 
 		/* Check if the last and the first order are the same, and the first order is a go to order */
@@ -5005,7 +5011,7 @@ void CheckOrders(const Vehicle *v)
 		}
 
 		/* Do we only have 1 station in our order list? */
-		if (n_st < 2 && message == INVALID_STRING_ID) message = STR_NEWS_VEHICLE_HAS_TOO_FEW_ORDERS;
+		if (n_st < 2 && !has_execute_schedule_order && message == INVALID_STRING_ID) message = STR_NEWS_VEHICLE_HAS_TOO_FEW_ORDERS;
 
 #ifdef WITH_ASSERT
 		if (v->orders != nullptr) v->orders->DebugCheckSanity();
