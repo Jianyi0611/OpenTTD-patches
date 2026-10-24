@@ -3672,6 +3672,51 @@ static bool IsWholeTrainInsideDepot(const Train *v)
 static void ReverseTrainForCouple(Train *v, bool joint_at_tail);
 
 /**
+ * Re-check the signal segment state and rebuild the path reservation after a
+ * consist-changing operation (turnaround, couple, decouple). Such an operation
+ * can invalidate or release the previous reservation, so the consist re-does
+ * the same reservation a turnaround performs: only reserve when the current
+ * signal segment holds a reserved path (or path reservation is globally
+ * forced), restore the platform reservation under the consist, and mark the
+ * consist stuck when no way out is found.
+ * @param consist primary vehicle of the consist to re-check.
+ */
+static void RecheckSignalsAndTryReserve(Train *consist)
+{
+	Train *moving_front = consist->GetMovingFront();
+
+	/* VehicleExitDir does not always produce the desired dir for depots and
+	 * tunnels/bridges that is needed for UpdateSignalsOnSegment. */
+	DiagDirection dir = VehicleExitDir(moving_front->GetMovingDirection(), moving_front->track);
+	if (IsRailDepotTile(moving_front->tile) || (IsTileType(moving_front->tile, TileType::TunnelBridge) && (moving_front->track & TRACK_BIT_WORMHOLE || dir == GetTunnelBridgeDirection(moving_front->tile)))) dir = DiagDirection::Invalid;
+
+	if (UpdateSignalsOnSegment(moving_front->tile, dir, consist->owner) == SigSegState::Path || _settings_game.pf.reserve_paths) {
+		/* If we are currently on a tile with conventional signals, we can't treat the
+		 * current tile as a safe tile or we would enter a PBS block without a reservation. */
+		bool first_tile_okay = !HasBlockSignalOnTrackdir(moving_front->tile, moving_front->GetVehicleTrackdir());
+
+		/* If we are on a depot tile facing outwards, do not treat the current tile as safe. */
+		if (IsRailDepotTile(moving_front->tile) && TrackdirToExitdir(moving_front->GetVehicleTrackdir()) == GetRailDepotDirection(moving_front->tile)) first_tile_okay = false;
+
+		/* If we are on a signalled tunnel/bridge end-tile in the exit direction, do not treat the current tile as safe. */
+		if (IsTunnelBridgeWithSignalSimulation(moving_front->tile) && !(moving_front->track & TRACK_BIT_WORMHOLE) && TrackdirExitsTunnelBridge(moving_front->tile, moving_front->GetVehicleTrackdir())) first_tile_okay = false;
+
+		if (IsRailStationTile(moving_front->tile)) SetRailStationPlatformReservation(moving_front->tile, TrackdirToExitdir(moving_front->GetVehicleTrackdir()), true);
+		if (TryPathReserve(consist, false, first_tile_okay)) {
+			/* Do a look-ahead now in case our current tile was already a safe tile. */
+			CheckNextTrainTile(moving_front);
+		} else if (consist->current_order.GetType() != OT_LOADING) {
+			/* Do not wait for a way out when we're still loading */
+			MarkTrainAsStuck(consist);
+		}
+	} else if (consist->flags.Test(VehicleRailFlag::Stuck)) {
+		/* A train not inside a PBS block can't be stuck. */
+		consist->flags.Reset(VehicleRailFlag::Stuck);
+		consist->wait_counter = 0;
+	}
+}
+
+/**
  * Turn a train around.
  * @param consist %Train to turn around.
  * @param no_swap When flipping, reverse in place without swapping vehicle
@@ -3896,36 +3941,9 @@ static void ReverseTrainDirection(Train *consist, bool no_swap = false)
 		}
 	}
 
-	/* VehicleExitDir does not always produce the desired dir for depots and
-	 * tunnels/bridges that is needed for UpdateSignalsOnSegment. */
-	DiagDirection dir = VehicleExitDir(moving_front->GetMovingDirection(), moving_front->track);
-	if (IsRailDepotTile(moving_front->tile) || (IsTileType(moving_front->tile, TileType::TunnelBridge) && (moving_front->track & TRACK_BIT_WORMHOLE || dir == GetTunnelBridgeDirection(moving_front->tile)))) dir = DiagDirection::Invalid;
-
-	if (UpdateSignalsOnSegment(moving_front->tile, dir, consist->owner) == SigSegState::Path || _settings_game.pf.reserve_paths) {
-		/* If we are currently on a tile with conventional signals, we can't treat the
-		 * current tile as a safe tile or we would enter a PBS block without a reservation. */
-		bool first_tile_okay = !HasBlockSignalOnTrackdir(moving_front->tile, moving_front->GetVehicleTrackdir());
-
-		/* If we are on a depot tile facing outwards, do not treat the current tile as safe. */
-		if (IsRailDepotTile(moving_front->tile) && TrackdirToExitdir(moving_front->GetVehicleTrackdir()) == GetRailDepotDirection(moving_front->tile)) first_tile_okay = false;
-
-		/* If we are on a signalled tunnel/bridge end-tile in the exit direction, do not treat the current tile as safe. */
-		if (IsTunnelBridgeWithSignalSimulation(moving_front->tile) && !(moving_front->track & TRACK_BIT_WORMHOLE) && TrackdirExitsTunnelBridge(moving_front->tile, moving_front->GetVehicleTrackdir())) first_tile_okay = false;
-
-		if (IsRailStationTile(moving_front->tile)) SetRailStationPlatformReservation(moving_front->tile, TrackdirToExitdir(moving_front->GetVehicleTrackdir()), true);
-		if (TryPathReserve(consist, false, first_tile_okay)) {
-			/* Do a look-ahead now in case our current tile was already a safe tile. */
-			CheckNextTrainTile(moving_front);
-		} else if (consist->current_order.GetType() != OT_LOADING) {
-			/* Do not wait for a way out when we're still loading */
-			MarkTrainAsStuck(consist);
-		}
-	} else if (consist->flags.Test(VehicleRailFlag::Stuck)) {
-		/* A train not inside a PBS block can't be stuck. */
-		consist->flags.Reset(VehicleRailFlag::Stuck);
-		consist->wait_counter = 0;
-	}
-
+	/* Re-check the signal segment and rebuild the reservation in the new
+	 * direction, like after any other consist-changing operation. */
+	RecheckSignalsAndTryReserve(consist);
 }
 
 /**
@@ -8152,7 +8170,9 @@ static void Couple(Train *v, Train *u)
 	if (CheckReverseTrain(consist)) {
 		consist->flags.Set(VehicleRailFlag::Reversing);
 	} else {
-		TryPathReserve(consist);
+		/* No turnaround pending: re-check the signals and rebuild the merged
+		 * consist's reservation now, exactly like a completed turnaround does. */
+		RecheckSignalsAndTryReserve(consist);
 	}
 }
 
@@ -8475,6 +8495,13 @@ static void TrainEnterStation(Train *consist, StationID station)
 		if (decoupled) {
 			if (!consist->flags.Test(VehicleRailFlag::JustDecoupled) && !consist->flags.Test(VehicleRailFlag::SameDirDecouplePending) && CheckReverseTrain(consist)) consist->flags.Set(VehicleRailFlag::Reversing);
 			if (!u->flags.Test(VehicleRailFlag::JustDecoupled) && !u->flags.Test(VehicleRailFlag::SameDirDecouplePending) && CheckReverseTrain(u)) u->flags.Set(VehicleRailFlag::Reversing);
+			/* A part that neither got the forced trailer reversal above nor a
+			 * pending deferred reversal has had no signal check nor reservation
+			 * attempt since the split reshuffled the shared platform: give it
+			 * the same re-check a completed turnaround performs. */
+			const Train *trailer_primary = trailer->Primary();
+			if (consist != trailer_primary && !consist->flags.Test(VehicleRailFlag::Reversing)) RecheckSignalsAndTryReserve(consist);
+			if (u != trailer_primary && !u->flags.Test(VehicleRailFlag::Reversing)) RecheckSignalsAndTryReserve(u);
 		}
 		if (u == consist && consist->owner == _local_company) {
 			AddVehicleAdviceNewsItem(AdviceType::Order, GetEncodedString(STR_NEWS_ORDER_DECOUPLE_FAILED_REASON, consist->index, decouple_failure_reason), consist->index);
