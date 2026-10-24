@@ -1017,6 +1017,7 @@ STR_ORDER_COUPLE_EMPTY                                          :empty
 STR_ORDER_COUPLE_FULL                                           :full
 STR_ORDER_COUPLE_ANY_SLOT                                     :Any slot
 STR_ORDER_COUPLE_SLOT                                          : in slot {STRING1}
+STR_ORDER_COUPLE_SLOT_GROUP_TOOLTIP                            :{BLACK}The trace restrict slot group the other train must be in
 STR_ORDER_DECOUPLE                                              :(Decouple)
 STR_ORDER_DECOUPLE_DETAILS                                      :[Decouple and keep {COMMA} units] First part {RAW_STRING} Second part {RAW_STRING}
 STR_ORDER_DECOUPLE_DETAILS_AUTO                                 :[Decouple and keep {COMMA}(auto) units] First part {RAW_STRING} Second part {RAW_STRING}
@@ -5098,6 +5099,8 @@ STR_RV_TRANSPORT_CRITERIA_SLOT_GROUP_SET                        :a slot group is
 STR_RV_TRANSPORT_CRITERIA_GROUP                                 :Vehicle group
 STR_RV_TRANSPORT_CRITERIA_GROUP_SET                             :a vehicle group is set
 STR_RV_TRANSPORT_CRITERIA_SLOT_TYPE_TIP                         :{BLACK}Switch the slot list between road vehicle and train slots
+STR_RV_TRANSPORT_CRITERIA_SLOT_TOOLTIP                          :{BLACK}Only take along vehicles holding this trace restrict slot
+STR_RV_TRANSPORT_CRITERIA_SLOT_GROUP_TOOLTIP                    :{BLACK}Only take along vehicles in this trace restrict slot group
 STR_RV_TRANSPORT_CRITERIA_SLOT_ROAD                             :Road
 STR_RV_TRANSPORT_CRITERIA_SLOT_TRAIN                            :Trains
 STR_RV_TRANSPORT_CRITERIA_LOAD_STATE_ANY                        :any

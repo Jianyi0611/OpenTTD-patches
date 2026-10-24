@@ -49,6 +49,8 @@
 #include "order_cmd.h"
 #include "orderlist_edit.h"
 #include "schedule_group_gui.h"
+#include "company_base.h"
+#include "toolbar_gui.h"
 #include "group_cmd.h"
 #include "group.h"
 #include "core/backup_type.hpp"
@@ -1155,6 +1157,19 @@ public:
 		this->SetDirty();
 	}
 
+	bool OnTooltip(Point pt, WidgetID widget, TooltipCloseCondition close_cond) override
+	{
+		switch (widget) {
+			case WID_RVT_SLOT:
+			case WID_RVT_SLOT_GROUP:
+				GuiShowTooltips(this, TraceRestrictPrepareSlotCounterSelectTooltip(this->GetWidget<NWidgetCore>(widget)->GetToolTip(), this->slot_veh_type), close_cond);
+				return true;
+
+			default:
+				return false;
+		}
+	}
+
 	void OnInvalidateData([[maybe_unused]] int data = 0, [[maybe_unused]] bool gui_scope = true) override
 	{
 		if (!this->CheckOrderStillValid()) {
@@ -1196,14 +1211,14 @@ static constexpr NWidgetPart _nested_rv_transport_widgets[] = {
 		EndContainer(),
 		NWidget(NWID_HORIZONTAL),
 			NWidget(WWT_TEXT, Colours::Invalid, WID_RVT_SLOT_LABEL), SetFill(1, 0), SetResize(1, 0), SetStringTip(STR_RV_TRANSPORT_CRITERIA_SLOT, STR_NULL),
-			NWidget(WWT_DROPDOWN, Colours::Grey, WID_RVT_SLOT), SetFill(0, 0), SetResize(0, 0),
+			NWidget(WWT_DROPDOWN, Colours::Grey, WID_RVT_SLOT), SetFill(0, 0), SetResize(0, 0), SetToolTip(STR_RV_TRANSPORT_CRITERIA_SLOT_TOOLTIP),
 			NWidget(WWT_PUSHARROWBTN, Colours::Grey, WID_RVT_SLOT_VTYPE_PREV), SetMinimalSize(12, 0), SetArrowWidgetTypeTip(ArrowWidgetType::Left, STR_RV_TRANSPORT_CRITERIA_SLOT_TYPE_TIP),
 			NWidget(WWT_PUSHTXTBTN, Colours::Grey, WID_RVT_SLOT_VTYPE), SetMinimalSize(40, 0), SetStringTip(STR_RV_TRANSPORT_CRITERIA_SLOT_ROAD, STR_RV_TRANSPORT_CRITERIA_SLOT_TYPE_TIP),
 			NWidget(WWT_PUSHARROWBTN, Colours::Grey, WID_RVT_SLOT_VTYPE_NEXT), SetMinimalSize(12, 0), SetArrowWidgetTypeTip(ArrowWidgetType::Right, STR_RV_TRANSPORT_CRITERIA_SLOT_TYPE_TIP),
 		EndContainer(),
 		NWidget(NWID_HORIZONTAL),
 			NWidget(WWT_TEXT, Colours::Invalid, WID_RVT_SLOT_GROUP_LABEL), SetFill(1, 0), SetResize(1, 0), SetStringTip(STR_RV_TRANSPORT_CRITERIA_SLOT_GROUP, STR_NULL),
-			NWidget(WWT_DROPDOWN, Colours::Grey, WID_RVT_SLOT_GROUP), SetFill(0, 0), SetResize(0, 0),
+			NWidget(WWT_DROPDOWN, Colours::Grey, WID_RVT_SLOT_GROUP), SetFill(0, 0), SetResize(0, 0), SetToolTip(STR_RV_TRANSPORT_CRITERIA_SLOT_GROUP_TOOLTIP),
 			NWidget(WWT_PUSHARROWBTN, Colours::Grey, WID_RVT_SLOT_GROUP_VTYPE_PREV), SetMinimalSize(12, 0), SetArrowWidgetTypeTip(ArrowWidgetType::Left, STR_RV_TRANSPORT_CRITERIA_SLOT_TYPE_TIP),
 			NWidget(WWT_PUSHTXTBTN, Colours::Grey, WID_RVT_SLOT_GROUP_VTYPE), SetMinimalSize(40, 0), SetStringTip(STR_RV_TRANSPORT_CRITERIA_SLOT_ROAD, STR_RV_TRANSPORT_CRITERIA_SLOT_TYPE_TIP),
 			NWidget(WWT_PUSHARROWBTN, Colours::Grey, WID_RVT_SLOT_GROUP_VTYPE_NEXT), SetMinimalSize(12, 0), SetArrowWidgetTypeTip(ArrowWidgetType::Right, STR_RV_TRANSPORT_CRITERIA_SLOT_TYPE_TIP),
@@ -1822,6 +1837,18 @@ public:
 		}
 	}
 
+	bool OnTooltip(Point pt, WidgetID widget, TooltipCloseCondition close_cond) override
+	{
+		switch (widget) {
+			case WID_CPO_SLOT_GROUP:
+				GuiShowTooltips(this, TraceRestrictPrepareSlotCounterSelectTooltip(this->GetWidget<NWidgetCore>(widget)->GetToolTip(), this->target.ref_type), close_cond);
+				return true;
+
+			default:
+				return false;
+		}
+	}
+
 	void OnInvalidateData([[maybe_unused]] int data = 0, [[maybe_unused]] bool gui_scope = true) override
 	{
 		if (!this->CheckOrderStillValid()) {
@@ -1851,7 +1878,7 @@ static constexpr NWidgetPart _nested_couple_options_widgets[] = {
 		EndContainer(),
 		NWidget(NWID_HORIZONTAL),
 			NWidget(WWT_TEXT, Colours::Invalid, WID_CPO_SLOT_GROUP_LABEL), SetFill(1, 0), SetResize(1, 0), SetStringTip(STR_ORDER_COUPLE_SLOT_GROUP_LABEL, STR_NULL),
-			NWidget(WWT_DROPDOWN, Colours::Grey, WID_CPO_SLOT_GROUP), SetFill(0, 0), SetResize(0, 0),
+				NWidget(WWT_DROPDOWN, Colours::Grey, WID_CPO_SLOT_GROUP), SetFill(0, 0), SetResize(0, 0), SetToolTip(STR_ORDER_COUPLE_SLOT_GROUP_TOOLTIP),
 		EndContainer(),
 		NWidget(NWID_HORIZONTAL),
 			NWidget(WWT_TEXT, Colours::Invalid, WID_CPO_GROUP_LABEL), SetFill(1, 0), SetResize(1, 0), SetStringTip(STR_ORDER_COUPLE_GROUP_LABEL, STR_NULL),
@@ -6254,20 +6281,44 @@ public:
 					DropDownList list;
 					int selected = -1;
 					OrderListID current = o->GetDestination().ToOrderListID();
-					int item_index = 0;
 					list.push_back(MakeDropDownListStringItem(STR_TRACE_RESTRICT_VARIABLE_UNDEFINED, OrderListID::Invalid().base(), false));
-					if (current == OrderListID::Invalid()) selected = item_index;
-					item_index++;
-					for (const ScheduleTreeEntry &entry : GetVisibleScheduleTree(this->TargetOwner())) {
-						const OrderList *ol = entry.order_list;
-						std::string name = ol->GetName().empty() ? GetString(STR_ORDER_LIST_DEFAULT_NAME, ol->index.base() + 1) : ol->GetName();
-						if (ol->IsScheduleGroup()) {
-							list.push_back(std::make_unique<DropDownUnselectable<DropDownIcon<DropDownListIndentStringItem>>>(SPR_COMPANY_ICON, GetCompanyPalette(ol->GetCompany()), entry.depth, std::move(name), ol->index.base(), false));
-						} else {
-							list.push_back(std::make_unique<DropDownIcon<DropDownListIndentStringItem>>(SPR_COMPANY_ICON, GetCompanyPalette(ol->GetCompany()), entry.depth, std::move(name), ol->index.base(), false));
+					if (current == OrderListID::Invalid()) selected = OrderListID::Invalid().base();
+
+					/* By default only the company's own schedules are shown; holding <Shift> adds the
+					 * other companies' public schedules, grouped per company like the slot list. */
+					Owner owner = this->TargetOwner();
+					std::vector<ScheduleTreeEntry> tree = GetVisibleScheduleTree(owner);
+					std::map<Owner, std::vector<const ScheduleTreeEntry *>> per_company;
+					for (const ScheduleTreeEntry &entry : tree) {
+						per_company[entry.order_list->GetCompany()].push_back(&entry);
+					}
+
+					auto add_entries = [&](const std::vector<const ScheduleTreeEntry *> &entries) {
+						for (const ScheduleTreeEntry *entry : entries) {
+							const OrderList *ol = entry->order_list;
+							std::string name = ol->GetName().empty() ? GetString(STR_ORDER_LIST_DEFAULT_NAME, ol->index.base() + 1) : ol->GetName();
+							if (ol->IsScheduleGroup()) {
+								list.push_back(std::make_unique<DropDownUnselectable<DropDownIcon<DropDownListIndentStringItem>>>(SPR_COMPANY_ICON, GetCompanyPalette(ol->GetCompany()), entry->depth, std::move(name), ol->index.base(), false));
+							} else {
+								list.push_back(std::make_unique<DropDownIcon<DropDownListIndentStringItem>>(SPR_COMPANY_ICON, GetCompanyPalette(ol->GetCompany()), entry->depth, std::move(name), ol->index.base(), false));
+							}
+							if (ol->index == current) selected = ol->index.base();
 						}
-						if (ol->index == current) selected = item_index;
-						item_index++;
+					};
+
+					auto own = per_company.find(owner);
+					if (own != per_company.end()) add_entries(own->second);
+
+					if (_shift_pressed) {
+						for (const Company *c : Company::Iterate()) {
+							if (c->index == owner) continue;
+							auto it = per_company.find(c->index);
+							if (it == per_company.end() || it->second.empty()) continue;
+
+							if (!list.empty()) list.push_back(MakeDropDownListDividerItem());
+							list.push_back(MakeCompanyDropDownListItem(c->index, false));
+							add_entries(it->second);
+						}
 					}
 					ShowDropDownList(this, std::move(list), selected, WID_O_SLOT, 0, DropDownOption::Filterable, DDSF_SHARED);
 					break;
@@ -7171,10 +7222,19 @@ public:
 			case WID_O_COND_SLOT:
 			case WID_O_COND_SLOT_GROUP:
 			case WID_O_COND_COUNTER:
-			case WID_O_SLOT:
+			case WID_O_COUPLE_SLOT:
 			case WID_O_CHANGE_COUNTER:
 				GuiShowTooltips(this, TraceRestrictPrepareSlotCounterSelectTooltip(this->GetWidget<NWidgetCore>(widget)->GetToolTip(), this->RefType()), close_cond);
 				return true;
+
+			case WID_O_SLOT: {
+				/* The execute-schedule dropdown has no recently-used (Ctrl) list; its own tooltip
+				 * already describes the Shift behaviour. */
+				const Order *order = OrderAt(this->OrderGetSel());
+				if (order != nullptr && order->IsExecuteScheduleOrder()) return false;
+				GuiShowTooltips(this, TraceRestrictPrepareSlotCounterSelectTooltip(this->GetWidget<NWidgetCore>(widget)->GetToolTip(), this->RefType()), close_cond);
+				return true;
+			}
 
 			default:
 				return false;

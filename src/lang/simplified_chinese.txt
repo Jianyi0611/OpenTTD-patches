@@ -4803,6 +4803,8 @@ STR_RV_TRANSPORT_CRITERIA_SLOT                                  :路签
 STR_RV_TRANSPORT_CRITERIA_SLOT_SET                              :已指定路签
 STR_RV_TRANSPORT_CRITERIA_SLOT_GROUP                            :路签组
 STR_RV_TRANSPORT_CRITERIA_SLOT_GROUP_SET                        :已指定路签组
+STR_RV_TRANSPORT_CRITERIA_SLOT_TOOLTIP                          :{BLACK}仅装载持有该路签的载具
+STR_RV_TRANSPORT_CRITERIA_SLOT_GROUP_TOOLTIP                    :{BLACK}仅装载处于该路签组的载具
 STR_RV_TRANSPORT_CRITERIA_GROUP                                 :载具组
 STR_RV_TRANSPORT_CRITERIA_GROUP_SET                             :已指定载具组
 STR_RV_TRANSPORT_CRITERIA_SLOT_TYPE_TIP                         :{BLACK}在汽车路签与火车路签之间切换
@@ -5022,6 +5024,7 @@ STR_ORDER_COUPLE_USE_WAITING_SCHEDULE_SUFFIX                   :（并使用等�
 STR_ORDER_COUPLE_USE_WAITING_BUTTON                            :{BLACK}用等待调度计划
 STR_ORDER_COUPLE_USE_WAITING_TOOLTIP                           :{BLACK}对接后改用等待列车自带的调度计划。再次点击取消
 STR_ORDER_COUPLE_ANY_SLOT                                     :任意路签
+STR_ORDER_COUPLE_SLOT_GROUP_TOOLTIP                            :{BLACK}连接的列车必须所在的路签组
 STR_ORDER_COUPLE_MORE_BUTTON                                   :{BLACK}更多选项
 STR_ORDER_COUPLE_MORE_TOOLTIP                                  :{BLACK}更多连接限制条件：路签组、载具组、空满状态、货物类型与车厢数量
 STR_ORDER_COUPLE_OPTIONS_CAPTION                               :{WHITE}连接条件

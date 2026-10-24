@@ -1881,7 +1881,7 @@ STR_ORDER_TRY_ACQUIRE_SLOT_BUTTON                               :Try acquire slo
 STR_ORDER_EXECUTE_SCHEDULE_BUTTON                               :Execute schedule
 STR_ORDER_EXECUTE_SCHEDULE                                      :Execute schedule: {RAW_STRING}
 STR_ORDER_EXECUTE_SCHEDULE_UNDEFINED                             :Execute schedule: {STRING}
-STR_ORDER_EXECUTE_SCHEDULE_TOOLTIP                              :{BLACK}The order list to execute when this order is reached
+STR_ORDER_EXECUTE_SCHEDULE_TOOLTIP                              :{BLACK}The order list to execute when this order is reached. Hold Shift to also show other companies' public schedules
 STR_ORDERS_END_OF_EXECUTE_SCHEDULE                              :- - {RAW_STRING} execution finished - -
 STR_ORDERS_EXIT_EXECUTE_BUTTON                                  :{BLACK}Exit execution
 STR_ORDERS_EXIT_EXECUTE_TOOLTIP                                 :{BLACK}Exit the currently executed schedule and return to this vehicle's own orders
