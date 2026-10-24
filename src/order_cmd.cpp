@@ -770,6 +770,97 @@ bool OrderListIsSomeonesHome(const OrderList *ol)
 	return false;
 }
 
+/**
+ * Whether any vehicle owned by another company is currently using \a ol.
+ *
+ * A vehicle uses a list when it is attached to it, when the list is its home
+ * while it is away executing another list, or when the list is suspended
+ * somewhere in its execute-schedule stack.
+ *
+ * @param ol the order list to test
+ * @return true when a vehicle of another company is using the list
+ */
+bool OrderListIsUsedByOtherCompany(const OrderList *ol)
+{
+	for (const Vehicle *v : Vehicle::Iterate()) {
+		if (v->owner == ol->GetCompany()) continue;
+		if (v->orders == ol || v->primary_order == ol->index) return true;
+		for (uint32_t frame : v->execute_schedule_stack) {
+			if (OrderListID{uint16_t(frame)} == ol->index) return true;
+		}
+	}
+	return false;
+}
+
+/**
+ * Get the company that owns an order list for reference-clearing purposes.
+ *
+ * Player-created lists know their owner. Vehicle-owned lists derive it from
+ * their vehicles; a list can temporarily have no vehicle in its shared chain
+ * while they are all away on execute-schedule detours, so also check the home
+ * and suspended-list references.
+ *
+ * @param ol the order list to query
+ * @return the owning company, or #INVALID_OWNER when it cannot be determined
+ */
+static Owner GetOrderListReferenceOwner(const OrderList *ol)
+{
+	if (ol->IsPlayerCreated()) return ol->GetCompany();
+	if (const Vehicle *v = ol->GetFirstSharedVehicle(); v != nullptr) return v->owner;
+	for (const Vehicle *v : Vehicle::Iterate()) {
+		if (v->primary_order == ol->index) return v->owner;
+		for (uint32_t frame : v->execute_schedule_stack) {
+			if (OrderListID{uint16_t(frame)} == ol->index) return v->owner;
+		}
+	}
+	return INVALID_OWNER;
+}
+
+/** Does this decouple mode adopt a player-created schedule? */
+static bool IsScheduleDecoupleMode(OrderDecoupleOrdersFlags mode)
+{
+	return mode == ODOF_EXECUTE_SCHEDULE || mode == ODOF_LOAD_AND_SCHEDULE;
+}
+
+/**
+ * Clear references to \a target in other companies' schedules because it is
+ * being made private. Execute-schedule orders become undefined; decouple
+ * orders revert to keeping their own orders.
+ *
+ * @param target the order list that is about to become private
+ */
+static void ResetForeignScheduleReferences(const OrderList *target)
+{
+	for (OrderList *ol : OrderList::Iterate()) {
+		if (ol == target || ol->IsScheduleGroup()) continue;
+		if (GetOrderListReferenceOwner(ol) == target->GetCompany()) continue;
+
+		bool changed = false;
+		for (Order *order : ol->Orders()) {
+			if (order->IsExecuteScheduleOrder() && order->GetDestination().ToOrderListID() == target->index) {
+				order->SetDestination(OrderListID::Invalid());
+				changed = true;
+			}
+			if (!order->IsType(OT_DECOUPLE)) continue;
+			if (IsScheduleDecoupleMode(order->GetDecoupleFirstOrdersType()) && order->GetDecoupleFirstScheduleID() == target->index) {
+				order->SetDecoupleFirstOrdersType(ODOF_KEEP_ORDERS);
+				order->SetDecoupleFirstScheduleID(OrderListID::Invalid());
+				changed = true;
+			}
+			if (IsScheduleDecoupleMode(order->GetDecoupleSecondOrdersType()) && order->GetDecoupleSecondScheduleID() == target->index) {
+				order->SetDecoupleSecondOrdersType(ODOF_KEEP_ORDERS);
+				order->SetDecoupleSecondScheduleID(OrderListID::Invalid());
+				changed = true;
+			}
+		}
+
+		if (!changed || ol->IsPlayerCreated()) continue;
+		for (Vehicle *v = ol->GetFirstSharedVehicle(); v != nullptr; v = v->NextShared()) {
+			InvalidateVehicleOrder(v, VIWD_MODIFY_ORDERS);
+		}
+	}
+}
+
 void OrderList::FreeChain(bool keep_orderlist)
 {
 	if (this->IsPlayerCreated()) {
@@ -4449,7 +4540,13 @@ CommandCost CmdSetOrderListPublic(DoCommandFlags flags, OrderListID list_id, boo
 	CommandCost ret = CheckOwnership(ol->GetCompany());
 	if (ret.Failed()) return ret;
 
+	/* A list in active use by another company's vehicles cannot be hidden from them. */
+	if (!is_public && ol->IsPublic() && OrderListIsUsedByOtherCompany(ol)) {
+		return CommandCost(STR_ERROR_ORDER_LIST_IN_USE_BY_OTHER_COMPANY);
+	}
+
 	if (flags.Test(DoCommandFlag::Execute)) {
+		if (!is_public && ol->IsPublic()) ResetForeignScheduleReferences(ol);
 		ol->SetPublic(is_public);
 		InvalidateStandaloneOrderGUIs();
 	}

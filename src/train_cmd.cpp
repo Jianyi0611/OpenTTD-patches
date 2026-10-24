@@ -6642,7 +6642,7 @@ static void InsertDecoupleWaitOrder(Train *v, std::unique_ptr<OrderList> &copy, 
 static bool AdoptDecoupleSchedule(Train *part, OrderListID schedule_id, StationID load_at_station = StationID::Invalid(), const Order *load_order = nullptr)
 {
 	OrderList *ol = OrderList::GetIfValid(schedule_id);
-	if (ol == nullptr || !ol->IsPlayerCreated()) {
+	if (ol == nullptr || !ol->IsPlayerCreated() || !ol->IsVisibleToCompany(part->owner)) {
 		return false;
 	}
 
