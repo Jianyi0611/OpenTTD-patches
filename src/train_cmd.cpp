@@ -7639,6 +7639,130 @@ Train *ResolveCoupleTargetStation(const Train *moving, TileIndex tile, Trackdir 
 	return best;
 }
 
+/**
+ * Whether a chain takes the vanilla swap path when flipped: any multiheaded
+ * engine forces ReverseTrainSwapVehicles, which keeps the chain order intact
+ * and only mirrors the vehicles' physical state pairwise across the chain.
+ */
+static bool ChainFlipsBySwap(const Train *head)
+{
+	for (const Train *t = head; t != nullptr; t = t->Next()) {
+		if (t->IsMultiheaded() && t->IsEngine()) return true;
+	}
+	return false;
+}
+
+/**
+ * Split a chain into the blocks a no-swap reversal flips as units: an
+ * articulated engine and its parts form one block, everything else is a
+ * single-vehicle block. Mirrors the block rules of
+ * ReverseTrainNoSwapVehicles() (whose multiheaded branch is unreachable:
+ * such chains take the swap path).
+ */
+static std::vector<std::vector<Train *>> BuildReversalBlocks(Train *head)
+{
+	std::vector<std::vector<Train *>> blocks;
+	for (Train *u = head; u != nullptr;) {
+		if (u->HasArticulatedPart()) {
+			blocks.emplace_back();
+			blocks.back().push_back(u);
+			u = u->Next();
+			while (u != nullptr && u->IsArticulatedPart()) {
+				blocks.back().push_back(u);
+				u = u->Next();
+			}
+		} else {
+			blocks.push_back({u});
+			u = u->Next();
+		}
+	}
+	return blocks;
+}
+
+/**
+ * The direction a vehicle carries after a full physical flip
+ * (ReverseTrainForCouple): the swap path mirrors the physical state pairwise
+ * across the whole chain, the no-swap path mirrors it within each reversal
+ * block (single vehicles turn in place).
+ */
+static Direction FlippedDirection(const Train *v)
+{
+	const Train *head = v->First();
+	if (ChainFlipsBySwap(head)) {
+		std::vector<const Train *> chain;
+		uint index = 0;
+		for (const Train *t = head; t != nullptr; t = t->Next()) {
+			if (t == v) index = static_cast<uint>(chain.size());
+			chain.push_back(t);
+		}
+		return chain[chain.size() - 1 - index]->direction;
+	}
+	for (const auto &block : BuildReversalBlocks(const_cast<Train *>(head))) {
+		for (uint i = 0; i < block.size(); i++) {
+			if (block[i] != v) continue;
+			return block.size() == 1 ? ReverseDir(v->direction) : block[block.size() - 1 - i]->direction;
+		}
+	}
+	return v->direction;
+}
+
+/**
+ * Reverse the trial chain order the way ReverseTrainForCouple would: blocks in
+ * reverse order with the within-block order kept (articulated parts stay
+ * behind their base); swap-path chains keep their order. Physical positions
+ * and directions are untouched -- only the order the NewGRF start/stop check
+ * enumerates is modelled. RestoreTrainBackup() fully undoes the relink.
+ */
+static void TrialReverseChainOrder(Train *head)
+{
+	if (ChainFlipsBySwap(head)) return;
+
+	std::vector<std::vector<Train *>> blocks = BuildReversalBlocks(head);
+	std::vector<Train *> order;
+	for (auto it = blocks.rbegin(); it != blocks.rend(); ++it) {
+		for (Train *t : *it) order.push_back(t);
+	}
+	for (size_t i = 0; i < order.size(); i++) {
+		order[i]->SetNextRaw(i + 1 < order.size() ? order[i + 1] : nullptr);
+		order[i]->SetPreviousRaw(i > 0 ? order[i - 1] : nullptr);
+	}
+	Train *new_first = order.front();
+	Train *new_last = order.back();
+	for (Train *t = new_first; t != nullptr; t = t->Next()) {
+		t->SetFirst(new_first);
+		t->SetLast(new_last);
+	}
+	ResetChainNonFrontMarkers(new_first);
+}
+
+/**
+ * Mirror Couple()'s orientation phase on the trial chains: decide from the
+ * same inputs (the moving primary's driving direction and the primaries'
+ * directions) which sides a real couple would flip, and flip the trial chain
+ * order accordingly, so the arrangement the NewGRF start/stop check evaluates
+ * here is the one the actual couple produces.
+ */
+static void TrialApplyCoupleOrientation(Train **v_phys, Train **u_phys)
+{
+	Train *v_prim = (*v_phys)->Primary();
+	Train *u_prim = (*u_phys)->Primary();
+
+	/* v's own driving state decides whether it must be turned around. */
+	Direction v_dir = v_prim->direction;
+	if (!v_prim->IsDrivingBackwards()) {
+		v_dir = FlippedDirection(v_prim);
+		TrialReverseChainOrder(*v_phys);
+		*v_phys = (*v_phys)->First();
+	}
+
+	/* u couples as-is when it faces the (possibly flipped) v within 45 degrees. */
+	DirDiff dir_diff = DirDifference(v_dir, u_prim->direction);
+	if (dir_diff != DirDiff::Same && dir_diff != DirDiff::Right45 && dir_diff != DirDiff::Left45) {
+		TrialReverseChainOrder(*u_phys);
+		*u_phys = (*u_phys)->First();
+	}
+}
+
 bool IsCoupleArrangementValid(Train *v_phys, Train *u_phys)
 {
 	/* The pathfinder operates on the Primary, which may be in the middle of
@@ -7656,6 +7780,10 @@ bool IsCoupleArrangementValid(Train *v_phys, Train *u_phys)
 	MakeTrainBackup(original_dst, u_phys);
 	trial_guard.SnapshotChain(original_src);
 	trial_guard.SnapshotChain(original_dst);
+
+	/* A real couple flips one or both consists before merging (see Couple());
+	 * so the trial must evaluate the flipped arrangement, not the current one. */
+	TrialApplyCoupleOrientation(&v_phys, &u_phys);
 
 	Train *u_head = u_phys;
 	Train *v = v_phys;
