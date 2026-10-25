@@ -29,7 +29,7 @@
 
 #include "sortlist_type.h"
 
-#include "sl/saveload_common.h"
+#include "sl/saveload_common_type.h"
 
 #include "3rdparty/robin_hood/robin_hood.h"
 

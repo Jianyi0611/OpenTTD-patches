@@ -548,6 +548,7 @@ STR_NEWS_MENU_DELETE_ALL_MESSAGES                               :Delete all mess
 # About menu
 STR_ABOUT_MENU_LAND_BLOCK_INFO                                  :Land area information
 STR_ABOUT_MENU_HELP                                             :Help & manuals
+STR_ABOUT_MENU_ENTER_SCREENSAVER_MODE                           :Toggle screensaver mode
 STR_ABOUT_MENU_TOGGLE_CONSOLE                                   :Toggle console
 STR_ABOUT_MENU_AI_DEBUG                                         :AI/Game script debug
 STR_ABOUT_MENU_SCREENSHOT                                       :Screenshot
@@ -641,7 +642,6 @@ STR_GRAPH_LAST_24_MONTHS                                        :{TINY_FONT}{BLA
 STR_GRAPH_LAST_24_QUARTERS                                      :{TINY_FONT}{BLACK}6 years (quarterly)
 STR_GRAPH_LAST_24_YEARS                                         :{TINY_FONT}{BLACK}24 years (yearly)
 
-STR_GRAPH_TOGGLE_RANGE                                          :Toggle graph for this data range
 STR_GRAPH_SELECT_SCALE                                          :Change horizontal scale of graph
 
 STR_GRAPH_CARGO_PAYMENT_RATES_CAPTION                           :{WHITE}Cargo Payment Rates
@@ -657,14 +657,21 @@ STR_GRAPH_CARGO_PAYMENT_CARGO                                   :{TINY_FONT}{BLA
 
 STR_GRAPH_INDUSTRY_CAPTION                                      :{WHITE}{INDUSTRY} - Cargo History
 STR_GRAPH_INDUSTRY_RANGE_PRODUCED                               :Produced
+STR_GRAPH_INDUSTRY_RANGE_PRODUCED_TOOLTIP                       :Toggle graph of cargo produced by this industry
 STR_GRAPH_INDUSTRY_RANGE_TRANSPORTED                            :Transported
+STR_GRAPH_INDUSTRY_RANGE_TRANSPORTED_TOOLTIP                    :Toggle graph of cargo transported from this industry
 STR_GRAPH_INDUSTRY_RANGE_DELIVERED                              :Delivered
+STR_GRAPH_INDUSTRY_RANGE_DELIVERED_TOOLTIP                      :Toggle graph of cargo delivered to this industry
 STR_GRAPH_INDUSTRY_RANGE_WAITING                                :Waiting
+STR_GRAPH_INDUSTRY_RANGE_WAITING_TOOLTIP                        :Toggle graph of cargo waiting at this industry
 
 STR_GRAPH_TOWN_CARGO_CAPTION                                    :{WHITE}{TOWN} - Cargo History
 STR_GRAPH_TOWN_RANGE_PRODUCED                                   :Produced
+STR_GRAPH_TOWN_RANGE_PRODUCED_TOOLTIP                           :Toggle graph of cargo produced by this town
 STR_GRAPH_TOWN_RANGE_TRANSPORTED                                :Transported
+STR_GRAPH_TOWN_RANGE_TRANSPORTED_TOOLTIP                        :Toggle graph of cargo transported from this town
 STR_GRAPH_TOWN_RANGE_DELIVERED                                  :Delivered
+STR_GRAPH_TOWN_RANGE_DELIVERED_TOOLTIP                          :Toggle graph of cargo delivered to this town
 
 STR_GRAPH_PERFORMANCE_DETAIL_TOOLTIP                            :{BLACK}Show detailed performance ratings
 
@@ -1333,9 +1340,9 @@ STR_RIVERS_MODERATE                                             :Medium
 STR_RIVERS_LOT                                                  :Many
 
 ###length 3
-STR_DISASTER_NONE                                               :None
-STR_DISASTER_REDUCED                                            :Reduced
-STR_DISASTER_NORMAL                                             :Normal
+STR_BREAKDOWNS_NONE                                             :None
+STR_BREAKDOWNS_REDUCED                                          :Reduced
+STR_BREAKDOWNS_NORMAL                                           :Normal
 
 ###length 4
 STR_SUBSIDY_X1_5                                                :x1.5
@@ -3422,6 +3429,7 @@ STR_TREES_MODE_FOREST_LG_TOOLTIP                                :{BLACK}Plant la
 # Land generation window (SE)
 STR_TERRAFORM_TOOLBAR_LAND_GENERATION_CAPTION                   :{WHITE}Land Generation
 STR_TERRAFORM_TOOLTIP_PLACE_ROCKY_AREAS_ON_LANDSCAPE            :{BLACK}Place rocky areas on landscape.{}Ctrl+Click to remove rocky areas
+STR_TERRAFORM_TOOLTIP_PLACE_ROUGH_AREAS_ON_LANDSCAPE            :{BLACK}Place rough areas on landscape.{}Ctrl+Click to remove rough areas
 STR_TERRAFORM_TOOLTIP_DEFINE_DESERT_AREA                        :{BLACK}Define desert area.{}Ctrl+Click to remove desert area
 STR_TERRAFORM_TOOLTIP_INCREASE_SIZE_OF_LAND_AREA                :{BLACK}Increase area of land to lower/raise
 STR_TERRAFORM_TOOLTIP_DECREASE_SIZE_OF_LAND_AREA                :{BLACK}Decrease area of land to lower/raise
@@ -3607,6 +3615,8 @@ STR_LAI_WATER_DESCRIPTION_LOCK                                  :Lock
 STR_LAI_WATER_DESCRIPTION_RIVER                                 :River
 STR_LAI_WATER_DESCRIPTION_COAST_OR_RIVERBANK                    :Coast or riverbank
 STR_LAI_WATER_DESCRIPTION_SHIP_DEPOT                            :Ship depot
+STR_LAI_WATER_DESCRIPTION_WATER_ROCKS                           :Rocks
+STR_LAI_WATER_DESCRIPTION_COAST_ROCKS                           :Coast or riverbank with rocks
 
 # Industries come directly from their industry names
 
@@ -4166,6 +4176,7 @@ STR_GOALS_PROGRESS_COMPLETE                                     :{GREEN}{RAW_STR
 STR_GOALS_TOOLTIP_CLICK_ON_SERVICE_TO_CENTER                    :{BLACK}Click on goal to centre main view on industry/town/tile. Ctrl+Click to open a new viewport on industry/town/tile location
 
 # Goal question window
+###length 4
 STR_GOAL_QUESTION_CAPTION_QUESTION                              :{BLACK}Question
 STR_GOAL_QUESTION_CAPTION_INFORMATION                           :{BLACK}Information
 STR_GOAL_QUESTION_CAPTION_WARNING                               :{BLACK}Warning
@@ -5169,7 +5180,7 @@ STR_ORDER_CONDITIONAL_REQUIRES_SERVICE                          :Requires servic
 STR_ORDER_CONDITIONAL_UNCONDITIONALLY                           :Always
 STR_ORDER_CONDITIONAL_REMAINING_LIFETIME                        :Remaining lifetime (years)
 STR_ORDER_CONDITIONAL_MAX_RELIABILITY                           :Maximum reliability
-STR_ORDER_CONDITIONAL_DRIVING_BACKWARDS                         :Driving backwards
+STR_ORDER_CONDITIONAL_DRIVING_BACKWARDS                         :Driving backwards at reduced speed
 STR_ORDER_CONDITIONAL_DECOUPLE_PART                             :Decouple part
 ###next-name-looks-similar
 

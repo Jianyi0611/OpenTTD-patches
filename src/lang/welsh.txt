@@ -630,7 +630,6 @@ STR_GRAPH_LAST_24_MONTHS                                        :{TINY_FONT}{BLA
 STR_GRAPH_LAST_24_QUARTERS                                      :{TINY_FONT}{BLACK}6 mlynedd (chwarterol)
 STR_GRAPH_LAST_24_YEARS                                         :{TINY_FONT}{BLACK}24 mlynedd (blynyddol)
 
-STR_GRAPH_TOGGLE_RANGE                                          :Toglu graff ar gyfer yr ystod data yma
 STR_GRAPH_SELECT_SCALE                                          :Newid graddfa llorweddol y graff
 
 STR_GRAPH_CARGO_PAYMENT_RATES_CAPTION                           :{WHITE}Cyfraddau Tâl Llwythi
@@ -1209,9 +1208,9 @@ STR_RIVERS_MODERATE                                             :Cymhedrol
 STR_RIVERS_LOT                                                  :Llawer
 
 ###length 3
-STR_DISASTER_NONE                                               :Dim
-STR_DISASTER_REDUCED                                            :Llai
-STR_DISASTER_NORMAL                                             :Arferol
+STR_BREAKDOWNS_NONE                                             :Dim
+STR_BREAKDOWNS_REDUCED                                          :Llai
+STR_BREAKDOWNS_NORMAL                                           :Arferol
 
 ###length 4
 STR_SUBSIDY_X1_5                                                :x1.5
@@ -3823,6 +3822,7 @@ STR_GOALS_PROGRESS_COMPLETE                                     :{GREEN}{STRING}
 STR_GOALS_TOOLTIP_CLICK_ON_SERVICE_TO_CENTER                    :{BLACK}Cliciwch ar amcan i ganoli'r brif olygfa ar y diwydiant/tref/teil Mae Ctrl+Clic yn agor ffenestr golwg newydd ar leoliad y diwydiant/tref/teil
 
 # Goal question window
+###length 4
 STR_GOAL_QUESTION_CAPTION_QUESTION                              :{BLACK}Cwestiwn
 STR_GOAL_QUESTION_CAPTION_INFORMATION                           :{BLACK}Gwybodaeth
 STR_GOAL_QUESTION_CAPTION_WARNING                               :{BLACK}Rhybudd

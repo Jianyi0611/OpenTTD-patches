@@ -1088,9 +1088,9 @@ STR_RIVERS_MODERATE                                             :متوسط
 STR_RIVERS_LOT                                                  :زیاد
 
 ###length 3
-STR_DISASTER_NONE                                               :هیچکدام
-STR_DISASTER_REDUCED                                            :کم
-STR_DISASTER_NORMAL                                             :عادی
+STR_BREAKDOWNS_NONE                                             :هیچکدام
+STR_BREAKDOWNS_REDUCED                                          :کم
+STR_BREAKDOWNS_NORMAL                                           :عادی
 
 ###length 4
 STR_SUBSIDY_X1_5                                                :x1.5
@@ -3075,6 +3075,7 @@ STR_GOALS_PROGRESS_COMPLETE                                     :{GREEN}{STRING}
 STR_GOALS_TOOLTIP_CLICK_ON_SERVICE_TO_CENTER                    :{BLACK}روی هدف کلیک کنید تا نمای اصلی را به مرکز صنایع/شهر/قطعه ببرد. Ctrl+Click یک نمای جدید از محل صنایع/شهر قطعه باز می کند
 
 # Goal question window
+###length 4
 STR_GOAL_QUESTION_CAPTION_QUESTION                              :{BLACK}سوال
 STR_GOAL_QUESTION_CAPTION_INFORMATION                           :{BLACK}اطلاعات
 STR_GOAL_QUESTION_CAPTION_WARNING                               :هشدار

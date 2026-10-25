@@ -33,8 +33,6 @@
 #include <bitset>
 #include <vector>
 
-struct GRFConfig;
-
 /**
  * List of different canal 'features'.
  * Each feature gets an entry in the canal spritegroup table
@@ -134,8 +132,6 @@ enum class GrfSpecFeature : uint8_t {
 
 /** Bitset of \c GrfSpecFeature elements. */
 using GrfSpecFeatures = EnumBitSet<GrfSpecFeature, uint32_t, GrfSpecFeature::End>;
-
-static const uint32_t INVALID_GRFID = 0xFFFFFFFF;
 
 struct GRFLabel {
 	uint8_t label;
@@ -275,7 +271,7 @@ struct Action5TypeRemapDefinition {
 	/** Create empty object used to identify the end of a list. */
 	Action5TypeRemapDefinition() :
 		name(nullptr),
-		info({ A5BLOCK_INVALID, 0, 0, 0, nullptr })
+		info({ Action5BlockType::Invalid, 0, 0, 0, nullptr })
 	{}
 
 	Action5TypeRemapDefinition(const char *type_name, Action5BlockType block_type, SpriteID sprite_base, uint16_t min_sprites, uint16_t max_sprites, const char *info_name) :
@@ -343,7 +339,7 @@ struct NewSignalStyle;
 /** Dynamic data of a loaded NewGRF */
 struct GRFFile {
 	std::string filename{};
-	uint32_t grfid = 0;
+	GrfID grfid{};
 	uint8_t grf_version = 0;
 
 	uint sound_offset = 0;
@@ -386,7 +382,7 @@ struct GRFFile {
 
 	EnumIndexArray<CanalProperties, CanalFeature, CanalFeature::End> canal_local_properties{}; ///< Canal properties as set by this NewGRF
 
-	robin_hood::unordered_node_map<uint8_t, LanguageMap> language_map{}; ///< Mappings related to the languages.
+	robin_hood::unordered_node_map<GRFLanguage, LanguageMap> language_map{}; ///< Mappings related to the languages.
 
 	int traininfo_vehicle_pitch = 0;                    ///< Vertical offset for drawing train images in depot GUI and vehicle details
 	uint traininfo_vehicle_width = 0;                   ///< Width (in pixels) of a 8/8 train vehicle in depot GUI and vehicle details
@@ -496,7 +492,7 @@ void GrfMsgIntl(int severity, fmt::format_string<T...> msg, T&&... args)
 
 bool GetGlobalVariable(uint8_t param, uint32_t *value, const GRFFile *grffile);
 
-StringID MapGRFStringID(uint32_t grfid, GRFStringID str);
+StringID MapGRFStringID(GrfID grfid, GRFStringID str);
 StringID MapGRFStringID(const struct GRFFile *grf, GRFStringID str);
 void ShowNewGRFError();
 
@@ -525,11 +521,29 @@ void InitGRFGlobalVars();
 
 const char *GetExtendedVariableNameById(int id);
 
-struct NewGRFLabelDumper {
-	const char *Label(uint32_t label);
+/**
+ * Flatten a NewGRF related label to a 32 bits integer.
+ * @param label The label to flatten.
+ * @return The flattened label.
+ */
+template <typename T> requires std::is_base_of_v<BaseLabel, T>
+constexpr uint32_t FlattenNewGRFLabel(T label) { return label[0] | label[1] << 8 | label[2] << 16 | label[3] << 24; }
 
-private:
-	char buffer[12];
-};
+/**
+ * Unflatten a NewGRF related label from a 32 bits integer.
+ * @param value The value to decode.
+ * @return The unflattened label.
+ */
+template <typename T> requires std::is_base_of_v<BaseLabel, T>
+constexpr T UnflattenNewGRFLabel(uint32_t value)
+{
+	uint8_t buf[]{
+		static_cast<uint8_t>(GB(value, 0, 8)),
+		static_cast<uint8_t>(GB(value, 8, 8)),
+		static_cast<uint8_t>(GB(value, 16, 8)),
+		static_cast<uint8_t>(GB(value, 24, 8))
+	};
+	return buf;
+}
 
 #endif /* NEWGRF_H */

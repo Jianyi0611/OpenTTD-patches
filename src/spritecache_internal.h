@@ -13,7 +13,7 @@
 #include "core/alloc_func.hpp"
 #include "core/arena_alloc.hpp"
 #include "core/math_func.hpp"
-#include "gfx_type.h"
+#include "sprite_id_type.h"
 #include "spriteloader/sprite_file_type.hpp"
 #include "3rdparty/robin_hood/robin_hood.h"
 
@@ -218,9 +218,10 @@ struct RecolourSpriteCacheItem {
 		return memcmp(this->data->data(), other.data->data(), RECOLOUR_SPRITE_SIZE) == 0;
 	}
 
-	size_t hash(robin_hood::hash_method_tag) const noexcept
+	template <typename H>
+	size_t hash(H hasher) const noexcept
 	{
-		return robin_hood::hash_bytes(this->data->data(), RECOLOUR_SPRITE_SIZE);
+		return hasher.hash_bytes(this->data->data(), RECOLOUR_SPRITE_SIZE);
 	}
 };
 

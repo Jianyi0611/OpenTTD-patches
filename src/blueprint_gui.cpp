@@ -527,7 +527,7 @@ struct BlueprintInfoWindow : Window {
 	void DrawWidget(const Rect &r, WidgetID widget) const override
 	{
 		if (widget != WID_BIN_TEXT) return;
-		DrawStringMultiLine(r, this->GetText(), TextColour::Begin, SA_LEFT | SA_TOP);
+		DrawStringMultiLine(r, this->GetText(), TextColour::Begin, {AlignmentH::ForceLeft, AlignmentV::Top});
 	}
 };
 
@@ -1154,7 +1154,7 @@ struct BlueprintPreviewWindow : public Window {
 		Rect content = r.Shrink(WidgetDimensions::scaled.framerect).Shrink(WidgetDimensions::scaled.fullbevel);
 		int name_height = this->GetNameHeight();
 		if (name_height > 0) {
-			DrawString(content.left, content.right, content.top, this->name, TextColour::White, SA_HOR_CENTER);
+			DrawString(content.left, content.right, content.top, this->name, TextColour::White, {AlignmentH::Centre, AlignmentV::Top});
 			content.top += name_height;
 		}
 
@@ -1419,7 +1419,7 @@ static constexpr std::initializer_list<NWidgetPart> _nested_blueprint_file_widge
 		NWidget(WWT_CAPTION, Colours::DarkGreen, WID_BTF_CAPTION), SetStringTip(STR_BLUEPRINT_QUERY_EXPORT_FILE_CAPTION, STR_TOOLTIP_WINDOW_TITLE_DRAG_THIS),
 	EndContainer(),
 	NWidget(WWT_PANEL, Colours::DarkGreen),
-		NWidget(WWT_LABEL, Colours::Grey, WID_BTF_PATH), SetFill(1, 0), SetPadding(2, 2, 0, 2), SetAlignment(SA_LEFT),
+		NWidget(WWT_LABEL, Colours::Grey, WID_BTF_PATH), SetFill(1, 0), SetPadding(2, 2, 0, 2), SetAlignment({AlignmentH::ForceLeft, AlignmentV::Top}),
 	EndContainer(),
 	NWidget(NWID_HORIZONTAL),
 		NWidget(NWID_VERTICAL),

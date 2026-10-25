@@ -65,11 +65,11 @@ struct IndustriesResolverObject : public ResolverObject {
 
 	TownScopeResolver *GetTown();
 
-	ScopeResolver *GetScope(VarSpriteGroupScope scope = VSG_SCOPE_SELF, VarSpriteGroupScopeOffset relative = 0) override
+	ScopeResolver *GetScope(VarSpriteGroupScope scope = VarSpriteGroupScope::Self, VarSpriteGroupScopeOffset relative = 0) override
 	{
 		switch (scope) {
-			case VSG_SCOPE_SELF: return &industries_scope;
-			case VSG_SCOPE_PARENT: {
+			case VarSpriteGroupScope::Self: return &industries_scope;
+			case VarSpriteGroupScope::Parent: {
 				TownScopeResolver *tsr = this->GetTown();
 				if (tsr != nullptr) return tsr;
 			}
@@ -94,13 +94,13 @@ enum class IndustryAvailabilityCallType : uint8_t {
 
 /* in newgrf_industry.cpp */
 uint16_t GetIndustryCallback(CallbackID callback, uint32_t param1, uint32_t param2, Industry *industry, IndustryType type, TileIndex tile);
-uint32_t GetIndustryIDAtOffset(TileIndex new_tile, const Industry *i, uint32_t cur_grfid);
+uint32_t GetIndustryIDAtOffset(TileIndex new_tile, const Industry *i, GrfID cur_grfid);
 void IndustryProductionCallback(Industry *ind, int reason);
 CommandCost CheckIfCallBackAllowsCreation(TileIndex tile, IndustryType type, size_t layout, uint32_t seed, uint16_t initial_random_bits, Owner founder, IndustryAvailabilityCallType creation_type);
 uint32_t GetIndustryProbabilityCallback(IndustryType type, IndustryAvailabilityCallType creation_type, uint32_t default_prob);
 bool IndustryTemporarilyRefusesCargo(Industry *ind, CargoType cargo_type);
 
-IndustryType MapNewGRFIndustryType(IndustryType grf_type, uint32_t grf_id);
+IndustryType MapNewGRFIndustryType(IndustryType grf_type, GrfID grfid);
 
 void AnalyseIndustrySpriteGroups();
 

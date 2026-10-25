@@ -23,7 +23,7 @@
 #include "engine_func.h"
 #include "water.h"
 #include "tilehighlight_func.h"
-#include "sl/saveload.h"
+#include "sl/saveload_func.h"
 #include "void_map.h"
 #include "town.h"
 #include "newgrf.h"
@@ -45,6 +45,7 @@
 #include "town_cmd.h"
 #include "signs_cmd.h"
 #include "road_cmd.h"
+#include "scope.h"
 
 #include "table/strings.h"
 
@@ -526,7 +527,7 @@ void LoadTownData()
 			default: NOT_REACHED();
 		}
 
-		Town *t = TryGenerateNamedTownAroundTile(target_tile, TSZ_SMALL, is_city, _settings_game.economy.town_layout, name);
+		Town *t = TryGenerateNamedTownAroundTile(target_tile, TownSize::Small, is_city, _settings_game.economy.town_layout, name);
 
 		/* If we still fail to found the town, we'll create a sign at the intended location and tell the player how many towns we failed to create in an error message.
 		 * This allows the player to diagnose a heightmap misalignment, if towns end up in the sea, or place towns manually, if in rough terrain. */

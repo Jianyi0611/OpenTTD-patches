@@ -42,6 +42,12 @@
 #include "pathfinder/yapf/yapf.h"
 #include "pathfinder/follow_track.hpp"
 
+#include "core/checksum_func.hpp"
+#include "script/api/script_event_types.hpp"
+
+#include "widgets/vehicle_widget.h"
+
+
 #include "table/strings.h"
 
 #include "safeguards.h"

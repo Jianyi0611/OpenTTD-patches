@@ -10,24 +10,16 @@
 #ifndef SL_SAVELOAD_COMMON_H
 #define SL_SAVELOAD_COMMON_H
 
+#include "saveload_common_type.h"
+#include "saveload_common_error.h"
 #include "../strings_id_type.h"
+#include "../core/label_type.hpp"
 
 template <typename T>
 concept SlIsPrimitiveType = T::saveload_primitive_type || false;
 
-struct SaveLoad;
-struct NamedSaveLoad;
-
-/** A table of SaveLoad entries. */
-using SaveLoadTable = std::span<const SaveLoad>;
-using NamedSaveLoadTable = std::span<const NamedSaveLoad>;
-
-namespace upstream_sl {
-	struct SaveLoad;
-
-	/** A table of SaveLoad entries. */
-	using SaveLoadTable = std::span<const SaveLoad>;
-}
+/** Label/unique identifier for each of the chunks in the savegame. */
+using ChunkId = Label<struct ChunkIdTag>;
 
 /** SaveLoad versions
  * Previous savegame versions, the trunk revision where they were
@@ -346,9 +338,9 @@ enum SaveLoadVersion : uint16_t {
 	/* upstream savegame versions follow */
 
 	SLV_SAVELOAD_LIST_LENGTH,               ///< 293  PR#9374 Consistency in list length with SL_STRUCT / SL_STRUCTLIST / SL_DEQUE / SL_REFLIST.
-	SLV_RIFF_TO_ARRAY,                      ///< 294  PR#9375 Changed many CH_RIFF chunks to CH_ARRAY chunks.
+	SLV_RIFF_TO_ARRAY,                      ///< 294  PR#9375 Changed many ChunkType::Riff chunks to ChunkType::Array chunks.
 
-	SLV_TABLE_CHUNKS,                       ///< 295  PR#9322 Introduction of CH_TABLE and CH_SPARSE_TABLE.
+	SLV_TABLE_CHUNKS,                       ///< 295  PR#9322 Introduction of ChunkType::Table and ChunkType::SparseTable.
 	SLV_SCRIPT_INT64,                       ///< 296  PR#9415 SQInteger is 64bit but was saved as 32bit.
 	SLV_LINKGRAPH_TRAVEL_TIME,              ///< 297  PR#9457 v12.0-RC1  Store travel time in the linkgraph.
 	SLV_DOCK_DOCKINGTILES,                  ///< 298  PR#9578 All tiles around docks may be docking tiles.
@@ -434,8 +426,12 @@ enum SaveLoadVersion : uint16_t {
 
 	SLV_DRIVE_BACKWARDS,                    ///< 365  PR#15379 Trains can drive backwards.
 	SLV_DEPOTS_UNDER_BRIDGES,               ///< 366  PR#15836 Allow depots under bridges.
-	SLV_MULTITILE_AIRPORTS,                 ///< 367  PR#XXXX Multi-tile airports.
-	SLV_ORDER_DECOUPLE,                     ///< 368  Couple/decouple train orders.
+	SLV_LABEL_ORIENTATION_UNIFICATION,      ///< 367  PR#15888 Unify the orientation in which labels are written.
+	SLV_DOUBLE_ENDED_SHIPS,                 ///< 368  PR#16002 Double-ended (NewGRF-only) ships can reverse without turning.
+	/* px-patch custom features use version numbers from 1000 upwards, so that
+	 * future upstream/JGRPP versions (369, 370, ...) can never collide. */
+	SLV_MULTITILE_AIRPORTS = 1000,          ///< Multi-tile airports (px-patch).
+	SLV_ORDER_DECOUPLE = 1001,              ///< Couple/decouple train orders (px-patch).
 
 	SL_MAX_VERSION,                         ///< Highest possible saveload version
 
@@ -506,7 +502,6 @@ void SlCopyBytesWrite(const void *ptr, size_t length);
 size_t SlGetBytesRead();
 size_t SlGetBytesWritten();
 
-[[noreturn]] void SlError(StringID string, std::string extra_msg = {});
 [[noreturn]] void SlErrorCorrupt(std::string msg);
 
 #define SlErrorCorruptFmt(format_string, ...) SlErrorCorrupt(fmt::format(FMT_STRING(format_string) __VA_OPT__(,) __VA_ARGS__))

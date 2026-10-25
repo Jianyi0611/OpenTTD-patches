@@ -11,6 +11,7 @@
 #define SERIALISATION_HPP
 
 #include "bitmath_func.hpp"
+#include "label_type.hpp"
 #include "../string_type.h"
 #include "../string_func.h"
 
@@ -166,6 +167,9 @@ struct BufferSerialisationHelper {
 			this->Send_string(data);
 		} else if constexpr (SerialisationAsBase<V>) {
 			this->Send_generic_integer(data.base());
+		} else if constexpr (std::is_base_of_v<BaseLabel, V>) {
+			uint32_t v = (uint32_t(data[0]) << 24) | (uint32_t(data[1]) << 16) | (uint32_t(data[2]) << 8) | uint32_t(data[3]);
+			this->Send_varuint(v);
 		} else if constexpr (requires { data.Serialise(*static_cast<T *>(this)); }) {
 			data.Serialise(*static_cast<T *>(this));
 		} else {
@@ -525,6 +529,12 @@ public:
 			this->Recv_string(data, settings);
 		} else if constexpr (SerialisationAsBase<V>) {
 			this->Recv_generic_integer(data.edit_base());
+		} else if constexpr (std::is_base_of_v<BaseLabel, V>) {
+			uint32_t v = static_cast<uint32_t>(this->Recv_varuint());
+			data[0] = static_cast<uint8_t>(v >> 24);
+			data[1] = static_cast<uint8_t>(v >> 16);
+			data[2] = static_cast<uint8_t>(v >> 8);
+			data[3] = static_cast<uint8_t>(v);
 		} else if constexpr (requires { data.Deserialise(*static_cast<T *>(this), settings); }) {
 			data.Deserialise(*static_cast<T *>(this), settings);
 		} else {

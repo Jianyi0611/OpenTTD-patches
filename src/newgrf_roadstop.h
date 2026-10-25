@@ -25,9 +25,6 @@ struct TileInfo;
 /** The maximum amount of roadstops a single GRF is allowed to add */
 static const int NUM_ROADSTOPS_PER_GRF = 64000;
 
-static const uint32_t ROADSTOP_CLASS_LABEL_DEFAULT = 'DFLT';
-static const uint32_t ROADSTOP_CLASS_LABEL_WAYPOINT = 'WAYP';
-
 static constexpr RoadStopClassID ROADSTOP_CLASS_DFLT{0}; ///< Default road stop class.
 static constexpr RoadStopClassID ROADSTOP_CLASS_WAYP{1}; ///< Waypoint class.
 
@@ -123,10 +120,11 @@ struct RoadStopResolverObject : public SpecializedResolverObject<StationRandomTr
 
 	RoadStopResolverObject(const RoadStopSpec *roadstopspec, BaseStation *st, TileIndex tile, RoadType roadtype, StationType type, uint8_t view, CallbackID callback = CBID_NO_CALLBACK, uint32_t param1 = 0, uint32_t param2 = 0);
 
-	ScopeResolver* GetScope(VarSpriteGroupScope scope = VSG_SCOPE_SELF, VarSpriteGroupScopeOffset relative = 0) override {
+	ScopeResolver* GetScope(VarSpriteGroupScope scope = VarSpriteGroupScope::Self, VarSpriteGroupScopeOffset relative = 0) override
+	{
 		switch (scope) {
-			case VSG_SCOPE_SELF: return &this->roadstop_scope;
-			case VSG_SCOPE_PARENT: {
+			case VarSpriteGroupScope::Self: return &this->roadstop_scope;
+			case VarSpriteGroupScope::Parent: {
 				TownScopeResolver *tsr = this->GetTown();
 				if (tsr != nullptr) return tsr;
 				[[fallthrough]];
@@ -182,6 +180,9 @@ struct RoadStopSpec : NewGRFSpecBase<RoadStopClassID> {
 
 using RoadStopClass = NewGRFClass<RoadStopSpec, RoadStopClassID>;
 
+static const RoadStopClass::GlobalID ROADSTOP_CLASS_LABEL_DEFAULT{"DFLT"}; ///< Class label for default road stops.
+static const RoadStopClass::GlobalID ROADSTOP_CLASS_LABEL_WAYPOINT{"WAYP"}; ///< Class label for default road waypoints.
+
 const TileLayoutSpriteGroup *GetRoadStopLayout(TileInfo *ti, const RoadStopSpec *spec, BaseStation *st, StationType type, int view);
 void DrawRoadStopTile(int x, int y, RoadType roadtype, const RoadStopSpec *spec, StationType type, int view);
 
@@ -208,7 +209,7 @@ void StationUpdateRoadStopCachedTriggers(BaseStation *st);
  */
 inline bool IsWaypointClass(const RoadStopClass &cls)
 {
-	return cls.global_id == ROADSTOP_CLASS_LABEL_WAYPOINT || GB(cls.global_id, 24, 8) == UINT8_MAX;
+	return cls.global_id == ROADSTOP_CLASS_LABEL_WAYPOINT || cls.global_id[0] == UINT8_MAX;
 }
 
 #endif /* NEWGRF_ROADSTATION_H */

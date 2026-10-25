@@ -75,7 +75,7 @@ static const int BRIDGE_Z_START = 3;
 
 extern void DrawTrackBits(TileInfo *ti, TrackBits track);
 extern void DrawRoadBitsTunnelBridge(TileInfo *ti);
-extern const RoadBits _invalid_tileh_slopes_road[2][15];
+extern const std::array<NonSteepSlopeIndexArray<RoadBits>, 2> _invalid_tileh_slopes_road;
 
 extern CommandCost IsRailStationBridgeAboveOk(TileIndex tile, const StationSpec *statspec, StationType station_type, uint8_t layout, BridgeAboveInfo bridge_above);
 extern CommandCost IsRoadStopBridgeAboveOK(TileIndex tile, const RoadStopSpec *spec, StationType station_type, bool drive_through, DiagDirection entrance, BridgeAboveInfo bridge_above);
@@ -1681,12 +1681,8 @@ static void DrawBridgePillars(const PalSpriteID &psid, const TileInfo *ti, Axis 
 
 	/* Determine ground height under pillars */
 	DiagDirection south_dir = AxisToDiagDir(axis);
-	int z_front_north = ti->z;
-	int z_back_north = ti->z;
-	int z_front_south = ti->z;
-	int z_back_south = ti->z;
-	GetSlopePixelZOnEdge(ti->tileh, south_dir, z_front_south, z_back_south);
-	GetSlopePixelZOnEdge(ti->tileh, ReverseDiagDir(south_dir), z_front_north, z_back_north);
+	auto [z_front_south, z_back_south] = GetSlopePixelZOnEdge(ti->tileh, south_dir, ti->z);
+	auto [z_front_north, z_back_north] = GetSlopePixelZOnEdge(ti->tileh, ReverseDiagDir(south_dir), ti->z);
 
 	/* Shared height of pillars */
 	int z_front = std::max(z_front_north, z_front_south);
@@ -1728,8 +1724,8 @@ static void GetBridgeRoadCatenary(const RoadTypeInfo *rti, TileIndex head_tile, 
 	static const SpriteID front_offsets[6] = { 97,  98, 103, 106, 104, 105 };
 
 	/* Simplified from DrawRoadTypeCatenary() to remove all the special cases required for regular ground road */
-	spr_back = GetCustomRoadSprite(rti, head_tile, RoadSpriteType::CatenaryRear, head ? TCX_NORMAL : TCX_ON_BRIDGE);
-	spr_front = GetCustomRoadSprite(rti, head_tile, RoadSpriteType::CatenaryFront, head ? TCX_NORMAL : TCX_ON_BRIDGE);
+	spr_back = GetCustomRoadSprite(rti, head_tile, RoadSpriteType::CatenaryRear, head ? TileContext::Normal : TileContext::OnBridge);
+	spr_front = GetCustomRoadSprite(rti, head_tile, RoadSpriteType::CatenaryFront, head ? TileContext::Normal : TileContext::OnBridge);
 	if (spr_back == 0 && spr_front == 0) {
 		spr_back = SPR_TRAMWAY_BASE + back_offsets[offset];
 		spr_front = SPR_TRAMWAY_BASE + front_offsets[offset];
@@ -1772,14 +1768,14 @@ static void DrawBridgeRoadBits(TileIndex head_tile, int x, int y, int z, int off
 		trans_back[0] = !head && IsTransparencySet(TransparencyOption::Bridges);
 		if (road_rti != nullptr) {
 			if (road_rti->UsesOverlay()) {
-				seq_back[0] = GetCustomRoadSprite(road_rti, head_tile, RoadSpriteType::Bridge, head ? TCX_NORMAL : TCX_ON_BRIDGE) + offset;
+				seq_back[0] = GetCustomRoadSprite(road_rti, head_tile, RoadSpriteType::Bridge, head ? TileContext::Normal : TileContext::OnBridge) + offset;
 			} else if (is_custom_layout) {
 				/* For custom layouts draw a custom bridge deck. */
 				seq_back[0] = SPR_BRIDGE_DECKS_ROAD + offset;
 			}
 		} else if (tram_rti != nullptr) {
 			if (tram_rti->UsesOverlay()) {
-				seq_back[0] = GetCustomRoadSprite(tram_rti, head_tile, RoadSpriteType::Bridge, head ? TCX_NORMAL : TCX_ON_BRIDGE) + offset;
+				seq_back[0] = GetCustomRoadSprite(tram_rti, head_tile, RoadSpriteType::Bridge, head ? TileContext::Normal : TileContext::OnBridge) + offset;
 			} else {
 				seq_back[0] = SPR_TRAMWAY_BRIDGE + offset;
 			}
@@ -1789,7 +1785,7 @@ static void DrawBridgeRoadBits(TileIndex head_tile, int x, int y, int z, int off
 		trans_back[1] = !head && IsTransparencySet(TransparencyOption::Bridges);
 		if (road_rti != nullptr) {
 			if (road_rti->UsesOverlay()) {
-				seq_back[1] = GetCustomRoadSprite(road_rti, head_tile, RoadSpriteType::Overlay, head ? TCX_NORMAL : TCX_ON_BRIDGE);
+				seq_back[1] = GetCustomRoadSprite(road_rti, head_tile, RoadSpriteType::Overlay, head ? TileContext::Normal : TileContext::OnBridge);
 				if (seq_back[1] != 0) seq_back[1] += overlay_offsets[offset];
 			}
 		}
@@ -1798,7 +1794,7 @@ static void DrawBridgeRoadBits(TileIndex head_tile, int x, int y, int z, int off
 		trans_back[2] = !head && IsTransparencySet(TransparencyOption::Bridges);
 		if (tram_rti != nullptr) {
 			if (tram_rti->UsesOverlay()) {
-				seq_back[2] = GetCustomRoadSprite(tram_rti, head_tile, RoadSpriteType::Overlay, head ? TCX_NORMAL : TCX_ON_BRIDGE);
+				seq_back[2] = GetCustomRoadSprite(tram_rti, head_tile, RoadSpriteType::Overlay, head ? TileContext::Normal : TileContext::OnBridge);
 				if (seq_back[2] != 0) seq_back[2] += overlay_offsets[offset];
 			} else if (road_rti != nullptr) {
 				seq_back[2] = SPR_TRAMWAY_OVERLAY + overlay_offsets[offset];
@@ -1831,7 +1827,7 @@ static void DrawBridgeRoadBits(TileIndex head_tile, int x, int y, int z, int off
 
 	/* The sprites under the vehicles are drawn as SpriteCombine. StartSpriteCombine() has already been called
 	 * The bounding boxes here are the same as for bridge front/roof */
-	auto draw_back_sprite = [&](StringID spr, bool transparent) {
+	auto draw_back_sprite = [&](SpriteID spr, bool transparent) {
 		if (spr != 0) {
 			AddSortableSpriteToDraw(spr, PAL_NONE, x, y, z, back_bounds[offset], transparent);
 		}
@@ -2332,14 +2328,14 @@ static void DrawTile_TunnelBridge(TileInfo *ti, DrawTileProcParams params)
 				if (catenary_sprite_base == 0) {
 					catenary_sprite_base = SPR_TRAMWAY_TUNNEL_WIRES;
 				} else {
-					catenary_sprite_base += 19;
+					catenary_sprite_base += NUM_SLOPES;
 				}
 			} else if (tram_rti != nullptr && HasRoadCatenaryDrawn(tram_rt)) {
 				catenary_sprite_base = GetCustomRoadSprite(tram_rti, ti->tile, RoadSpriteType::CatenaryFront);
 				if (catenary_sprite_base == 0) {
 					catenary_sprite_base = SPR_TRAMWAY_TUNNEL_WIRES;
 				} else {
-					catenary_sprite_base += 19;
+					catenary_sprite_base += NUM_SLOPES;
 				}
 			}
 
@@ -2730,7 +2726,7 @@ void DrawBridgeMiddle(const TileInfo *ti)
 	} else if (transport_type == TransportType::Rail) {
 		const RailTypeInfo *rti = GetRailTypeInfo(GetRailType(rampsouth));
 		if ((is_custom_layout || rti->UsesOverlay()) && !IsInvisibilitySet(TransparencyOption::Bridges)) {
-			SpriteID surface = rti->UsesOverlay() ? GetCustomRailSprite(rti, rampsouth, RailSpriteType::Bridge, TCX_ON_BRIDGE) : rti->base_sprites.bridge_deck;
+			SpriteID surface = rti->UsesOverlay() ? GetCustomRailSprite(rti, rampsouth, RailSpriteType::Bridge, TileContext::OnBridge) : rti->base_sprites.bridge_deck;
 			if (surface != 0) {
 				AddSortableSpriteToDraw(surface + to_underlying(axis), PAL_NONE, x, y, bridge_z, {{}, {TILE_SIZE, TILE_SIZE, 0}, {}}, IsTransparencySet(TransparencyOption::Bridges));
 			}
@@ -2739,7 +2735,7 @@ void DrawBridgeMiddle(const TileInfo *ti)
 		if (_game_mode != GameMode::Menu && _settings_client.gui.show_track_reservation && !IsInvisibilitySet(TransparencyOption::Bridges)
 				&& !IsTunnelBridgeWithSignalSimulation(rampnorth) && (HasAcrossBridgeReservation(rampnorth) || HasAcrossBridgeReservation(rampsouth))) {
 			if (rti->UsesOverlay()) {
-				SpriteID overlay = GetCustomRailSprite(rti, rampnorth, RailSpriteType::Overlay, TCX_ON_BRIDGE);
+				SpriteID overlay = GetCustomRailSprite(rti, rampnorth, RailSpriteType::Overlay, TileContext::OnBridge);
 				AddSortableSpriteToDraw(overlay + RTO_X + to_underlying(axis), PALETTE_CRASH, ti->x, ti->y, bridge_z, {{}, {TILE_SIZE, TILE_SIZE, 0}, {}}, IsTransparencySet(TransparencyOption::Bridges));
 			} else {
 				AddSortableSpriteToDraw(axis == Axis::X ? rti->base_sprites.single_x : rti->base_sprites.single_y, PALETTE_CRASH, ti->x, ti->y, bridge_z, {{}, {TILE_SIZE, TILE_SIZE, 0}, {}}, IsTransparencySet(TransparencyOption::Bridges));

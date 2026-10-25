@@ -209,31 +209,33 @@ enum CheatNetworkMode {
 /** Information of a cheat. */
 struct CheatEntry {
 	CheatNetworkMode mode; ///< network/local mode
-	VarType type;          ///< type of selector
+	VarMemType type;       ///< type of selector
 	StringID str;          ///< string with descriptive text
 	void *variable;        ///< pointer to the variable
 	bool *been_used;       ///< has this cheat been used before?
 	CheckButtonClick *proc;///< procedure
 };
 
+static constexpr VarMemType InflationCheat = SLE_VAR_NULL; ///< Sentinel for inflation cheats
+
 /**
  * The available cheats.
  * Order matches with the values of #CheatNumbers
  */
 static const CheatEntry _cheats_ui[] = {
-	{CNM_MONEY,      SLE_INT32,       STR_CHEAT_MONEY,            &_money_cheat_amount,                          &_cheats.money.been_used,                  &ClickMoneyCheat           },
-	{CNM_LOCAL_ONLY, SLE_UINT8,       STR_CHEAT_CHANGE_COMPANY,   &_local_company,                               &_cheats.switch_company.been_used,         &ClickChangeCompanyCheat   },
-	{CNM_ALL,        SLE_BOOL,        STR_CHEAT_EXTRA_DYNAMITE,   &_cheats.magic_bulldozer.value,                &_cheats.magic_bulldozer.been_used,        nullptr                    },
-	{CNM_ALL,        SLE_BOOL,        STR_CHEAT_CROSSINGTUNNELS,  &_cheats.crossing_tunnels.value,               &_cheats.crossing_tunnels.been_used,       nullptr                    },
-	{CNM_ALL,        SLE_BOOL,        STR_CHEAT_NO_JETCRASH,      &_cheats.no_jetcrash.value,                    &_cheats.no_jetcrash.been_used,            nullptr                    },
-	{CNM_LOCAL_ONLY, SLE_BOOL,        STR_CHEAT_SETUP_PROD,       &_cheats.setup_prod.value,                     &_cheats.setup_prod.been_used,             &ClickSetProdCheat         },
-	{CNM_LOCAL_ONLY, SLE_UINT8,       STR_CHEAT_EDIT_MAX_HL,      &_settings_game.construction.map_height_limit, &_cheats.edit_max_hl.been_used,            &ClickChangeMaxHlCheat     },
-	{CNM_LOCAL_ONLY, SLE_INT32,       STR_CHEAT_CHANGE_DATE,      &CalTime::Detail::now.cal_ymd.year,            &_cheats.change_date.been_used,            &ClickChangeDateCheat      },
-	{CNM_ALL,        SLF_ALLOW_CONTROL, STR_CHEAT_INFLATION_COST,   &_economy.inflation_prices,                  &_cheats.inflation_cost.been_used,         nullptr                    },
-	{CNM_ALL,        SLF_ALLOW_CONTROL, STR_CHEAT_INFLATION_INCOME, &_economy.inflation_payment,                 &_cheats.inflation_income.been_used,       nullptr                    },
-	{CNM_ALL,        SLE_BOOL,        STR_CHEAT_STATION_RATING,   &_cheats.station_rating.value,                 &_cheats.station_rating.been_used,         nullptr                    },
-	{CNM_ALL,        SLE_BOOL,        STR_CHEAT_TOWN_RATING,      &_cheats.town_rating.value,                    &_cheats.town_rating.been_used,            nullptr                    },
-	{CNM_LOCAL_ONLY, SLE_UINT8,       STR_CHEAT_RAIN,             &_cheats.rain_mode,                            &_cheats.rain.been_used,                   &ClickRainCheat            },
+	{CNM_MONEY,      SLE_VAR_I32,    STR_CHEAT_MONEY,            &_money_cheat_amount,                          &_cheats.money.been_used,                  &ClickMoneyCheat           },
+	{CNM_LOCAL_ONLY, SLE_VAR_U8,     STR_CHEAT_CHANGE_COMPANY,   &_local_company,                               &_cheats.switch_company.been_used,         &ClickChangeCompanyCheat   },
+	{CNM_ALL,        SLE_VAR_BL,     STR_CHEAT_EXTRA_DYNAMITE,   &_cheats.magic_bulldozer.value,                &_cheats.magic_bulldozer.been_used,        nullptr                    },
+	{CNM_ALL,        SLE_VAR_BL,     STR_CHEAT_CROSSINGTUNNELS,  &_cheats.crossing_tunnels.value,               &_cheats.crossing_tunnels.been_used,       nullptr                    },
+	{CNM_ALL,        SLE_VAR_BL,     STR_CHEAT_NO_JETCRASH,      &_cheats.no_jetcrash.value,                    &_cheats.no_jetcrash.been_used,            nullptr                    },
+	{CNM_LOCAL_ONLY, SLE_VAR_BL,     STR_CHEAT_SETUP_PROD,       &_cheats.setup_prod.value,                     &_cheats.setup_prod.been_used,             &ClickSetProdCheat         },
+	{CNM_LOCAL_ONLY, SLE_VAR_U8,     STR_CHEAT_EDIT_MAX_HL,      &_settings_game.construction.map_height_limit, &_cheats.edit_max_hl.been_used,            &ClickChangeMaxHlCheat     },
+	{CNM_LOCAL_ONLY, SLE_VAR_I32,    STR_CHEAT_CHANGE_DATE,      &CalTime::Detail::now.cal_ymd.year,            &_cheats.change_date.been_used,            &ClickChangeDateCheat      },
+	{CNM_ALL,        InflationCheat, STR_CHEAT_INFLATION_COST,   &_economy.inflation_prices,                    &_cheats.inflation_cost.been_used,         nullptr                    },
+	{CNM_ALL,        InflationCheat, STR_CHEAT_INFLATION_INCOME, &_economy.inflation_payment,                   &_cheats.inflation_income.been_used,       nullptr                    },
+	{CNM_ALL,        SLE_VAR_BL,     STR_CHEAT_STATION_RATING,   &_cheats.station_rating.value,                 &_cheats.station_rating.been_used,         nullptr                    },
+	{CNM_ALL,        SLE_VAR_BL,     STR_CHEAT_TOWN_RATING,      &_cheats.town_rating.value,                    &_cheats.town_rating.been_used,            nullptr                    },
+	{CNM_LOCAL_ONLY, SLE_VAR_U8,  STR_CHEAT_RAIN,            &_cheats.rain_mode,                            &_cheats.rain.been_used,                   &ClickRainCheat            },
 };
 
 static bool IsCheatAllowed(CheatNetworkMode mode)
@@ -326,18 +328,18 @@ struct CheatWindow : Window {
 
 			std::string str;
 			switch (ce->type) {
-				case SLF_ALLOW_CONTROL: {
+				case InflationCheat: {
 					/* Change inflation factors */
 
 					/* Draw [<][>] boxes for settings of an integer-type */
 					DrawArrowButtons(button_left, y + button_y_offset, Colours::Yellow, clicked - (i * 2), true, true);
 
-					uint64_t val = (uint64_t)ReadValue(ce->variable, SLE_UINT64);
+					uint64_t val = (uint64_t)ReadValue(ce->variable, SLE_VAR_U64);
 					str = GetString(ce->str, val * 1000 >> 16, 3);
 					break;
 				}
 
-				case SLE_BOOL: {
+				case SLE_VAR_BL: {
 					bool on = (*(bool*)ce->variable);
 
 					DrawBoolButton(button_left, y + button_y_offset, Colours::Yellow, Colours::Grey, on, true);
@@ -351,14 +353,14 @@ struct CheatWindow : Window {
 					/* Draw [<][>] boxes for settings of an integer-type */
 					DrawArrowButtons(button_left, y + button_y_offset, Colours::Yellow, clicked - (i * 2), true, true);
 
-					switch (ce->str) {
+					switch (ce->str.base()) {
 						/* Display date for change date cheat */
-						case STR_CHEAT_CHANGE_DATE:
+						case STR_CHEAT_CHANGE_DATE.base():
 							str = GetString(ce->str, CalTime::CurDate());
 							break;
 
 						/* Draw coloured flag for change company cheat */
-						case STR_CHEAT_CHANGE_COMPANY: {
+						case STR_CHEAT_CHANGE_COMPANY.base(): {
 							str = GetString(ce->str, val + 1);
 							uint offset = WidgetDimensions::scaled.hsep_indent + GetStringBoundingBox(str).width;
 							DrawCompanyIcon(_local_company, rtl ? text_right - offset - WidgetDimensions::scaled.hsep_indent : text_left + offset, y + icon_y_offset);
@@ -366,8 +368,8 @@ struct CheatWindow : Window {
 						}
 
 						/* Display the selected weather mode */
-						case STR_CHEAT_RAIN:
-							str = GetString(ce->str, STR_CHEAT_RAIN_AUTO + Clamp(val, 0, 2));
+						case STR_CHEAT_RAIN.base():
+							str = GetString(ce->str, StringID{STR_CHEAT_RAIN_AUTO.base() + Clamp(val, 0, 2)});
 							break;
 
 						default:
@@ -443,31 +445,31 @@ struct CheatWindow : Window {
 			if (!IsCheatAllowed(ce.mode)) continue;
 			lines++;
 			switch (ce.type) {
-				case SLF_ALLOW_CONTROL:
+				case InflationCheat:
 					/* Change inflation factors */
 					break;
 
-				case SLE_BOOL:
+				case SLE_VAR_BL:
 					width = std::max(width, GetStringBoundingBox(GetString(ce.str, STR_CONFIG_SETTING_ON)).width);
 					width = std::max(width, GetStringBoundingBox(GetString(ce.str, STR_CONFIG_SETTING_OFF)).width);
 					break;
 
 				default:
-					switch (ce.str) {
+					switch (ce.str.base()) {
 						/* Display date for change date cheat */
-						case STR_CHEAT_CHANGE_DATE:
+						case STR_CHEAT_CHANGE_DATE.base():
 							width = std::max(width, GetStringBoundingBox(GetString(ce.str, CalTime::ConvertYMDToDate(CalTime::MAX_YEAR, 11, 31))).width);
 							break;
 
 						/* Draw coloured flag for change company cheat */
-						case STR_CHEAT_CHANGE_COMPANY:
+						case STR_CHEAT_CHANGE_COMPANY.base():
 							width = std::max(width, GetStringBoundingBox(GetString(ce.str, MAX_COMPANIES)).width + WidgetDimensions::scaled.hsep_wide * 4);
 							break;
 
 						/* Display weather mode names */
-						case STR_CHEAT_RAIN:
+						case STR_CHEAT_RAIN.base():
 							for (int i = 0; i < 3; i++) {
-								width = std::max(width, GetStringBoundingBox(GetString(ce.str, STR_CHEAT_RAIN_AUTO + i)).width);
+								width = std::max(width, GetStringBoundingBox(GetString(ce.str, StringID{STR_CHEAT_RAIN_AUTO.base() + i})).width);
 							}
 							break;
 
@@ -542,9 +544,9 @@ struct CheatWindow : Window {
 			clicked_cheat = CHT_MONEY;
 			ShowQueryString(GetString(STR_JUST_INT, value), STR_CHEAT_EDIT_MONEY_QUERY_CAPT, 20, this, CS_NUMERAL_SIGNED, QueryStringFlag::AcceptUnchanged);
 			return;
-		} else if (ce->type == SLF_ALLOW_CONTROL && x >= 20 + this->box.width + SETTING_BUTTON_WIDTH) {
+		} else if (ce->type == InflationCheat && x >= 20 + this->box.width + SETTING_BUTTON_WIDTH) {
 			clicked_cheat = cheat;
-			uint64_t val = (uint64_t)ReadValue(ce->variable, SLE_UINT64);
+			uint64_t val = (uint64_t)ReadValue(ce->variable, SLE_VAR_U64);
 			std::string str = GetString(STR_JUST_DECIMAL, val * 1000 >> 16, 3);
 			StringID caption = (cheat == CHT_INFLATION_COST) ? STR_CHEAT_INFLATION_COST_QUERY_CAPT : STR_CHEAT_INFLATION_INCOME_QUERY_CAPT;
 			std::string saved = std::move(_settings_game.locale.digit_group_separator);
@@ -569,9 +571,9 @@ struct CheatWindow : Window {
 		};
 
 		switch (ce->type) {
-			case SLF_ALLOW_CONTROL: {
+			case InflationCheat: {
 				/* Change inflation factors */
-				uint64_t oldvalue = (uint64_t)ReadValue(ce->variable, SLE_UINT64);
+				uint64_t oldvalue = (uint64_t)ReadValue(ce->variable, SLE_VAR_U64);
 				uint64_t value = oldvalue + (uint64_t)(get_arrow_button_value() << 16);
 				value = Clamp<uint64_t>(value, 1 << 16, MAX_INFLATION);
 				Command<Commands::CheatSetting>::Post(cheat, static_cast<uint32_t>(value));
@@ -579,7 +581,7 @@ struct CheatWindow : Window {
 				break;
 			}
 
-			case SLE_BOOL:
+			case SLE_VAR_BL:
 				value ^= 1;
 				if (ce->proc != nullptr && !_networking) ce->proc(value, 0);
 				break;
@@ -749,7 +751,7 @@ struct CheatWindow : Window {
 
 		const CheatEntry *ce = &_cheats_ui[clicked_cheat];
 
-		if (ce->type == SLF_ALLOW_CONTROL) {
+		if (ce->type == InflationCheat) {
 			format_buffer_sized<64> tmp_buffer;
 			str_replace_wchar(tmp_buffer, *str, GetDecimalSeparatorChar(), '.');
 			Command<Commands::CheatSetting>::Post(clicked_cheat, (uint32_t)Clamp<uint64_t>(atof(tmp_buffer.c_str()) * 65536.0, 1 << 16, MAX_INFLATION));

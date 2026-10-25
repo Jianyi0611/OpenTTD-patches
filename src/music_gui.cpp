@@ -439,7 +439,7 @@ void MusicSystem::ChangePlaylistPosition(int ofs)
  */
 void MusicSystem::SaveCustomPlaylist(PlaylistChoice pl)
 {
-	uint8_t *settings_pl;
+	std::span<uint8_t> settings_pl;
 	if (pl == PlaylistChoice::Custom1) {
 		settings_pl = _settings_client.music.custom_1;
 	} else if (pl == PlaylistChoice::Custom2) {
@@ -449,7 +449,7 @@ void MusicSystem::SaveCustomPlaylist(PlaylistChoice pl)
 	}
 
 	size_t num = 0;
-	std::fill_n(settings_pl, NUM_SONGS_PLAYLIST, 0);
+	std::ranges::fill(settings_pl, 0);
 
 	for (const auto &song : this->standard_playlists[pl]) {
 		/* Music set indices in the settings playlist are 1-based, 0 means unused slot */
@@ -768,9 +768,9 @@ struct MusicWindow : public Window {
 				}
 				Rect ir = r.Shrink(WidgetDimensions::scaled.framerect);
 				if (_music.IsPlaying()) {
-					DrawString(ir, GetString(STR_MUSIC_TRACK_DIGIT, _music.GetCurrentSong().tracknr, 2), TextColour::FromString, SA_HOR_CENTER);
+					DrawString(ir, GetString(STR_MUSIC_TRACK_DIGIT, _music.GetCurrentSong().tracknr, 2), TextColour::FromString, AlignmentH::Centre);
 				} else {
-					DrawString(ir, STR_MUSIC_TRACK_NONE, TextColour::FromString, SA_HOR_CENTER);
+					DrawString(ir, STR_MUSIC_TRACK_NONE, TextColour::FromString, AlignmentH::Centre);
 				}
 				break;
 			}
@@ -781,11 +781,11 @@ struct MusicWindow : public Window {
 
 				MusicSystem::PlaylistEntry entry(_music.GetCurrentSong());
 				if (BaseMusic::GetUsedSet()->num_available == 0) {
-					DrawString(ir, STR_MUSIC_TITLE_NOMUSIC, TextColour::FromString, SA_HOR_CENTER);
+					DrawString(ir, STR_MUSIC_TITLE_NOMUSIC, TextColour::FromString, AlignmentH::Centre);
 				} else if (_music.IsPlaying()) {
-					DrawString(ir, GetString(STR_MUSIC_TITLE_NAME, entry.songname), TextColour::FromString, SA_HOR_CENTER);
+					DrawString(ir, GetString(STR_MUSIC_TITLE_NAME, entry.songname), TextColour::FromString, AlignmentH::Centre);
 				} else {
-					DrawString(ir, STR_MUSIC_TITLE_NONE, TextColour::FromString, SA_HOR_CENTER);
+					DrawString(ir, STR_MUSIC_TITLE_NONE, TextColour::FromString, AlignmentH::Centre);
 				}
 
 				break;

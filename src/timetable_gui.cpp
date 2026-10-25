@@ -542,23 +542,24 @@ struct TimetableWindow : GeneralVehicleWindow {
 	{
 		switch (widget) {
 			case WID_VT_ARRIVAL_DEPARTURE_PANEL: {
-				int64_t param;
-				if (_settings_time.time_in_minutes) {
-					param = _settings_time.FromTickMinutes(_settings_time.NowInTickMinutes().ToSameDayClockTime(GetBroadestHourDigitsValue(), (int)GetParamMaxDigits(2))).base();
-				} else if (EconTime::UsingWallclockUnits()) {
-					param = _state_ticks.base() + (TICKS_PER_SECOND * 9999);
-				} else {
-					param = EconTime::MAX_YEAR.base() * DAYS_IN_YEAR;
-				}
-
 				format_buffer buf;
-				auto get_width = [&](StringID str) {
+				auto get_width = [&](StringID str, int64_t param) {
 					buf.clear();
 					AppendStringInPlace(buf, str, param);
 					return GetStringBoundingBox(buf).width;
 				};
-				this->deparr_time_width = get_width(STR_JUST_TT_TIME);
-				this->deparr_abbr_width = std::max(get_width(STR_TIMETABLE_ARRIVAL_ABBREVIATION), get_width(STR_TIMETABLE_DEPARTURE_ABBREVIATION));
+
+				if (_settings_time.time_in_minutes) {
+					this->deparr_time_width = get_width(STR_JUST_TIME_HHMM, (GetBroadestHourDigitsValue() * 100) + GetParamMaxDigits(2));
+				} else if (EconTime::UsingWallclockUnits()) {
+					this->deparr_time_width = get_width(STR_JUST_TT_TIME, _state_ticks.base() + (TICKS_PER_SECOND * 9999));
+				} else {
+					format_buffer_sized<64> date_buf;
+					AppendWidestTinyOrIsoCalendarDate(date_buf, false);
+					this->deparr_time_width = GetStringBoundingBox(date_buf).width;
+				}
+
+				this->deparr_abbr_width = std::max(get_width(STR_TIMETABLE_ARRIVAL_ABBREVIATION, 0), get_width(STR_TIMETABLE_DEPARTURE_ABBREVIATION, 0));
 				size.width = this->deparr_abbr_width + this->deparr_time_width + padding.width;
 				[[fallthrough]];
 			}

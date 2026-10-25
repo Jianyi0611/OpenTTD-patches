@@ -25,7 +25,7 @@
 #include "company_type.h"
 #include "date_type.h"
 #include "gfx_type.h"
-#include "sl/saveload_common.h"
+#include "sl/saveload_common_type.h"
 
 #include <memory>
 #include <vector>

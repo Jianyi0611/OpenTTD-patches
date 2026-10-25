@@ -34,6 +34,8 @@
 #include "engine_gui.h"
 #include "cargotype.h"
 #include "roadveh_transport.h"
+#include "core/backup_type.hpp"
+
 #include "core/geometry_func.hpp"
 #include "autoreplace_func.h"
 #include "train.h"
@@ -408,11 +410,8 @@ static bool EnginePowerVsRunningCostSorter(const GUIEngineListItem &a, const GUI
 /** Determines order of train engines by capacity. @copydoc GUIList::Sorter */
 static bool TrainEngineCapacitySorter(const GUIEngineListItem &a, const GUIEngineListItem &b, const GUIEngineListSortCache &cache)
 {
-	const RailVehicleInfo *rvi_a = RailVehInfo(a.engine_id);
-	const RailVehicleInfo *rvi_b = RailVehInfo(b.engine_id);
-
-	int va = cache.GetArticulatedCapacity(a.engine_id, rvi_a->railveh_type == RailVehicleType::Multihead);
-	int vb = cache.GetArticulatedCapacity(b.engine_id, rvi_b->railveh_type == RailVehicleType::Multihead);
+	int va = cache.GetArticulatedCapacity(a.engine_id);
+	int vb = cache.GetArticulatedCapacity(b.engine_id);
 	int r = va - vb;
 
 	/* Use EngineID to sort instead since we want consistent sorting */
@@ -423,11 +422,8 @@ static bool TrainEngineCapacitySorter(const GUIEngineListItem &a, const GUIEngin
 /** Determines order of train engines by cargo capacity / running costs. @copydoc GUIList::Sorter */
 static bool TrainEngineCapacityVsRunningCostSorter(const GUIEngineListItem &a, const GUIEngineListItem &b, const GUIEngineListSortCache &cache)
 {
-	const RailVehicleInfo *rvi_a = RailVehInfo(a.engine_id);
-	const RailVehicleInfo *rvi_b = RailVehInfo(b.engine_id);
-
-	uint va = cache.GetArticulatedCapacity(a.engine_id, rvi_a->railveh_type == RailVehicleType::Multihead);
-	uint vb = cache.GetArticulatedCapacity(b.engine_id, rvi_b->railveh_type == RailVehicleType::Multihead);
+	uint va = cache.GetArticulatedCapacity(a.engine_id);
+	uint vb = cache.GetArticulatedCapacity(b.engine_id);
 
 	return GenericEngineValueVsRunningCostSorter(a, va, b, vb, cache);
 }
@@ -1165,7 +1161,7 @@ void DrawEngineList(VehicleType type, const Rect &r, const GUIEngineList &eng_li
 	const int offset = (rtl ? -circle_width : circle_width) / 2;
 	const int level_width = rtl ? -WidgetDimensions::scaled.hsep_indent : WidgetDimensions::scaled.hsep_indent;
 
-	for (auto it = first; it != last; ++it) {
+	for (auto it = first; it != last; ++it, ir = ir.Translate(0, step_size)) {
 		const auto &item = *it;
 		const Engine *e = Engine::Get(item.engine_id);
 
@@ -1173,6 +1169,13 @@ void DrawEngineList(VehicleType type, const Rect &r, const GUIEngineList &eng_li
 		bool has_variants = item.flags.Test(EngineDisplayFlag::HasVariants);
 		bool is_folded    = item.flags.Test(EngineDisplayFlag::IsFolded);
 		bool shaded       = item.flags.Test(EngineDisplayFlag::Shaded);
+
+		/* Set up clipping area for the row, keeping coordinates relative to the window. */
+		DrawPixelInfo tmp_dpi;
+		if (!FillDrawPixelInfo(&tmp_dpi, ir)) continue;
+		tmp_dpi.left += ir.left;
+		tmp_dpi.top += ir.top;
+		AutoRestoreBackup dpi_backup(_cur_dpi, &tmp_dpi);
 
 		Rect textr = ir.Shrink(WidgetDimensions::scaled.matrix);
 		Rect tr = ir.Indent(indent, rtl);
@@ -1192,7 +1195,7 @@ void DrawEngineList(VehicleType type, const Rect &r, const GUIEngineList &eng_li
 
 		if (has_variants) {
 			Rect fr = tr.WithWidth(circle_width, rtl);
-			DrawSpriteIgnorePadding(is_folded ? SPR_CIRCLE_FOLDED : SPR_CIRCLE_UNFOLDED, PAL_NONE, fr.WithY(textr), SA_CENTER);
+			DrawSpriteIgnorePadding(is_folded ? SPR_CIRCLE_FOLDED : SPR_CIRCLE_UNFOLDED, PAL_NONE, fr.WithY(textr), {AlignmentH::Centre, AlignmentV::Middle});
 		}
 
 		tr = tr.Indent(circle_width + WidgetDimensions::scaled.hsep_normal, rtl);
@@ -1226,10 +1229,10 @@ void DrawEngineList(VehicleType type, const Rect &r, const GUIEngineList &eng_li
 			Rect cr = tr.WithWidth(count_width, !rtl);
 			tr = tr.Indent(count_width + WidgetDimensions::scaled.hsep_normal, !rtl);
 
-			DrawString(cr.left, cr.right, textr.top + small_text_y_offset, GetString(STR_JUST_COMMA, num_engines), TextColour::Black, SA_RIGHT | SA_FORCE, false, FontSize::Small);
+			DrawString(cr.left, cr.right, textr.top + small_text_y_offset, GetString(STR_JUST_COMMA, num_engines), TextColour::Black, AlignmentH::ForceRight, false, FontSize::Small);
 
 			if (EngineHasReplacementForCompany(Company::Get(_local_company), item.engine_id, selected_group)) {
-				DrawSpriteIgnorePadding(SPR_GROUP_REPLACE_ACTIVE, num_engines == 0 ? PALETTE_CRASH : PAL_NONE, rr, SA_CENTER);
+				DrawSpriteIgnorePadding(SPR_GROUP_REPLACE_ACTIVE, num_engines == 0 ? PALETTE_CRASH : PAL_NONE, rr, {AlignmentH::Centre, AlignmentV::Middle});
 			}
 		}
 
@@ -1246,24 +1249,24 @@ void DrawEngineList(VehicleType type, const Rect &r, const GUIEngineList &eng_li
 		/* Draw the value of the currently selected sort property to the right (or left in RTL), if applicable */
 		std::string sort_prop_detail;
 
-		switch (sort_criteria) {
-			case STR_SORT_BY_ENGINE_ID:
+		switch (sort_criteria.base()) {
+			case STR_SORT_BY_ENGINE_ID.base():
 				/* No extra interesting info to show in this case */
 				break;
-			case STR_SORT_BY_COST:
+			case STR_SORT_BY_COST.base():
 				sort_prop_detail = GetString(STR_PURCHASE_SORT_DETAILS_COST, e->GetCost());
 				break;
-			case STR_SORT_BY_MAX_SPEED:
+			case STR_SORT_BY_MAX_SPEED.base():
 				if (int max_speed = e->GetDisplayMaxSpeed(); max_speed != 0) {
 					sort_prop_detail = GetString(STR_PURCHASE_SORT_DETAILS_SPEED, PackVelocity(max_speed, Engine::Get(item.engine_id)->type));
 				}
 				break;
-			case STR_SORT_BY_POWER:
+			case STR_SORT_BY_POWER.base():
 				if (int power = e->GetPower(); power != 0) {
 					sort_prop_detail = GetString(STR_PURCHASE_SORT_DETAILS_POWER, power);
 				}
 				break;
-			case STR_SORT_BY_TRACTIVE_EFFORT:
+			case STR_SORT_BY_TRACTIVE_EFFORT.base():
 				/* Allow trucks, and allow trains that are not wagons */
 				if (type == VehicleType::Road || (type == VehicleType::Train && e->VehInfo<RailVehicleInfo>().railveh_type != RailVehicleType::Wagon)) {
 					auto max_te = e->GetDisplayMaxTractiveEffort();
@@ -1272,36 +1275,36 @@ void DrawEngineList(VehicleType type, const Rect &r, const GUIEngineList &eng_li
 					}
 				}
 				break;
-			case STR_SORT_BY_INTRO_DATE: {
+			case STR_SORT_BY_INTRO_DATE.base(): {
 					CalTime::YearMonthDay ymd = CalTime::ConvertDateToYMD(e->intro_date);
 					sort_prop_detail = GetString(STR_PURCHASE_SORT_DETAILS_INTRO_DATE, ymd.year);
 				}
 				break;
-			case STR_SORT_BY_NAME:
+			case STR_SORT_BY_NAME.base():
 				/* No extra interesting info to show in this case */
 				break;
-			case STR_SORT_BY_RUNNING_COST:
+			case STR_SORT_BY_RUNNING_COST.base():
 				if (Money running_cost = e->GetDisplayRunningCost(); running_cost != 0) {
 					sort_prop_detail = GetString(GetPurchaseSortRunningCostString(), running_cost);
 				}
 				break;
-			case STR_SORT_BY_POWER_VS_RUNNING_COST:
+			case STR_SORT_BY_POWER_VS_RUNNING_COST.base():
 				/* NOTE: No point showing the actual values of power/running cost, because they are affected by cost factors, which make the math off */
 				if (Money rc = e->GetRunningCost(); rc != 0) {
 					sort_prop_detail = GetString(STR_PURCHASE_SORT_DETAILS_POWER_VS_RUNNING_COST, 100 * e->GetPower() / rc, /* digits for DECIMAL */ 2);
 				}
 				break;
-			case STR_SORT_BY_RELIABILITY:
+			case STR_SORT_BY_RELIABILITY.base():
 				if (auto isWagon = e->type == VehicleType::Train && e->VehInfo<RailVehicleInfo>().railveh_type == RailVehicleType::Wagon; !isWagon) {
 					sort_prop_detail = GetString(STR_PURCHASE_SORT_DETAILS_RELIABILITY, ToPercent16(e->reliability));
 				}
 				break;
-			case STR_SORT_BY_CARGO_CAPACITY:
-			case STR_SORT_BY_CARGO_CAPACITY_VS_RUNNING_COST: {
+			case STR_SORT_BY_CARGO_CAPACITY.base():
+			case STR_SORT_BY_CARGO_CAPACITY_VS_RUNNING_COST.base(): {
 					uint total_capacity = 0;
 					switch (type) {
 						case VehicleType::Train:
-							total_capacity = eng_list.SortParameterData().GetArticulatedCapacity(item.engine_id, e->VehInfo<RailVehicleInfo>().railveh_type == RailVehicleType::Multihead);
+							total_capacity = eng_list.SortParameterData().GetArticulatedCapacity(item.engine_id);
 							break;
 						case VehicleType::Road:
 						case VehicleType::Ship:
@@ -1329,7 +1332,7 @@ void DrawEngineList(VehicleType type, const Rect &r, const GUIEngineList &eng_li
 					}
 				}
 				break;
-			case STR_SORT_BY_RANGE:
+			case STR_SORT_BY_RANGE.base():
 				if (e->type == VehicleType::Aircraft) {
 					if (uint16_t range = e->GetRange(); range != 0) {
 						sort_prop_detail = GetString(STR_PURCHASE_SORT_DETAILS_AIRCRAFT_RANGE, range);
@@ -1342,7 +1345,7 @@ void DrawEngineList(VehicleType type, const Rect &r, const GUIEngineList &eng_li
 
 		int sort_detail_width = 0;
 		if (!sort_prop_detail.empty()) {
-			DrawString(tr.left, tr.right, textr.top + normal_text_y_offset, sort_prop_detail, tc, SA_RIGHT, false, FontSize::Small);
+			DrawString(tr.left, tr.right, textr.top + normal_text_y_offset, sort_prop_detail, tc, AlignmentH::End, false, FontSize::Small);
 
 			/* If we have sort detail to show, also measure its width so that we can adjust the
 			 * main name drawing rectangle to not overlap. */
@@ -1355,8 +1358,6 @@ void DrawEngineList(VehicleType type, const Rect &r, const GUIEngineList &eng_li
 
 		/* The left/right bounds are adjusted to not overlap with the sort detail that is on the left/right depending on the RTL setting. */
 		DrawString(tr.left + (rtl ? sort_detail_width : 0), tr.right - (rtl ? 0 : sort_detail_width), textr.top + normal_text_y_offset, name, tc);
-
-		ir = ir.Translate(0, step_size);
 	}
 }
 
@@ -1578,7 +1579,7 @@ void GUIEngineListSortCache::UpdateCargoFilter(const BuildVehicleWindowBase *par
 	}
 }
 
-uint GUIEngineListSortCache::GetArticulatedCapacity(EngineID eng, bool dual_headed) const
+uint GUIEngineListSortCache::GetArticulatedCapacity(EngineID eng) const
 {
 	auto iter = this->capacities.insert({ eng, 0 });
 	if (iter.second) {
@@ -1590,7 +1591,7 @@ uint GUIEngineListSortCache::GetArticulatedCapacity(EngineID eng, bool dual_head
 			this->parent->FillTestedEngineCapacity(eng, this->current_cargo, te);
 			iter.first->second = te.all_capacities.GetSum<uint>();
 		} else {
-			iter.first->second = GetTotalCapacityOfArticulatedParts(eng, this->current_cargo) * (dual_headed ? 2 : 1);
+			iter.first->second = GetTotalCapacityOfArticulatedParts(eng, this->current_cargo);
 		}
 	}
 	return iter.first->second;

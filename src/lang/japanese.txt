@@ -1114,9 +1114,9 @@ STR_RIVERS_MODERATE                                             :中程度
 STR_RIVERS_LOT                                                  :多い
 
 ###length 3
-STR_DISASTER_NONE                                               :なし
-STR_DISASTER_REDUCED                                            :軽減
-STR_DISASTER_NORMAL                                             :普通
+STR_BREAKDOWNS_NONE                                             :なし
+STR_BREAKDOWNS_REDUCED                                          :軽減
+STR_BREAKDOWNS_NORMAL                                           :普通
 
 ###length 4
 STR_SUBSIDY_X1_5                                                :×1.5
@@ -3499,6 +3499,7 @@ STR_GOALS_PROGRESS_COMPLETE                                     :{GREEN}{STRING}
 STR_GOALS_TOOLTIP_CLICK_ON_SERVICE_TO_CENTER                    :{BLACK}クリックするとメイン画面を対象となる産業・街・タイルに移動します。Ctrl+クリックで新たなビューポートを開いて対象を表示します
 
 # Goal question window
+###length 4
 STR_GOAL_QUESTION_CAPTION_QUESTION                              :{BLACK}質問
 STR_GOAL_QUESTION_CAPTION_INFORMATION                           :{BLACK}情報
 STR_GOAL_QUESTION_CAPTION_WARNING                               :{BLACK}警告

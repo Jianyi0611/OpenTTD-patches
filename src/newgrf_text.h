@@ -15,8 +15,8 @@
 #include "table/control_codes.h"
 #include <string>
 
-StringID AddGRFString(uint32_t grfid, GRFStringID stringid, uint8_t langid, bool new_scheme, bool allow_newlines, std::string_view text_to_add, StringID def_string);
-StringID GetGRFStringID(uint32_t grfid, GRFStringID stringid);
+StringID AddGRFString(GrfID grfid, GRFStringID stringid, uint8_t langid, bool new_scheme, bool allow_newlines, std::string_view text_to_add, StringID def_string);
+StringID GetGRFStringID(GrfID grfid, GRFStringID stringid);
 StringID GetGRFStringID(const struct GRFFile *grf, GRFStringID stringid);
 std::optional<std::string_view> GetGRFStringFromGRFText(const GRFTextList &text_list);
 std::optional<std::string_view> GetGRFStringFromGRFText(const GRFTextWrapper &text);
@@ -24,9 +24,9 @@ const char *GetDefaultLangGRFStringFromGRFText(const GRFTextList &text_list);
 const char *GetDefaultLangGRFStringFromGRFText(const GRFTextWrapper &text);
 std::string_view GetGRFStringPtr(StringIndexInTab stringid);
 void CleanUpStrings();
-std::string TranslateTTDPatchCodes(uint32_t grfid, uint8_t language_id, bool allow_newlines, std::string_view str, StringControlCode byte80 = SCC_NEWGRF_PRINT_WORD_STRING_ID);
-void AddGRFTextToList(GRFTextList &list, uint8_t langid, uint32_t grfid, bool allow_newlines, std::string_view text_to_add);
-void AddGRFTextToList(GRFTextWrapper &list, uint8_t langid, uint32_t grfid, bool allow_newlines, std::string_view text_to_add);
+std::string TranslateTTDPatchCodes(GrfID grfid, GRFLanguage language_id, bool allow_newlines, std::string_view str, StringControlCode byte80 = SCC_NEWGRF_PRINT_WORD_STRING_ID);
+void AddGRFTextToList(GRFTextList &list, GRFLanguage langid, GrfID grfid, bool allow_newlines, std::string_view text_to_add);
+void AddGRFTextToList(GRFTextWrapper &list, GRFLanguage langid, GrfID grfid, bool allow_newlines, std::string_view text_to_add);
 void AddGRFTextToList(GRFTextWrapper &list, std::string_view text_to_add);
 
 bool CheckGrfLangID(uint8_t lang_id, uint8_t grf_version);

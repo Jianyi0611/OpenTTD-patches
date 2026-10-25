@@ -600,6 +600,7 @@ STR_NEWS_MENU_DELETE_ALL_MESSAGES                               :Διαγραφ�
 # About menu
 STR_ABOUT_MENU_LAND_BLOCK_INFO                                  :Πληροφορίες περιοχής εδάφους
 STR_ABOUT_MENU_HELP                                             :Βοήθεια και εγχειρίδια χρήσης
+STR_ABOUT_MENU_ENTER_SCREENSAVER_MODE                           :Εναλλαγή λειτουργίας προφύλαξης οθόνης
 STR_ABOUT_MENU_TOGGLE_CONSOLE                                   :Εναλλαγή κονσόλας
 STR_ABOUT_MENU_AI_DEBUG                                         :Αποσφαλμάτωση AI και δέσμης ενεργειών παιχνιδιού
 STR_ABOUT_MENU_SCREENSHOT                                       :Στιγμιότυπο οθόνης
@@ -724,7 +725,6 @@ STR_GRAPH_LAST_24_MONTHS                                        :{TINY_FONT}{BLA
 STR_GRAPH_LAST_24_QUARTERS                                      :{TINY_FONT}{BLACK}6 έτη (τετραμηνιαία)
 STR_GRAPH_LAST_24_YEARS                                         :{TINY_FONT}{BLACK}24 έτη (ετήσια)
 
-STR_GRAPH_TOGGLE_RANGE                                          :Εναλλαγή γραφήματος για αυτό το εύρος στοιχείων
 STR_GRAPH_SELECT_SCALE                                          :Αλλαγή οριζόντιας κλίμακας γραφήματος
 
 STR_GRAPH_CARGO_PAYMENT_RATES_CAPTION                           :{WHITE}Ποσοστά Πληρωμής Φορτίων
@@ -740,14 +740,21 @@ STR_GRAPH_CARGO_PAYMENT_CARGO                                   :{TINY_FONT}{BLA
 
 STR_GRAPH_INDUSTRY_CAPTION                                      :{WHITE}{INDUSTRY} - Ιστορικό Εμπορευμάτων
 STR_GRAPH_INDUSTRY_RANGE_PRODUCED                               :Παράχθηκε/αν
+STR_GRAPH_INDUSTRY_RANGE_PRODUCED_TOOLTIP                       :Εναλλαγή γραφήματος φορτίου που παράγεται από αυτή την βιομηχανία
 STR_GRAPH_INDUSTRY_RANGE_TRANSPORTED                            :Μεταφέρθηκε/αν
+STR_GRAPH_INDUSTRY_RANGE_TRANSPORTED_TOOLTIP                    :Εναλλαγή γραφήματος φορτίου που μεταφέρεται από αυτή την βιομηχανία
 STR_GRAPH_INDUSTRY_RANGE_DELIVERED                              :Παραδόθηκε
+STR_GRAPH_INDUSTRY_RANGE_DELIVERED_TOOLTIP                      :Εναλλαγή γραφήματος φορτίου που μεταφέρεται σε αυτή την βιομηχανία
 STR_GRAPH_INDUSTRY_RANGE_WAITING                                :Αναμονή
+STR_GRAPH_INDUSTRY_RANGE_WAITING_TOOLTIP                        :Εναλλαγή γραφήματος φορτίου που περιμένει σε αυτή την βιομηχανία
 
 STR_GRAPH_TOWN_CARGO_CAPTION                                    :{WHITE}{TOWN} - Ιστορικό Εμπορευμάτων
 STR_GRAPH_TOWN_RANGE_PRODUCED                                   :Παράχθηκε/αν
+STR_GRAPH_TOWN_RANGE_PRODUCED_TOOLTIP                           :Εναλλαγή γραφήματος φορτίου που παράγεται από αυτή την πόλη
 STR_GRAPH_TOWN_RANGE_TRANSPORTED                                :Μεταφέρθηκε/αν
+STR_GRAPH_TOWN_RANGE_TRANSPORTED_TOOLTIP                        :Εναλλαγή γραφήματος φορτίου που μεταφέρεται από αυτή την πόλη
 STR_GRAPH_TOWN_RANGE_DELIVERED                                  :Παραδόθηκε
+STR_GRAPH_TOWN_RANGE_DELIVERED_TOOLTIP                          :Εναλλαγή γραφήματος φορτίου που μεταφέρεται σε αυτή την πόλη
 
 STR_GRAPH_PERFORMANCE_DETAIL_TOOLTIP                            :{BLACK}Εμφάνιση λεπτομεριών αποδόσεων
 
@@ -1303,9 +1310,9 @@ STR_RIVERS_MODERATE                                             :Μεσαία
 STR_RIVERS_LOT                                                  :Πολλά
 
 ###length 3
-STR_DISASTER_NONE                                               :Καμία
-STR_DISASTER_REDUCED                                            :Μειωμένες
-STR_DISASTER_NORMAL                                             :Κανονικές
+STR_BREAKDOWNS_NONE                                             :Καμία
+STR_BREAKDOWNS_REDUCED                                          :Μειωμένες
+STR_BREAKDOWNS_NORMAL                                           :Κανονικές
 
 ###length 4
 STR_SUBSIDY_X1_5                                                :x1.5
@@ -1752,12 +1759,12 @@ STR_CONFIG_SETTING_TREE_PLACER_NONE                             :Κανένας
 STR_CONFIG_SETTING_TREE_PLACER_ORIGINAL                         :Αυθεντικός
 STR_CONFIG_SETTING_TREE_PLACER_IMPROVED                         :Βελτιωμένος
 
-STR_CONFIG_SETTING_ROAD_SIDE                                    :Οδικά Οχήματα: {STRING}
-STR_CONFIG_SETTING_ROAD_SIDE_HELPTEXT                           :Επιλέξτε την πλευρά οδήγησης
+STR_CONFIG_SETTING_ROAD_SIDE                                    :Πλευρά οδήγησης οδικών οχημάτων: {STRING}
+STR_CONFIG_SETTING_ROAD_SIDE_HELPTEXT                           :Επιλέξτε την πλευρά οδήγησης του οδικού οχήματος.{}Αυτό μπορεί επίσης να επηρεάσει την πλευρά του σήματος και τα γραφικά του σηματοφόρου.{}Μπορεί να χρειαστεί να επαναφορτώσετε το παιχνίδι για να τεθεί σε πλήρη ισχύ μια αλλαγή.
 
 ###length 2
-STR_CONFIG_SETTING_ROAD_SIDE_LEFT                               :Οδήγηση από τα αριστερά
-STR_CONFIG_SETTING_ROAD_SIDE_RIGHT                              :Οδήγηση από τα δεξιά
+STR_CONFIG_SETTING_ROAD_SIDE_LEFT                               :Αριστερά
+STR_CONFIG_SETTING_ROAD_SIDE_RIGHT                              :Δεξιά
 
 STR_CONFIG_SETTING_HEIGHTMAP_ROTATION                           :Περιστροφή χάρτη υψομετρίας: {STRING}
 STR_CONFIG_SETTING_HEIGHTMAP_ROTATION_TOOLTIP                   :Επιλέξτε με ποιον τρόπο θα περιστραφεί η εικόνα του ύψους χάρτη, για να ταιριάζει στον κόσμο του παιχνιδιού
@@ -2980,22 +2987,22 @@ STR_PICKER_COLLECTION_DELETE_QUERY                              :Διαγραφ�
 STR_PICKER_COLLECTION_DELETE_QUERY_TEXT                         :{YELLOW}Είστε σίγουρος/η ότι θέλετε να διαγράψετε αυτή τη συλλογή;
 STR_PICKER_COLLECTION_DELETE_QUERY_DISABLED_TEXT                :{YELLOW}Είστε σίγουρος/η ότι θέλετε να διαγράψετε αυτή τη συλλογή; Υπάρχουν αντικείμενα από απενεργοποιημένα NewGRFs σε αυτήν!
 
-STR_PICKER_STATION_CLASS_TOOLTIP                                :Επιλογή κατηγορίας σταθμού για εμφάνιση
+STR_PICKER_STATION_CLASS_TOOLTIP                                :Επιλογή κατηγορίας σταθμού για εμφάνιση. Ctrl+κλικ για προσθήκη στα ή αφαίρεση από τα αποθηκευμένα αντικείμενα
 STR_PICKER_STATION_TYPE_TOOLTIP                                 :Επιλογή τύπου σταθμού για κατασκευή. Ctrl+κλικ για προσθήκη σε ή αφαίρεση από αποθηκευμένα στοιχεία
 STR_PICKER_STATION_COLLECTION_TOOLTIP                           :Επιλέξτε μια συλλογή από σταθμούς προς εμφάνιση
-STR_PICKER_WAYPOINT_CLASS_TOOLTIP                               :Επιλογή κατηγορίας σημείου καθοδήγησης για εμφάνιση
+STR_PICKER_WAYPOINT_CLASS_TOOLTIP                               :Επιλογή κατηγορίας σημείου καθοδήγησης για εμφάνιση. Ctrl+κλικ για προσθήκη στα ή αφαίρεση από τα αποθηκευμένα αντικείμενα
 STR_PICKER_WAYPOINT_TYPE_TOOLTIP                                :Επιλογή σημείου καθοδήγησης για κατασκευή. Ctrl+κλικ για προσθήκη σε ή αφαίρεση από αποθηκευμένα στοιχεία
 STR_PICKER_WAYPOINT_COLLECTION_TOOLTIP                          :Επιλέξτε μια συλλογή από σημεία καθοδήγησης προς εμφάνιση
-STR_PICKER_ROADSTOP_BUS_CLASS_TOOLTIP                           :Επιλογή κατηγορίας στάσεων λεωφορείων για εμφάνιση
+STR_PICKER_ROADSTOP_BUS_CLASS_TOOLTIP                           :Επιλογή κατηγορίας στάσεων λεωφορείων για εμφάνιση. Ctrl+κλικ για προσθήκη στα ή αφαίρεση από τα αποθηκευμένα αντικείμενα
 STR_PICKER_ROADSTOP_BUS_TYPE_TOOLTIP                            :Επιλογή κατηγορίας στάσεων λεωφορείων για κατασκευή. Ctrl+κλικ για προσθήκη σε ή αφαίρεση από αποθηκευμένα στοιχεία
 STR_PICKER_ROADSTOP_BUS_COLLECTION_TOOLTIP                      :Επιλέξτε μια συλλογή από σταθμούς λεωφορείων προς εμφάνιση
-STR_PICKER_ROADSTOP_TRUCK_CLASS_TOOLTIP                         :Επιλογή κατηγορίας σταθμών φορτηγών προς εμφάνιση
+STR_PICKER_ROADSTOP_TRUCK_CLASS_TOOLTIP                         :Επιλογή κατηγορίας σταθμών φορτηγών για εμφάνιση
 STR_PICKER_ROADSTOP_TRUCK_TYPE_TOOLTIP                          :Επιλογή κατηγορίας σταθμών φορτηγών για κατασκευή. Ctrl+κλικ για προσθήκη σε ή αφαίρεση από αποθηκευμένα στοιχεία
 STR_PICKER_ROADSTOP_TRUCK_COLLECTION_TOOLTIP                    :Επιλέξτε μια συλλογή από σταθμούς φορτηγών προς εμφάνιση
-STR_PICKER_OBJECT_CLASS_TOOLTIP                                 :Επιλογή κατηγορίας αντικειμένων για εμφάνιση
+STR_PICKER_OBJECT_CLASS_TOOLTIP                                 :Επιλογή κατηγορίας αντικειμένων για εμφάνιση. Ctrl+κλικ για προσθήκη στα ή αφαίρεση από τα αποθηκευμένα αντικείμενα
 STR_PICKER_OBJECT_TYPE_TOOLTIP                                  :Επιλογή κατηγορίας αντικειμένων για εμφάνιση. Ctrl+κλικ για προσθήκη σε ή αφαίρεση από αποθηκευμένα στοιχεία. Ctrl+κλικ+σύρσιμο για να επιλεγεί διαγώνια περιοχή. Επίσης, πατήστε Shift για εμφάνιση εκτιμώμενου κόστους μόνο
 STR_PICKER_OBJECT_COLLECTION_TOOLTIP                            :Επιλέξτε μια συλλογή από αντικείμενα προς εμφάνιση
-STR_PICKER_HOUSE_CLASS_TOOLTIP                                  :Επιλέξτε τη ζώνη της πόλης που θέλετε να εμφανίσετε
+STR_PICKER_HOUSE_CLASS_TOOLTIP                                  :Επιλέξτε τη ζώνη της πόλης που θέλετε να εμφανίσετε. Ctrl+κλικ για προσθήκη στα ή αφαίρεση από τα αποθηκευμένα αντικείμενα
 STR_PICKER_HOUSE_TYPE_TOOLTIP                                   :Επιλογή τύπου σπιτιού για κατασκευή. Ctrl+κλικ για προσθήκη σε ή αφαίρεση από αποθηκευμένα στοιχεία
 STR_PICKER_HOUSE_COLLECTION_TOOLTIP                             :Επιλέξτε μια συλλογή από σπίτια προς εμφάνιση
 
@@ -3187,6 +3194,7 @@ STR_TREES_MODE_FOREST_LG_TOOLTIP                                :{BLACK}Φυτέ
 # Land generation window (SE)
 STR_TERRAFORM_TOOLBAR_LAND_GENERATION_CAPTION                   :{WHITE}Δημιουργία Εδάφους
 STR_TERRAFORM_TOOLTIP_PLACE_ROCKY_AREAS_ON_LANDSCAPE            :{BLACK}Τοποθέτηση πετρωδών περιοχών στο τοπίο.{}Ctrl+Click για αφαίρεση πετρωδών περιοχών
+STR_TERRAFORM_TOOLTIP_PLACE_ROUGH_AREAS_ON_LANDSCAPE            :{BLACK}Τοποθέτηση τραχιών περιοχών στο τοπίο.{}Ctrl+Κλικ για να αφαιρέσετε τραχιές περιοχές
 STR_TERRAFORM_TOOLTIP_DEFINE_DESERT_AREA                        :{BLACK}Ορίστε περιοχή ερήμου.{}Ctrl+Κλικ για αφαίρεση περιοχής ερήμου
 STR_TERRAFORM_TOOLTIP_INCREASE_SIZE_OF_LAND_AREA                :{BLACK}Αύξηση περιοχής για χαμήλωμα/ανύψωση εδάφους
 STR_TERRAFORM_TOOLTIP_DECREASE_SIZE_OF_LAND_AREA                :{BLACK}Μείωση περιοχής για χαμήλωμα/ανύψωση εδάφους
@@ -3372,6 +3380,8 @@ STR_LAI_WATER_DESCRIPTION_LOCK                                  :Κλείδωμ�
 STR_LAI_WATER_DESCRIPTION_RIVER                                 :Ποτάμι
 STR_LAI_WATER_DESCRIPTION_COAST_OR_RIVERBANK                    :Ακτή ή όχθη ποταμού
 STR_LAI_WATER_DESCRIPTION_SHIP_DEPOT                            :Ναυπηγείο πλοίων
+STR_LAI_WATER_DESCRIPTION_WATER_ROCKS                           :Πέτρες
+STR_LAI_WATER_DESCRIPTION_COAST_ROCKS                           :Ακτή ή όχθη ποταμού με πέτρες
 
 # Industries come directly from their industry names
 
@@ -3485,6 +3495,9 @@ STR_SAVELOAD_LOAD_BUTTON                                        :{BLACK}Φόρτ
 STR_SAVELOAD_LOAD_TOOLTIP                                       :{BLACK}Φόρτωση του επιλεγμένου παιχνιδιού
 STR_SAVELOAD_LOAD_HEIGHTMAP_TOOLTIP                             :{BLACK}Φόρτωση του επιλεγμένου χάρτη υψομετρίας
 STR_SAVELOAD_LOAD_TOWN_DATA_TOOLTIP                             :{BLACK}Φόρτωση των δεδομένων της επιλεγμένης πόλης
+STR_SAVELOAD_NEW_DIRECTORY_BUTTON                               :{BLACK}Nέος φάκελος
+STR_SAVELOAD_NEW_DIRECTORY_TOOLTIP                              :{BLACK}Δημιουργήστε έναν νέο φάκελο στην τρέχουσα τοποθεσία
+STR_SAVELOAD_NEW_DIRECTORY_QUERY_CAPTION                        :{WHITE}Εισαγάγετε ένα όνομα για το νέο φάκελο
 STR_SAVELOAD_DETAIL_CAPTION                                     :{BLACK}Λεπτομέρειες Παιχνιδιού
 STR_SAVELOAD_DETAIL_NOT_AVAILABLE                               :{BLACK}Δεν υπάρχουν πληροφορίες.
 STR_SAVELOAD_DETAIL_COMPANY_INDEX                               :{SILVER}{COMMA}: {WHITE}{STRING}
@@ -3928,6 +3941,7 @@ STR_GOALS_PROGRESS_COMPLETE                                     :{GREEN}{STRING}
 STR_GOALS_TOOLTIP_CLICK_ON_SERVICE_TO_CENTER                    :{BLACK}Πατήστε στον στόχο για να επικεντρωθεί η οθόνη στη βιομηχανία/πόλη/τετραγωνίδιο. Με Ctrl+Κλικ ανοίγει το παράθυρο θέασης στην τοποθεσία της βιομηχανίας/πόλης/τετραγωνίδιου
 
 # Goal question window
+###length 4
 STR_GOAL_QUESTION_CAPTION_QUESTION                              :{BLACK}Ερώτηση
 STR_GOAL_QUESTION_CAPTION_INFORMATION                           :{BLACK}Πληροφορίες
 STR_GOAL_QUESTION_CAPTION_WARNING                               :{BLACK}Προειδοποίηση
@@ -4817,9 +4831,9 @@ STR_ORDER_DROP_FULL_LOAD_ANY                                    :Πλήρης φ
 STR_ORDER_DROP_NO_LOADING                                       :Δίχως φόρτωση
 STR_ORDER_TOOLTIP_FULL_LOAD                                     :{BLACK}Αλλάξτε τη συμπεριφορά φόρτωσης για την επιλεγμένη εντολή
 
-STR_ORDER_TOGGLE_UNLOAD                                         :{BLACK}Ξεφόρτωμα όλων
+STR_ORDER_TOGGLE_UNLOAD                                         :{BLACK}Αναγκαστικό ξεφόρτωμα όλων
 STR_ORDER_DROP_UNLOAD_IF_ACCEPTED                               :Ξεφόρτωμα εάν είναι αποδεκτά
-STR_ORDER_DROP_UNLOAD                                           :Ξεφόρτωμα όλων
+STR_ORDER_DROP_UNLOAD                                           :Αναγκαστικό ξεφόρτωμα όλων ακόμη και αν το φορτίο δεν είναι αποδεκτό
 STR_ORDER_DROP_TRANSFER                                         :Μεταφορά
 STR_ORDER_DROP_NO_UNLOADING                                     :Δίχως ξεφόρτωση
 STR_ORDER_TOOLTIP_UNLOAD                                        :{BLACK}Αλλάξτε τη συμπεριφορά ξεφόρτωσης για την επιλεγμένη εντολή
@@ -4922,10 +4936,10 @@ STR_ORDER_IMPLICIT                                              :{SPACE}(υπο�
 STR_ORDER_FULL_LOAD                                             :{SPACE}(Πλήρης φόρτωση)
 STR_ORDER_FULL_LOAD_ANY                                         :{SPACE}(Πλήρης φόρτωση οποιουδήποτε εμπορεύματος)
 STR_ORDER_NO_LOAD                                               :{SPACE}(Χωρίς φόρτωση)
-STR_ORDER_UNLOAD                                                :{SPACE}(Ξεφόρτωσε και πάρε φορτίο)
-STR_ORDER_UNLOAD_FULL_LOAD                                      :{SPACE}(Ξεφόρτωμα και αναμονή για πλήρη φόρτωση)
-STR_ORDER_UNLOAD_FULL_LOAD_ANY                                  :{SPACE}(Ξεφόρτωμα και αναμονή για πλήρη φόρτωση οποιουδήποτε)
-STR_ORDER_UNLOAD_NO_LOAD                                        :{SPACE}(Ξεφόρτωμα και φύγε άδειο)
+STR_ORDER_UNLOAD                                                :{SPACE}(Ξεφόρτωσε αναγκαστικά και πάρε φορτίο)
+STR_ORDER_UNLOAD_FULL_LOAD                                      :{SPACE}(Αναγκαστικό ξεφόρτωμα και αναμονή για πλήρη φόρτωση)
+STR_ORDER_UNLOAD_FULL_LOAD_ANY                                  :{SPACE}(Αναγκαστικό ξεφόρτωμα και αναμονή για πλήρη φόρτωση οποιουδήποτε)
+STR_ORDER_UNLOAD_NO_LOAD                                        :{SPACE}(Αναγκαστικό ξεφόρτωμα και φύγε άδειο)
 STR_ORDER_TRANSFER                                              :{SPACE}(Μεταφορά και πάρε φορτίο)
 STR_ORDER_TRANSFER_FULL_LOAD                                    :{SPACE}(Μεταφορά και αναμονή για πλήρης φόρτωση)
 STR_ORDER_TRANSFER_FULL_LOAD_ANY                                :{SPACE}(Μεταφορά και αναμονή για πλήρης φόρτωση οποιοδήποτε φορτίου)
@@ -4938,9 +4952,9 @@ STR_ORDER_NO_UNLOAD_NO_LOAD                                     :{SPACE}(Χωρ�
 STR_ORDER_AUTO_REFIT                                            :{SPACE}(Αυτόματη μετατροπή σε {STRING})
 STR_ORDER_FULL_LOAD_REFIT                                       :{SPACE}(Πλήρης φόρτωση με αυτόματη μετατροπή σε {STRING})
 STR_ORDER_FULL_LOAD_ANY_REFIT                                   :{SPACE}(Πλήρης φόρτωση οποιουδήποτε φορτίου με αυτόματη μετατροπή σε {STRING})
-STR_ORDER_UNLOAD_REFIT                                          :{SPACE}(Εκφόρτωση και λήψη φορτίου με αυτόματη μετατροπή σε {STRING})
-STR_ORDER_UNLOAD_FULL_LOAD_REFIT                                :{SPACE}(Εκφόρτωση και αναμονή πλήρους φόρτωσης με αυτόματη μετατροπή σε {STRING})
-STR_ORDER_UNLOAD_FULL_LOAD_ANY_REFIT                            :{SPACE}(Εκφόρτωση και αναμονή οποιασδήποτε πλήρους φόρτωσης με αυτόματη μετατροπή σε {STRING})
+STR_ORDER_UNLOAD_REFIT                                          :{SPACE}(Αναγκαστικό ξεφόρτωμα και λήψη φορτίου με αυτόματη μετατροπή σε {STRING})
+STR_ORDER_UNLOAD_FULL_LOAD_REFIT                                :{SPACE}(Αναγκαστικό ξεφόρτωμα και αναμονή πλήρους φόρτωσης με αυτόματη μετατροπή σε {STRING})
+STR_ORDER_UNLOAD_FULL_LOAD_ANY_REFIT                            :{SPACE}(Αναγκαστικό ξεφόρτωμα και αναμονή οποιασδήποτε πλήρους φόρτωσης με αυτόματη μετατροπή σε {STRING})
 STR_ORDER_TRANSFER_REFIT                                        :{SPACE}(Μεταφορά και λήψη φορτίου με αυτόματη μετατροπή σε {STRING})
 STR_ORDER_TRANSFER_FULL_LOAD_REFIT                              :{SPACE}(Μεταφορά και αναμονή πλήρους φόρτωσης με αυτόματη μετατροπή σε {STRING})
 STR_ORDER_TRANSFER_FULL_LOAD_ANY_REFIT                          :{SPACE}(Μεταφορά και αναμονή οποιασδήποτε πλήρους φόρτωσης με αυτόματη μετατροπή σε {STRING})
@@ -5159,6 +5173,11 @@ STR_ERROR_AUTOSAVE_FAILED                                       :Η αυτόμα
 STR_ERROR_UNABLE_TO_READ_DRIVE                                  :{BLACK}Αδύνατη η ανάγνωση του δίσκου
 STR_ERROR_GAME_SAVE_FAILED                                      :Η αποθήκευση του παιχνιδιού απέτυχε...
 STR_ERROR_UNABLE_TO_DELETE_FILE                                 :Αδύνατη η διαγραφή του αρχείου
+STR_ERROR_CANNOT_CREATE_DIRECTORY                               :Δεν είναι δυνατή η δημιουργία φακέλου...
+STR_ERROR_DIRECTORY_NAME_IN_USE                                 :Υπάρχει ήδη ένα αρχείο ή φάκελος με αυτό το όνομα
+STR_ERROR_DIRECTORY_ILLEGAL_NAME                                :Το όνομα φακέλου δεν μπορεί να περιέχει ειδικούς χαρακτήρες
+STR_ERROR_DIRECTORY_LEADING_DOT                                 :Το όνομα του φακέλου δεν μπορεί να ξεκινά με τελεία
+STR_ERROR_DIRECTORY_PERMISSION_DENIED                           :Δεν έχετε άδεια να δημιουργήσετε φάκελο εδώ
 STR_ERROR_GAME_LOAD_FAILED                                      :Απέτυχε η φόρτωση του παιχνιδιού...
 STR_GAME_SAVELOAD_ERROR_BROKEN_INTERNAL_ERROR                   :Εσωτερικό λάθος: {STRING}
 STR_GAME_SAVELOAD_ERROR_BROKEN_SAVEGAME                         :Χαλασμένο αποθηκευμένο παιχνίδι - {STRING}
@@ -5461,6 +5480,10 @@ STR_ERROR_BRIDGE_TOO_LOW_FOR_BUOY                               :η γέφυρα
 STR_ERROR_BRIDGE_TOO_LOW_FOR_RAIL_WAYPOINT                      :η γέφυρα είναι πολύ χαμηλή κατά {HEIGHT} για σιδηροδρομικό σημείο καθοδήγησης
 STR_ERROR_BRIDGE_TOO_LOW_FOR_ROAD_WAYPOINT                      :η γέφυρα είναι πολύ χαμηλή κατά {HEIGHT} για οδικό σημείο καθοδήγησης
 STR_ERROR_BRIDGE_TOO_LOW_FOR_LOCK                               :η γέφυρα είναι πολύ χαμηλή κατά {HEIGHT} για κλείδωμα
+STR_ERROR_BRIDGE_TOO_LOW_FOR_TRAIN_DEPOT                        :η γέφυρα είναι {HEIGHT} πολύ χαμηλή για το αμαξοστάσιο τρένων
+STR_ERROR_BRIDGE_TOO_LOW_FOR_ROADVEH_DEPOT                      :η γέφυρα είναι {HEIGHT} πολύ χαμηλή για το αμαξοστάσιο οδικών οχημάτων
+STR_ERROR_BRIDGE_TOO_LOW_FOR_SHIP_DEPOT                         :η γέφυρα είναι {HEIGHT} πολύ χαμηλή για το ναυπηγείο πλοίων
+STR_ERROR_BRIDGE_TOO_LOW_FOR_OBJECT                             :η γέφυρα είναι {HEIGHT} πολύ χαμηλή για το αντικείμενο
 
 # Tunnel related errors
 STR_ERROR_CAN_T_BUILD_TUNNEL_HERE                               :Δεν μπορεί να κατασκευαστεί σήραγγα εδώ...

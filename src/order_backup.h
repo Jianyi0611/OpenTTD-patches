@@ -16,7 +16,7 @@
 #include "vehicle_type.h"
 #include "base_consist.h"
 #include "order_base.h"
-#include "sl/saveload_common.h"
+#include "sl/saveload_common_type.h"
 #include <vector>
 
 /** Unique identifier for an order backup. */

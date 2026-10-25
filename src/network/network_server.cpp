@@ -19,8 +19,9 @@
 #include "../company_base.h"
 #include "../company_cmd.h"
 #include "../command_func.h"
-#include "../sl/saveload.h"
+#include "../sl/saveload_common_error.h"
 #include "../sl/saveload_filter.h"
+#include "../sl/saveload_func.h"
 #include "../station_base.h"
 #include "../genworld.h"
 #include "../company_func.h"
@@ -149,7 +150,7 @@ struct PacketWriter : SaveFilter {
 		return last_packet;
 	}
 
-	void Write(uint8_t *buf, size_t size) override
+	void Write(const uint8_t *buf, size_t size) override
 	{
 		std::lock_guard<std::mutex> lock(this->mutex);
 
@@ -158,7 +159,7 @@ struct PacketWriter : SaveFilter {
 
 		if (this->current == nullptr) this->current = std::make_unique<Packet>(this->cs, PacketGameType::ServerMapData, TCP_MTU);
 
-		uint8_t *bufe = buf + size;
+		const uint8_t *bufe = buf + size;
 		while (buf != bufe) {
 			size_t written = this->current->Send_binary_until_full(buf, bufe);
 			buf += written;
@@ -2429,6 +2430,7 @@ void NetworkServerDoMove(ClientID client_id, CompanyID company_id)
 		/* The client has joined another company. */
 		std::string company_name = GetString(STR_COMPANY_NAME, company_id);
 		NetworkServerSendChat(NetworkAction::CompanyJoin, NetworkChatDestinationType::Broadcast, 0, company_name, client_id);
+		Company::Get(company_id)->months_empty = 0; // Reset upon joining as client might not remain the whole month.
 	}
 
 	InvalidateWindowData(WindowClass::NetworkClientList, 0);

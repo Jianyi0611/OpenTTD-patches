@@ -270,7 +270,7 @@ static void StationsWndShowStationRating(int left, int right, int y, CargoType c
 		}
 	}
 
-	DrawString(left + padding, right, y, cs->abbrev, tc, SA_CENTER, false, FontSize::Small);
+	DrawString(left + padding, right, y, cs->abbrev, tc, {AlignmentH::Centre, AlignmentV::Middle}, false, FontSize::Small);
 
 	/* Draw green/red ratings bar (fits under the waiting bar) */
 	y += height + padding + 1;
@@ -2317,20 +2317,20 @@ struct StationViewWindow : public Window {
 	void SelectSortBy(int index)
 	{
 		_settings_client.gui.station_gui_sort_by = index;
-		switch (StationViewWindow::sort_names[index]) {
-			case STR_STATION_VIEW_WAITING_STATION:
+		switch (StationViewWindow::sort_names[index].base()) {
+			case STR_STATION_VIEW_WAITING_STATION.base():
 				this->current_mode = MODE_WAITING;
 				this->sortings[1] = this->sortings[2] = this->sortings[3] = CargoSortType::AsGrouping;
 				break;
-			case STR_STATION_VIEW_WAITING_AMOUNT:
+			case STR_STATION_VIEW_WAITING_AMOUNT.base():
 				this->current_mode = MODE_WAITING;
 				this->sortings[1] = this->sortings[2] = this->sortings[3] = CargoSortType::Count;
 				break;
-			case STR_STATION_VIEW_PLANNED_STATION:
+			case STR_STATION_VIEW_PLANNED_STATION.base():
 				this->current_mode = MODE_PLANNED;
 				this->sortings[1] = this->sortings[2] = this->sortings[3] = CargoSortType::AsGrouping;
 				break;
-			case STR_STATION_VIEW_PLANNED_AMOUNT:
+			case STR_STATION_VIEW_PLANNED_AMOUNT.base():
 				this->current_mode = MODE_PLANNED;
 				this->sortings[1] = this->sortings[2] = this->sortings[3] = CargoSortType::Count;
 				break;
@@ -2351,33 +2351,33 @@ struct StationViewWindow : public Window {
 		this->grouping_index = index;
 		_settings_client.gui.station_gui_group_order = index;
 		this->GetWidget<NWidgetCore>(WID_SV_GROUP_BY)->SetString(StationViewWindow::group_names[index]);
-		switch (StationViewWindow::group_names[index]) {
-			case STR_STATION_VIEW_GROUP_S_V_D:
+		switch (StationViewWindow::group_names[index].base()) {
+			case STR_STATION_VIEW_GROUP_S_V_D.base():
 				this->groupings[1] = GR_SOURCE;
 				this->groupings[2] = GR_NEXT;
 				this->groupings[3] = GR_DESTINATION;
 				break;
-			case STR_STATION_VIEW_GROUP_S_D_V:
+			case STR_STATION_VIEW_GROUP_S_D_V.base():
 				this->groupings[1] = GR_SOURCE;
 				this->groupings[2] = GR_DESTINATION;
 				this->groupings[3] = GR_NEXT;
 				break;
-			case STR_STATION_VIEW_GROUP_V_S_D:
+			case STR_STATION_VIEW_GROUP_V_S_D.base():
 				this->groupings[1] = GR_NEXT;
 				this->groupings[2] = GR_SOURCE;
 				this->groupings[3] = GR_DESTINATION;
 				break;
-			case STR_STATION_VIEW_GROUP_V_D_S:
+			case STR_STATION_VIEW_GROUP_V_D_S.base():
 				this->groupings[1] = GR_NEXT;
 				this->groupings[2] = GR_DESTINATION;
 				this->groupings[3] = GR_SOURCE;
 				break;
-			case STR_STATION_VIEW_GROUP_D_S_V:
+			case STR_STATION_VIEW_GROUP_D_S_V.base():
 				this->groupings[1] = GR_DESTINATION;
 				this->groupings[2] = GR_SOURCE;
 				this->groupings[3] = GR_NEXT;
 				break;
-			case STR_STATION_VIEW_GROUP_D_V_S:
+			case STR_STATION_VIEW_GROUP_D_V_S.base():
 				this->groupings[1] = GR_DESTINATION;
 				this->groupings[2] = GR_NEXT;
 				this->groupings[3] = GR_SOURCE;
@@ -3074,7 +3074,7 @@ public:
 		const int left0 = r.left + WidgetDimensions::scaled.framerect.left + 1;
 		const int right0 = r.right - WidgetDimensions::scaled.framerect.right - 1;
 
-		DrawString(left0, right0, y, this->data[0], TextColour::LightBlue, SA_CENTER);
+		DrawString(left0, right0, y, this->data[0], TextColour::LightBlue, {AlignmentH::Centre, AlignmentV::Middle});
 
 		y += GetCharacterHeight(FontSize::Normal) + WidgetDimensions::scaled.vsep_normal;
 

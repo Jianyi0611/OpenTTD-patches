@@ -86,11 +86,11 @@ struct HouseResolverObject : public SpecializedResolverObject<HouseRandomTrigger
 			CallbackID callback = CBID_NO_CALLBACK, uint32_t param1 = 0, uint32_t param2 = 0,
 			bool not_yet_constructed = false, uint8_t initial_random_bits = 0, CargoTypes watched_cargo_triggers = {}, int view = 0);
 
-	ScopeResolver *GetScope(VarSpriteGroupScope scope = VSG_SCOPE_SELF, VarSpriteGroupScopeOffset relative = 0) override
+	ScopeResolver *GetScope(VarSpriteGroupScope scope = VarSpriteGroupScope::Self, VarSpriteGroupScopeOffset relative = 0) override
 	{
 		switch (scope) {
-			case VSG_SCOPE_SELF:   return &this->house_scope;
-			case VSG_SCOPE_PARENT: return &this->town_scope;
+			case VarSpriteGroupScope::Self: return &this->house_scope;
+			case VarSpriteGroupScope::Parent: return &this->town_scope;
 			default: return ResolverObject::GetScope(scope, relative);
 		}
 	}
@@ -113,12 +113,12 @@ struct HouseResolverObject : public SpecializedResolverObject<HouseRandomTrigger
  * need to be persistent; it just needs to keep class ids unique.
  */
 struct HouseClassMapping {
-	uint32_t grfid;     ///< The GRF ID of the file this class belongs to
+	GrfID grfid;     ///< The GRF ID of the file this class belongs to
 	uint8_t  class_id;  ///< The class id within the grf file
 };
 
 void ResetHouseClassIDs();
-HouseClassID AllocateHouseClassID(uint8_t grf_class_id, uint32_t grfid);
+HouseClassID AllocateHouseClassID(uint8_t grf_class_id, GrfID grfid);
 
 void InitializeBuildingCounts();
 void InitializeBuildingCounts(Town *t);

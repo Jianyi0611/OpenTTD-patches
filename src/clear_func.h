@@ -13,11 +13,12 @@
 struct TileInfo;
 enum Slope : uint8_t;
 
-void DrawHillyLandTile(const TileInfo *ti);
-void DrawClearLandTile(const TileInfo *ti, uint8_t set);
+void DrawRoughLandTile(const TileInfo *ti);
+void DrawClearLandTile(const TileInfo *ti, uint8_t density);
+void GenerateRocks(TileIndex tile, uint32_t count);
 
-SpriteID GetSpriteIDForClearLand(const Slope slope, uint8_t set);
-SpriteID GetSpriteIDForHillyLand(const Slope slope, const uint rough_index);
+SpriteID GetSpriteIDForClearLand(const Slope slope, uint8_t density);
+SpriteID GetSpriteIDForRoughLand(const Slope slope, const uint rough_index);
 SpriteID GetSpriteIDForRocks(const Slope slope, const uint tile_hash);
 SpriteID GetSpriteIDForFields(const Slope slope, const uint field_type);
 SpriteID GetSpriteIDForSnowDesert(const Slope slope, const uint density);

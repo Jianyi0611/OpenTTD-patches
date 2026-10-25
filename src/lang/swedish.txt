@@ -116,7 +116,7 @@ STR_QUANTITY_WHEAT                                              :{WEIGHT_LONG} v
 STR_QUANTITY_RUBBER                                             :{VOLUME_LONG} gummi
 STR_QUANTITY_SUGAR                                              :{WEIGHT_LONG} socker
 STR_QUANTITY_TOYS                                               :{COMMA}{NBSP}leksak{P "" er}
-STR_QUANTITY_SWEETS                                             :{COMMA}{NBSP}godispås{P e ar}
+STR_QUANTITY_SWEETS                                             :{COMMA}{NBSP}säck{P "" ar} godis
 STR_QUANTITY_COLA                                               :{VOLUME_LONG} kola
 STR_QUANTITY_CANDYFLOSS                                         :{WEIGHT_LONG} sockervadd
 STR_QUANTITY_BUBBLES                                            :{COMMA} bubbl{P a or}
@@ -163,10 +163,10 @@ STR_ABBREV_ALL                                                  :ALLA
 
 # 'Mode' of transport for cargoes
 STR_PASSENGERS                                                  :{COMMA}{NBSP}passagerare
-STR_BAGS                                                        :{COMMA}{NBSP}väsk{P a or}
+STR_BAGS                                                        :{COMMA}{NBSP}säck{P "" ar}
 STR_TONS                                                        :{COMMA}{NBSP}ton
 STR_LITERS                                                      :{COMMA}{NBSP}liter
-STR_ITEMS                                                       :{COMMA}{NBSP}föremål
+STR_ITEMS                                                       :{COMMA}{NBSP}stycke{P "" n}
 STR_CRATES                                                      :{COMMA}{NBSP}låd{P a or}
 
 STR_COLOUR_DEFAULT                                              :Standard
@@ -449,7 +449,7 @@ STR_SCENEDIT_TOWN_MENU_PACE_HOUSE                               :Placera ut hus
 STR_SETTINGS_MENU_GAME_OPTIONS                                  :Spelalternativ
 STR_SETTINGS_MENU_AI_SETTINGS                                   :AI-inställningar
 STR_SETTINGS_MENU_GAMESCRIPT_SETTINGS                           :Spelskriptinställningar
-STR_SETTINGS_MENU_NEWGRF_SETTINGS                               : NewGRF-inställningar
+STR_SETTINGS_MENU_NEWGRF_SETTINGS                               :NewGRF-inställningar
 STR_SETTINGS_MENU_SANDBOX_OPTIONS                               :Sandlådealternativ
 STR_SETTINGS_MENU_TRANSPARENCY_OPTIONS                          :Genomskinlighetsalternativ
 STR_SETTINGS_MENU_TOWN_NAMES_DISPLAYED                          :Stadsnamn visas
@@ -538,6 +538,7 @@ STR_NEWS_MENU_DELETE_ALL_MESSAGES                               :Ta bort alla me
 # About menu
 STR_ABOUT_MENU_LAND_BLOCK_INFO                                  :Information om mark
 STR_ABOUT_MENU_HELP                                             :Hjälp & manualer
+STR_ABOUT_MENU_ENTER_SCREENSAVER_MODE                           :Slå på/av skärmsläckarläge
 STR_ABOUT_MENU_TOGGLE_CONSOLE                                   :Visa/dölj konsolen
 STR_ABOUT_MENU_AI_DEBUG                                         :Felsökning av datorspelare/spelskript
 STR_ABOUT_MENU_SCREENSHOT                                       :Skärmdump
@@ -631,7 +632,6 @@ STR_GRAPH_LAST_24_MONTHS                                        :{TINY_FONT}{BLA
 STR_GRAPH_LAST_24_QUARTERS                                      :{TINY_FONT}{BLACK}6 år (kvartalsvis)
 STR_GRAPH_LAST_24_YEARS                                         :{TINY_FONT}{BLACK}24 år (årsvis)
 
-STR_GRAPH_TOGGLE_RANGE                                          :Växla graf för dataintervall
 STR_GRAPH_SELECT_SCALE                                          :Ändra horisontell skala på grafen
 
 STR_GRAPH_CARGO_PAYMENT_RATES_CAPTION                           :{WHITE}Fraktförtjänster
@@ -647,14 +647,21 @@ STR_GRAPH_CARGO_PAYMENT_CARGO                                   :{TINY_FONT}{BLA
 
 STR_GRAPH_INDUSTRY_CAPTION                                      :{WHITE}{INDUSTRY} - Godshistorik
 STR_GRAPH_INDUSTRY_RANGE_PRODUCED                               :Producerat
+STR_GRAPH_INDUSTRY_RANGE_PRODUCED_TOOLTIP                       :Slå på/av grafen för produktion av gods av denna industri
 STR_GRAPH_INDUSTRY_RANGE_TRANSPORTED                            :Transporterat
+STR_GRAPH_INDUSTRY_RANGE_TRANSPORTED_TOOLTIP                    :Slå på/av grafen för transport av gods från denna industri
 STR_GRAPH_INDUSTRY_RANGE_DELIVERED                              :Levererat
+STR_GRAPH_INDUSTRY_RANGE_DELIVERED_TOOLTIP                      :Slå på/av grafen för leverans av gods till denna industri
 STR_GRAPH_INDUSTRY_RANGE_WAITING                                :Väntande
+STR_GRAPH_INDUSTRY_RANGE_WAITING_TOOLTIP                        :Slå på/av grafen för väntande gods vid denna industri
 
 STR_GRAPH_TOWN_CARGO_CAPTION                                    :{WHITE}{TOWN} - Godshistorik
 STR_GRAPH_TOWN_RANGE_PRODUCED                                   :Producerat
+STR_GRAPH_TOWN_RANGE_PRODUCED_TOOLTIP                           :Slå på/av grafen för produktion av gods i denna stad
 STR_GRAPH_TOWN_RANGE_TRANSPORTED                                :Transporterat
+STR_GRAPH_TOWN_RANGE_TRANSPORTED_TOOLTIP                        :Slå på/av grafen för transport av gods från denna stad
 STR_GRAPH_TOWN_RANGE_DELIVERED                                  :Levererad
+STR_GRAPH_TOWN_RANGE_DELIVERED_TOOLTIP                          :Slå på/av grafen för leverans av gods till denna stad
 
 STR_GRAPH_PERFORMANCE_DETAIL_TOOLTIP                            :{BLACK}Visa detaljerad prestationsgradering
 
@@ -919,7 +926,7 @@ STR_NEWS_INDUSTRY_PRODUCTION_DECREASE_SMOOTH                    :{BIG_FONT}{BLAC
 ###length VEHICLE_TYPES
 STR_NEWS_TRAIN_IS_WAITING                                       :{WHITE}{VEHICLE} väntar i depån
 STR_NEWS_ROAD_VEHICLE_IS_WAITING                                :{WHITE}{VEHICLE} väntar i depån
-STR_NEWS_SHIP_IS_WAITING                                        :{WHITE}{VEHICLE} väntar i depån
+STR_NEWS_SHIP_IS_WAITING                                        :{WHITE}{VEHICLE} väntar i varvet
 STR_NEWS_AIRCRAFT_IS_WAITING                                    :{WHITE}{VEHICLE} väntar i hangaren
 ###next-name-looks-similar
 
@@ -952,7 +959,7 @@ STR_NEWS_STATION_NOW_ACCEPTS_CARGO_LIST                         :{WHITE}{STATION
 
 STR_NEWS_OFFER_OF_SUBSIDY_EXPIRED                               :{BIG_FONT}{BLACK}Erbjudanden subvention har gått ut:{}{}{STRING} från {STRING} till {STRING} kommer nu inte attrahera en subvention
 STR_NEWS_SUBSIDY_WITHDRAWN_SERVICE                              :{BIG_FONT}{BLACK}Subventionen återkallad:{}{}{STRING} från {STRING} till {STRING} är inte längre subventionerad
-STR_NEWS_SERVICE_SUBSIDY_OFFERED                                :{BIG_FONT}{BLACK}Subvention erbjuden:{}{}Första {STRING} från {STRING} till {STRING} kommer tilldelas en {UNITS_YEARS_OR_MINUTES}s subvention från de lokala myndigheterna!
+STR_NEWS_SERVICE_SUBSIDY_OFFERED                                :{BIG_FONT}{BLACK}Subvention erbjuden:{}{}Första trafiken med {STRING} från {STRING} till {STRING} kommer tilldelas en {UNITS_YEARS_OR_MINUTES}s subvention från de lokala myndigheterna!
 ###length 4
 STR_NEWS_SERVICE_SUBSIDY_AWARDED_HALF                           :{BIG_FONT}{BLACK}Subvention tilldelad {STRING}!{}{}{STRING} från {STRING} till {STRING} kommer ge 50% extra utdelning nästkommande {UNITS_YEARS_OR_MINUTES}!
 STR_NEWS_SERVICE_SUBSIDY_AWARDED_DOUBLE                         :{BIG_FONT}{BLACK}Subvention tilldelad {STRING}!{}{}{STRING} från {STRING} till {STRING} kommer ge dubbel utdelning nästkommande {UNITS_YEARS_OR_MINUTES}!
@@ -1204,15 +1211,15 @@ STR_SEA_LEVEL_CUSTOM                                            :Valfri
 STR_SEA_LEVEL_CUSTOM_PERCENTAGE                                 :Valfri ({NUM}%)
 
 ###length 4
-STR_RIVERS_NONE                                                 :inga
-STR_RIVERS_FEW                                                  :få
-STR_RIVERS_MODERATE                                             :mellan
-STR_RIVERS_LOT                                                  :många
+STR_RIVERS_NONE                                                 :Inga
+STR_RIVERS_FEW                                                  :Få
+STR_RIVERS_MODERATE                                             :Mellan
+STR_RIVERS_LOT                                                  :Många
 
 ###length 3
-STR_DISASTER_NONE                                               :Ingen
-STR_DISASTER_REDUCED                                            :Reducerad
-STR_DISASTER_NORMAL                                             :Normal
+STR_BREAKDOWNS_NONE                                             :Ingen
+STR_BREAKDOWNS_REDUCED                                          :Reducerad
+STR_BREAKDOWNS_NORMAL                                           :Normal
 
 ###length 4
 STR_SUBSIDY_X1_5                                                :x1.5
@@ -1659,12 +1666,12 @@ STR_CONFIG_SETTING_TREE_PLACER_NONE                             :Inget
 STR_CONFIG_SETTING_TREE_PLACER_ORIGINAL                         :Original
 STR_CONFIG_SETTING_TREE_PLACER_IMPROVED                         :Förbättrad
 
-STR_CONFIG_SETTING_ROAD_SIDE                                    :Vägfordon: {STRING}
-STR_CONFIG_SETTING_ROAD_SIDE_HELPTEXT                           :Välj körsida
+STR_CONFIG_SETTING_ROAD_SIDE                                    :Vägfordons körsida: {STRING}
+STR_CONFIG_SETTING_ROAD_SIDE_HELPTEXT                           :Välj vägfordons körsida.{}Detta kan också påverka vilken sida som signaler vissas på samt hur semaforer ser ut.{}Det kan krävas att du laddar om spelet för att ändringen ska gå igenom.
 
 ###length 2
-STR_CONFIG_SETTING_ROAD_SIDE_LEFT                               :Kör på vänster sida
-STR_CONFIG_SETTING_ROAD_SIDE_RIGHT                              :Kör på höger sida
+STR_CONFIG_SETTING_ROAD_SIDE_LEFT                               :Vänster sida
+STR_CONFIG_SETTING_ROAD_SIDE_RIGHT                              :Höger sida
 
 STR_CONFIG_SETTING_HEIGHTMAP_ROTATION                           :Höjdkartans rotation: {STRING}
 STR_CONFIG_SETTING_HEIGHTMAP_ROTATION_TOOLTIP                   :Välj på vilket sätt höjdkartan ska roteras för att få plats inuti spelvärlden
@@ -2322,7 +2329,7 @@ STR_CHEAT_EDIT_MAX_HL_QUERY_CAPT                                :{WHITE}Ändra m
 STR_CHEAT_CHANGE_DATE                                           :{LTBLUE}Byt datum: {ORANGE} {DATE_SHORT}
 STR_CHEAT_CHANGE_DATE_QUERY_CAPT                                :{WHITE}Ändra nuvarande år
 STR_CHEAT_SETUP_PROD                                            :{LTBLUE}Aktivera modifiering av produktionsvärden: {ORANGE}{STRING}
-STR_CHEAT_STATION_RATING                                        :{LTBLUE}Fixera stationens gradering vid 100%: {ORANGE}{STRING}
+STR_CHEAT_STATION_RATING                                        :{LTBLUE}Fixera stationers gradering vid 100%: {ORANGE}{STRING}
 
 # Livery window
 STR_LIVERY_CAPTION                                              :{WHITE}{COMPANY} - Färgschema
@@ -2887,22 +2894,22 @@ STR_PICKER_COLLECTION_DELETE_QUERY                              :Ta bort denna s
 STR_PICKER_COLLECTION_DELETE_QUERY_TEXT                         :{YELLOW}Är du säker på att du vill ta bort denna samling?
 STR_PICKER_COLLECTION_DELETE_QUERY_DISABLED_TEXT                :{YELLOW}Är du säker på att du vill ta bort denna samling? Det finns saker från NewGRFs i den!
 
-STR_PICKER_STATION_CLASS_TOOLTIP                                :Välj vilken klass av stationer som ska visas
-STR_PICKER_STATION_TYPE_TOOLTIP                                 :Välj en stationstyp att bygga. Ctrl+Klick för att lägga till eller ta bort i sparade objekt
+STR_PICKER_STATION_CLASS_TOOLTIP                                :Välj vilken klass av stationer som ska visas. Ctrl+klicka för att lägga till eller ta bort från sparade artiklar
+STR_PICKER_STATION_TYPE_TOOLTIP                                 :Välj en stationstyp att bygga. Ctrl+klicka för att lägga till eller ta bort från sparade artiklar
 STR_PICKER_STATION_COLLECTION_TOOLTIP                           :Välj en samling med stationer att visa
-STR_PICKER_WAYPOINT_CLASS_TOOLTIP                               :Välj vilken klass av riktmärken som ska visas
-STR_PICKER_WAYPOINT_TYPE_TOOLTIP                                :Välj ett riktmärke att bygga. Ctrl+Klick för att lägga till eller ta bort i sparade objekt
+STR_PICKER_WAYPOINT_CLASS_TOOLTIP                               :Välj vilken klass av riktmärken som ska visas. Ctrl+klicka för att lägga till eller ta bort från sparade artiklar
+STR_PICKER_WAYPOINT_TYPE_TOOLTIP                                :Välj ett riktmärke att bygga. Ctrl+klicka för att lägga till eller ta bort från sparade artiklar
 STR_PICKER_WAYPOINT_COLLECTION_TOOLTIP                          :Välj en samling riktningsvisare att visa
-STR_PICKER_ROADSTOP_BUS_CLASS_TOOLTIP                           :Välj vilken klass av busstationer som ska visas
+STR_PICKER_ROADSTOP_BUS_CLASS_TOOLTIP                           :Välj vilken klass av busstationer som ska visas. Ctrl+klicka för att lägga till eller ta bort från sparade artiklar
 STR_PICKER_ROADSTOP_BUS_TYPE_TOOLTIP                            :Välj en busstationstyp att bygga. Ctrl+Klick för att lägga till eller ta bort i sparade objekt
 STR_PICKER_ROADSTOP_BUS_COLLECTION_TOOLTIP                      :Välj en samling av busstationer att visa
-STR_PICKER_ROADSTOP_TRUCK_CLASS_TOOLTIP                         :Välj vilken klass av laststationer som ska visas
-STR_PICKER_ROADSTOP_TRUCK_TYPE_TOOLTIP                          :Välj en laststationstyp att bygga. Ctrl+Klick för att lägga till eller ta bort i sparade objekt
+STR_PICKER_ROADSTOP_TRUCK_CLASS_TOOLTIP                         :Välj vilken klass av laststationer som ska visas. Ctrl+klicka för att lägga till eller ta bort från sparade artiklar
+STR_PICKER_ROADSTOP_TRUCK_TYPE_TOOLTIP                          :Välj en laststationstyp att bygga. Ctrl+klicka för att lägga till eller ta bort från sparade artiklar
 STR_PICKER_ROADSTOP_TRUCK_COLLECTION_TOOLTIP                    :Välj en samling av laststationer att visa
-STR_PICKER_OBJECT_CLASS_TOOLTIP                                 :Välj vilken klass av objekt som ska visas
+STR_PICKER_OBJECT_CLASS_TOOLTIP                                 :Välj vilken klass av objekt som ska visas. Ctrl+klicka för att lägga till eller ta bort från sparade artiklar
 STR_PICKER_OBJECT_TYPE_TOOLTIP                                  :Välj en objektstyp att bygga. Ctrl+klicka för att lägga till eller ta bort i sparade objekt. Ctrl+klicka+dra för att välja ytan diagonalt. Håll även in Shift för att endast visa uppskattad kostnad
 STR_PICKER_OBJECT_COLLECTION_TOOLTIP                            :Välj en samling av objekt att visa
-STR_PICKER_HOUSE_CLASS_TOOLTIP                                  :Välj vilken stadszon som ska visas
+STR_PICKER_HOUSE_CLASS_TOOLTIP                                  :Välj vilken stadszon som ska visas. Ctrl+klicka för att lägga till eller ta bort från sparade objekt
 STR_PICKER_HOUSE_TYPE_TOOLTIP                                   :Välj en hustyp att bygga. Ctrl+Klick för att lägga till eller ta bort i sparade objekt
 STR_PICKER_HOUSE_COLLECTION_TOOLTIP                             :Välj en samling av hus att visa
 
@@ -3094,6 +3101,7 @@ STR_TREES_MODE_FOREST_LG_TOOLTIP                                :{BLACK}Plantera
 # Land generation window (SE)
 STR_TERRAFORM_TOOLBAR_LAND_GENERATION_CAPTION                   :{WHITE}Skapa mark
 STR_TERRAFORM_TOOLTIP_PLACE_ROCKY_AREAS_ON_LANDSCAPE            :{BLACK}Placera stenar i landskapet.{}Ctrl+klicka för att ta bort stenar
+STR_TERRAFORM_TOOLTIP_PLACE_ROUGH_AREAS_ON_LANDSCAPE            :{BLACK}placera ojämn mark i landskapet.{}Ctrl+klicka för att ta bort ojämn mark
 STR_TERRAFORM_TOOLTIP_DEFINE_DESERT_AREA                        :{BLACK}Definiera ökenområde.{}Ctrl+Klick för att ta bort ökenområde
 STR_TERRAFORM_TOOLTIP_INCREASE_SIZE_OF_LAND_AREA                :{BLACK}Öka storlek på ytan som ska höjas/sänkas
 STR_TERRAFORM_TOOLTIP_DECREASE_SIZE_OF_LAND_AREA                :{BLACK}Minska storlek på ytan som ska höjas/sänkas
@@ -3262,7 +3270,7 @@ STR_LAI_TOWN_INDUSTRY_DESCRIPTION_UNDER_CONSTRUCTION            :{STRING} (under
 
 STR_LAI_TREE_NAME_TREES                                         :Träd
 STR_LAI_TREE_NAME_RAINFOREST                                    :Regnskog
-STR_LAI_TREE_NAME_CACTUS_PLANTS                                 :Kaktusplantor
+STR_LAI_TREE_NAME_CACTUS_PLANTS                                 :Kaktusväxter
 
 STR_LAI_STATION_DESCRIPTION_RAILROAD_STATION                    :Järnvägsstation
 STR_LAI_STATION_DESCRIPTION_AIRCRAFT_HANGAR                     :Flygplanshangar
@@ -3279,6 +3287,8 @@ STR_LAI_WATER_DESCRIPTION_LOCK                                  :Sluss
 STR_LAI_WATER_DESCRIPTION_RIVER                                 :Flod
 STR_LAI_WATER_DESCRIPTION_COAST_OR_RIVERBANK                    :Kust eller flodbank
 STR_LAI_WATER_DESCRIPTION_SHIP_DEPOT                            :Skeppsvarv
+STR_LAI_WATER_DESCRIPTION_WATER_ROCKS                           :Stenar
+STR_LAI_WATER_DESCRIPTION_COAST_ROCKS                           :Kust eller flodbank med stenar
 
 # Industries come directly from their industry names
 
@@ -3392,6 +3402,9 @@ STR_SAVELOAD_LOAD_BUTTON                                        :{BLACK}Ladda
 STR_SAVELOAD_LOAD_TOOLTIP                                       :{BLACK}Ladda valt spel
 STR_SAVELOAD_LOAD_HEIGHTMAP_TOOLTIP                             :{BLACK}Ladda vald höjdkarta
 STR_SAVELOAD_LOAD_TOWN_DATA_TOOLTIP                             :{BLACK}Läs in vald stadsdata
+STR_SAVELOAD_NEW_DIRECTORY_BUTTON                               :{BLACK}Ny mapp
+STR_SAVELOAD_NEW_DIRECTORY_TOOLTIP                              :{BLACK}Skapa en ny mapp på nuvarande plats
+STR_SAVELOAD_NEW_DIRECTORY_QUERY_CAPTION                        :{WHITE}Ange ett namn för den nya mappen
 STR_SAVELOAD_DETAIL_CAPTION                                     :{BLACK}Speldetaljer
 STR_SAVELOAD_DETAIL_NOT_AVAILABLE                               :{BLACK}Ingen information tillgänglig
 STR_SAVELOAD_DETAIL_COMPANY_INDEX                               :{SILVER}{COMMA}: {WHITE}{STRING}
@@ -3835,6 +3848,7 @@ STR_GOALS_PROGRESS_COMPLETE                                     :{GREEN}{STRING}
 STR_GOALS_TOOLTIP_CLICK_ON_SERVICE_TO_CENTER                    :{BLACK}Klicka på målet för att centrera huvudvyn på industrin/byn/rutan. Ctrl+klicka för att öppna en ny fönstervy över industrin/byn/rutan
 
 # Goal question window
+###length 4
 STR_GOAL_QUESTION_CAPTION_QUESTION                              :{BLACK}Fråga
 STR_GOAL_QUESTION_CAPTION_INFORMATION                           :{BLACK}Information
 STR_GOAL_QUESTION_CAPTION_WARNING                               :{BLACK}Varning
@@ -4156,7 +4170,7 @@ STR_VEHICLE_LIST_NAME_AND_CARGO                                 :{STRING} {STRIN
 
 STR_VEHICLE_LIST_SEND_TRAIN_TO_DEPOT                            :Skicka till depå
 STR_VEHICLE_LIST_SEND_ROAD_VEHICLE_TO_DEPOT                     :Skicka till depå
-STR_VEHICLE_LIST_SEND_SHIP_TO_DEPOT                             :Skicka till depå
+STR_VEHICLE_LIST_SEND_SHIP_TO_DEPOT                             :Skicka till varv
 STR_VEHICLE_LIST_SEND_AIRCRAFT_TO_HANGAR                        :Skicka till hangar
 
 STR_VEHICLE_LIST_MASS_STOP_LIST_TOOLTIP                         :{BLACK}Klicka för att stoppa alla fordon i listan
@@ -4335,8 +4349,8 @@ STR_QUERY_RENAME_AIRCRAFT_TYPE_CAPTION                          :{WHITE}Byt namn
 # Depot window
 STR_DEPOT_CAPTION                                               :{WHITE}{DEPOT}
 
-STR_DEPOT_RENAME_TOOLTIP                                        :{BLACK}Byt namn på terminal
-STR_DEPOT_RENAME_DEPOT_CAPTION                                  :Byt namn på terminal
+STR_DEPOT_RENAME_TOOLTIP                                        :{BLACK}Byt namn på depå
+STR_DEPOT_RENAME_DEPOT_CAPTION                                  :Byt namn på depå
 
 STR_DEPOT_NO_ENGINE                                             :{BLACK}-
 STR_DEPOT_VEHICLE_TOOLTIP                                       :{BLACK}{ENGINE}{STRING}
@@ -4358,13 +4372,13 @@ STR_DEPOT_AIRCRAFT_SELL_TOOLTIP                                 :{BLACK}Dra luft
 ###length VEHICLE_TYPES
 STR_DEPOT_SELL_ALL_BUTTON_TRAIN_TOOLTIP                         :{BLACK}Sälj alla tåg i depån
 STR_DEPOT_SELL_ALL_BUTTON_ROAD_VEHICLE_TOOLTIP                  :{BLACK}Sälj alla vägfordon i depån
-STR_DEPOT_SELL_ALL_BUTTON_SHIP_TOOLTIP                          :{BLACK}Sälj alla skepp i depån
+STR_DEPOT_SELL_ALL_BUTTON_SHIP_TOOLTIP                          :{BLACK}Sälj alla skepp i varvet
 STR_DEPOT_SELL_ALL_BUTTON_AIRCRAFT_TOOLTIP                      :{BLACK}Sälj alla luftfarkoster i hangaren
 
 ###length VEHICLE_TYPES
 STR_DEPOT_AUTOREPLACE_TRAIN_TOOLTIP                             :{BLACK}Byt ut alla tåg i depån
 STR_DEPOT_AUTOREPLACE_ROAD_VEHICLE_TOOLTIP                      :{BLACK}Byt ut alla vägfordon i depån
-STR_DEPOT_AUTOREPLACE_SHIP_TOOLTIP                              :{BLACK}Byt ut alla skepp i depån
+STR_DEPOT_AUTOREPLACE_SHIP_TOOLTIP                              :{BLACK}Byt ut alla skepp i varvet
 STR_DEPOT_AUTOREPLACE_AIRCRAFT_TOOLTIP                          :{BLACK}Byt ut alla luftfarkoster i hangaren
 
 ###length VEHICLE_TYPES
@@ -4388,31 +4402,31 @@ STR_DEPOT_CLONE_AIRCRAFT                                        :{BLACK}Klona lu
 ###length VEHICLE_TYPES
 STR_DEPOT_CLONE_TRAIN_DEPOT_TOOLTIP                             :{BLACK}Köp en kopia av ett tåg inklusive alla vagnar. Klicka på denna knapp och sedan på ett tåg i eller utanför depån. Ctrl+klicka för att dela ordrar. Håll även in Shift för att endast visa uppskattad kostnad
 STR_DEPOT_CLONE_ROAD_VEHICLE_DEPOT_TOOLTIP                      :{BLACK}Köp en kopia av ett vägfordon. Klicka på denna knapp och sedan på ett vägfordon i eller utanför depån. Ctrl+klicka för att dela ordrar. Håll även in Shift för att endast visa uppskattad kostnad
-STR_DEPOT_CLONE_SHIP_DEPOT_TOOLTIP                              :{BLACK}Köp en kopia av ett skepp. Klicka på denna knapp och sedan på ett skepp i eller utanför depån. Ctrl+klicka för att dela ordrar. Håll även in Shift för att endast visa uppskattad kostnad
+STR_DEPOT_CLONE_SHIP_DEPOT_TOOLTIP                              :{BLACK}Köp en kopia av ett skepp. Klicka på denna knapp och sedan på ett skepp i eller utanför varvet. Ctrl+klicka för att dela ordrar. Håll även in Shift för att endast visa uppskattad kostnad
 STR_DEPOT_CLONE_AIRCRAFT_HANGAR_TOOLTIP                         :{BLACK}Köp en kopia av en luftfarkost. Klicka på denna knapp och sedan på en luftfarkost i eller utanför hangaren. Ctrl+klicka för att dela ordrar. Håll även in Shift för att endast visa uppskattad kostnad
 
 ###length VEHICLE_TYPES
 STR_DEPOT_TRAIN_LOCATION_TOOLTIP                                :{BLACK}Centrera huvudvyn ovanför depån. Ctrl+Klick för att öppna en ny fönstervy över tågdepåns läge
 STR_DEPOT_ROAD_VEHICLE_LOCATION_TOOLTIP                         :{BLACK}Centrera huvudvyn ovanför vägfordonsdepån. Ctrl+Klick för att öppna en ny fönstervy över vägfordonsdepåns läge
-STR_DEPOT_SHIP_LOCATION_TOOLTIP                                 :{BLACK}Centrera huvudvyn ovanför skeppsdepån. Ctrl+Klick för att öppna en ny fönstervy över skeppsdepåns läge
+STR_DEPOT_SHIP_LOCATION_TOOLTIP                                 :{BLACK}Centrera huvudvyn ovanför skeppsvarvet. Ctrl+Klick för att öppna en ny fönstervy över skeppsvarvets läge
 STR_DEPOT_AIRCRAFT_LOCATION_TOOLTIP                             :{BLACK}Centrera huvudvyn ovanför hangaren. Ctrl+klicka för att öppna en ny skärmvy över hangarens läge
 
 ###length VEHICLE_TYPES
-STR_DEPOT_VEHICLE_ORDER_LIST_TRAIN_TOOLTIP                      :{BLACK}Visa en lista med alla tåg som har denna depå i sitt körschema
+STR_DEPOT_VEHICLE_ORDER_LIST_TRAIN_TOOLTIP                      :{BLACK}Visa en lista med alla tåg som har detta varv i sitt körschema
 STR_DEPOT_VEHICLE_ORDER_LIST_ROAD_VEHICLE_TOOLTIP               :{BLACK}Visa en lista med alla vägfordon som har denna depå i sitt körschema
-STR_DEPOT_VEHICLE_ORDER_LIST_SHIP_TOOLTIP                       :{BLACK}Visa en lista med alla fartyg som har denna depå i sitt körschema
+STR_DEPOT_VEHICLE_ORDER_LIST_SHIP_TOOLTIP                       :{BLACK}Visa en lista med alla fartyg som har detta varv i sitt körschema
 STR_DEPOT_VEHICLE_ORDER_LIST_AIRCRAFT_TOOLTIP                   :{BLACK}Visa en lista med alla luftfarkoster som har en hangar på denna flygplats i sitt körschema
 
 ###length VEHICLE_TYPES
 STR_DEPOT_MASS_STOP_DEPOT_TRAIN_TOOLTIP                         :{BLACK}Klicka för att stanna alla tåg i depån
 STR_DEPOT_MASS_STOP_DEPOT_ROAD_VEHICLE_TOOLTIP                  :{BLACK}Klicka för att stanna alla fordon i depån
-STR_DEPOT_MASS_STOP_DEPOT_SHIP_TOOLTIP                          :{BLACK}Klicka för att stanna alla skepp i depån
+STR_DEPOT_MASS_STOP_DEPOT_SHIP_TOOLTIP                          :{BLACK}Klicka för att stanna alla skepp i varvet
 STR_DEPOT_MASS_STOP_HANGAR_TOOLTIP                              :{BLACK}Klicka för att stanna alla flygplan i hangaren
 
 ###length VEHICLE_TYPES
 STR_DEPOT_MASS_START_DEPOT_TRAIN_TOOLTIP                        :{BLACK}Klicka för att starta alla tåg i depån
 STR_DEPOT_MASS_START_DEPOT_ROAD_VEHICLE_TOOLTIP                 :{BLACK}Klicka för att starta alla fordon i depån
-STR_DEPOT_MASS_START_DEPOT_SHIP_TOOLTIP                         :{BLACK}Klicka för att starta alla skepp i depån
+STR_DEPOT_MASS_START_DEPOT_SHIP_TOOLTIP                         :{BLACK}Klicka för att starta alla skepp i varvet
 STR_DEPOT_MASS_START_HANGAR_TOOLTIP                             :{BLACK}Klicka för att starta alla flygplan i hangaren
 
 STR_DEPOT_DRAG_WHOLE_TRAIN_TO_SELL_TOOLTIP                      :{BLACK}Drag loket här för att sälja hela tåget
@@ -4516,7 +4530,7 @@ STR_VEHICLE_VIEW_AIRCRAFT_CENTER_TOOLTIP                        :{BLACK}Centrera
 ###length VEHICLE_TYPES
 STR_VEHICLE_VIEW_TRAIN_SEND_TO_DEPOT_TOOLTIP                    :{BLACK}Skicka tåg till depå. Ctrl+Klick för att endast serva
 STR_VEHICLE_VIEW_ROAD_VEHICLE_SEND_TO_DEPOT_TOOLTIP             :{BLACK}Skicka fordon till depå. Ctrl+Klick för att endast serva
-STR_VEHICLE_VIEW_SHIP_SEND_TO_DEPOT_TOOLTIP                     :{BLACK}Skicka skepp till depå. Ctrl+Klick för att endast serva
+STR_VEHICLE_VIEW_SHIP_SEND_TO_DEPOT_TOOLTIP                     :{BLACK}Skicka skepp till varv. Ctrl+Klick för att endast serva
 STR_VEHICLE_VIEW_AIRCRAFT_SEND_TO_DEPOT_TOOLTIP                 :{BLACK}Skicka flygfarkost till hangar. Ctrl+Klick för att endast serva
 
 ###length VEHICLE_TYPES
@@ -4739,7 +4753,7 @@ STR_ORDER_DROP_UNBUNCH                                          :Glesa ut
 ###length VEHICLE_TYPES
 STR_ORDER_TRAIN_DEPOT_ACTION_TOOLTIP                            :{BLACK}Välj åtgärd att utföra vid denna depå
 STR_ORDER_ROAD_DEPOT_ACTION_TOOLTIP                             :{BLACK}Välj åtgärd att utföra vid denna depå
-STR_ORDER_SHIP_DEPOT_ACTION_TOOLTIP                             :{BLACK}Välj åtgärd att utföra vid denna depå
+STR_ORDER_SHIP_DEPOT_ACTION_TOOLTIP                             :{BLACK}Välj åtgärd att utföra vid detta varv
 STR_ORDER_HANGAR_ACTION_TOOLTIP                                 :{BLACK}Välj åtgärd att utföra vid denna hangar
 ###next-name-looks-similar
 
@@ -4800,7 +4814,7 @@ STR_ORDER_SERVICE_NON_STOP_AT                                   :Service non-sto
 ###length 3
 STR_ORDER_TRAIN_DEPOT                                           :Tågdepå
 STR_ORDER_ROAD_VEHICLE_DEPOT                                    :Vägfordonsdepå
-STR_ORDER_SHIP_DEPOT                                            :Skeppsdepå
+STR_ORDER_SHIP_DEPOT                                            :Skeppsvarv
 ###next-name-looks-similar
 
 STR_ORDER_GO_TO_NEAREST_HANGAR_FORMAT                           :{STRING} den närmsta hangaren
@@ -5058,6 +5072,11 @@ STR_ERROR_AUTOSAVE_FAILED                                       :Autosparning mi
 STR_ERROR_UNABLE_TO_READ_DRIVE                                  :{BLACK}Kan inte läsa från disk
 STR_ERROR_GAME_SAVE_FAILED                                      :Sparandet av spelet misslyckades...
 STR_ERROR_UNABLE_TO_DELETE_FILE                                 :Kan inte ta bort filen
+STR_ERROR_CANNOT_CREATE_DIRECTORY                               :Kan inte skapa mapp...
+STR_ERROR_DIRECTORY_NAME_IN_USE                                 :En fil eller mapp med det namnet finns redan
+STR_ERROR_DIRECTORY_ILLEGAL_NAME                                :Mappnamn kan inte innehålla speciella tecken
+STR_ERROR_DIRECTORY_LEADING_DOT                                 :Mappnamn kan inte börja med en punkt
+STR_ERROR_DIRECTORY_PERMISSION_DENIED                           :Du har inte tillåtelse att skapa en mapp här
 STR_ERROR_GAME_LOAD_FAILED                                      :Inläsningen av spelet misslyckades...
 STR_GAME_SAVELOAD_ERROR_BROKEN_INTERNAL_ERROR                   :Internt fel: {STRING}
 STR_GAME_SAVELOAD_ERROR_BROKEN_SAVEGAME                         :Trasig sparfil - {STRING}
@@ -5256,14 +5275,14 @@ STR_ERROR_BUOY_IS_IN_USE                                        :bojen används 
 STR_ERROR_CAN_T_BUILD_TRAIN_DEPOT                               :Kan inte bygga tågdepå här...
 STR_ERROR_CAN_T_BUILD_ROAD_DEPOT                                :Kan inte bygga vägfordonsdepå här...
 STR_ERROR_CAN_T_BUILD_TRAM_DEPOT                                :Kan inte bygga spårvagnsdepå här...
-STR_ERROR_CAN_T_BUILD_SHIP_DEPOT                                :Kan inte bygga skeppsdepå här...
+STR_ERROR_CAN_T_BUILD_SHIP_DEPOT                                :Kan inte bygga skeppsvarv här...
 
-STR_ERROR_CAN_T_RENAME_DEPOT                                    :Kan inte byta namn på terminal
+STR_ERROR_CAN_T_RENAME_DEPOT                                    :Kan inte byta namn på depå
 
-STR_ERROR_TRAIN_MUST_BE_STOPPED_INSIDE_DEPOT                    :måste stoppas i en depå
-STR_ERROR_ROAD_VEHICLE_MUST_BE_STOPPED_INSIDE_DEPOT             :måste stoppas inne i en depå
-STR_ERROR_SHIP_MUST_BE_STOPPED_INSIDE_DEPOT                     :måste stoppas inne i en depå
-STR_ERROR_AIRCRAFT_MUST_BE_STOPPED_INSIDE_HANGAR                :måste stoppas inne i en hangar
+STR_ERROR_TRAIN_MUST_BE_STOPPED_INSIDE_DEPOT                    :måste stå stilla inne i en depå
+STR_ERROR_ROAD_VEHICLE_MUST_BE_STOPPED_INSIDE_DEPOT             :måste stå stilla inne i en depå
+STR_ERROR_SHIP_MUST_BE_STOPPED_INSIDE_DEPOT                     :måste stå stilla inne i ett varv
+STR_ERROR_AIRCRAFT_MUST_BE_STOPPED_INSIDE_HANGAR                :måste stå stilla inne i en hangar
 
 STR_ERROR_TRAINS_CAN_ONLY_BE_ALTERED_INSIDE_A_DEPOT             :tåg kan bara ändras när de står stilla inuti en depå
 STR_ERROR_TRAIN_TOO_LONG                                        :tåget är för långt
@@ -5353,13 +5372,17 @@ STR_ERROR_START_AND_END_MUST_BE_IN                              :start- och slut
 STR_ERROR_ENDS_OF_BRIDGE_MUST_BOTH                              :brons båda ändar måste vara på land
 STR_ERROR_BRIDGE_TOO_LONG                                       :bron är för lång
 STR_ERROR_BRIDGE_THROUGH_MAP_BORDER                             :bron skulle sluta utanför kartans gränser
-STR_ERROR_BRIDGE_TOO_LOW_FOR_STATION                            :bron är {HEIGHT} för låg för station
-STR_ERROR_BRIDGE_TOO_LOW_FOR_ROADSTOP                           :bron är {HEIGHT} för låg för depå
-STR_ERROR_BRIDGE_TOO_LOW_FOR_DOCK                               :bron är {HEIGHT} för låg för en kaj
-STR_ERROR_BRIDGE_TOO_LOW_FOR_BUOY                               :bron är {HEIGHT} för låg för boj
-STR_ERROR_BRIDGE_TOO_LOW_FOR_RAIL_WAYPOINT                      :bron är {HEIGHT} för låg för järnvägsriktmärke
-STR_ERROR_BRIDGE_TOO_LOW_FOR_ROAD_WAYPOINT                      :bron är {HEIGHT} för låg för vägriktmärke
-STR_ERROR_BRIDGE_TOO_LOW_FOR_LOCK                               :bron är {HEIGHT} för låg för sluss
+STR_ERROR_BRIDGE_TOO_LOW_FOR_STATION                            :bron är {HEIGHT} för låg för stationen
+STR_ERROR_BRIDGE_TOO_LOW_FOR_ROADSTOP                           :bron är {HEIGHT} för låg för depån
+STR_ERROR_BRIDGE_TOO_LOW_FOR_DOCK                               :bron är {HEIGHT} för låg för kajen
+STR_ERROR_BRIDGE_TOO_LOW_FOR_BUOY                               :bron är {HEIGHT} för låg för bojen
+STR_ERROR_BRIDGE_TOO_LOW_FOR_RAIL_WAYPOINT                      :bron är {HEIGHT} för låg för järnvägsriktmärket
+STR_ERROR_BRIDGE_TOO_LOW_FOR_ROAD_WAYPOINT                      :bron är {HEIGHT} för låg för vägriktmärket
+STR_ERROR_BRIDGE_TOO_LOW_FOR_LOCK                               :bron är {HEIGHT} för låg för slussen
+STR_ERROR_BRIDGE_TOO_LOW_FOR_TRAIN_DEPOT                        :bron är {HEIGHT} för låg för tågdepån
+STR_ERROR_BRIDGE_TOO_LOW_FOR_ROADVEH_DEPOT                      :bron är {HEIGHT} för låg för vägfordonsdepån
+STR_ERROR_BRIDGE_TOO_LOW_FOR_SHIP_DEPOT                         :bron är {HEIGHT} för låg för skeppsvarvet
+STR_ERROR_BRIDGE_TOO_LOW_FOR_OBJECT                             :bron är {HEIGHT} för låg för objektet
 
 # Tunnel related errors
 STR_ERROR_CAN_T_BUILD_TUNNEL_HERE                               :Kan inte bygga tunnel här...
@@ -5424,7 +5447,7 @@ STR_ERROR_CAN_T_STOP_START_AIRCRAFT                             :Kan inte stoppa
 ###length VEHICLE_TYPES
 STR_ERROR_CAN_T_SEND_TRAIN_TO_DEPOT                             :Kan inte skicka tåg till depå...
 STR_ERROR_CAN_T_SEND_ROAD_VEHICLE_TO_DEPOT                      :Kan inte skicka fordon till depå...
-STR_ERROR_CAN_T_SEND_SHIP_TO_DEPOT                              :Kan inte skicka skepp till depå...
+STR_ERROR_CAN_T_SEND_SHIP_TO_DEPOT                              :Kan inte skicka skepp till varv...
 STR_ERROR_CAN_T_SEND_AIRCRAFT_TO_HANGAR                         :Kan inte skicka luftfarkost till hangar...
 
 ###length VEHICLE_TYPES
@@ -5769,15 +5792,15 @@ STR_VEHICLE_NAME_TRAIN_WAGON_MAGLEV_GOODS_VAN                   :Godsvagn
 STR_VEHICLE_NAME_TRAIN_WAGON_MAGLEV_GRAIN_HOPPER                :Spannmålsvagn
 STR_VEHICLE_NAME_TRAIN_WAGON_MAGLEV_WOOD_TRUCK                  :Timmervagn
 STR_VEHICLE_NAME_TRAIN_WAGON_MAGLEV_IRON_ORE_HOPPER             :Järnmalmsvagn
-STR_VEHICLE_NAME_TRAIN_WAGON_MAGLEV_STEEL_TRUCK                 :Stållastvagn
+STR_VEHICLE_NAME_TRAIN_WAGON_MAGLEV_STEEL_TRUCK                 :Stålvagn
 STR_VEHICLE_NAME_TRAIN_WAGON_MAGLEV_ARMORED_VAN                 :Bepansrad vagn
 STR_VEHICLE_NAME_TRAIN_WAGON_MAGLEV_FOOD_VAN                    :Matvagn
 STR_VEHICLE_NAME_TRAIN_WAGON_MAGLEV_PAPER_TRUCK                 :Pappersvagn
 STR_VEHICLE_NAME_TRAIN_WAGON_MAGLEV_COPPER_ORE_HOPPER           :Kopparmalmsvagn
 STR_VEHICLE_NAME_TRAIN_WAGON_MAGLEV_WATER_TANKER                :Vattentank
 STR_VEHICLE_NAME_TRAIN_WAGON_MAGLEV_FRUIT_TRUCK                 :Fruktvagn
-STR_VEHICLE_NAME_TRAIN_WAGON_MAGLEV_RUBBER_TRUCK                :Gummilastvagn
-STR_VEHICLE_NAME_TRAIN_WAGON_MAGLEV_SUGAR_TRUCK                 :Sockerlastvagn
+STR_VEHICLE_NAME_TRAIN_WAGON_MAGLEV_RUBBER_TRUCK                :Gummivagn
+STR_VEHICLE_NAME_TRAIN_WAGON_MAGLEV_SUGAR_TRUCK                 :Sockervagn
 STR_VEHICLE_NAME_TRAIN_WAGON_MAGLEV_COTTON_CANDY_HOPPER         :Sockervaddsvagn
 STR_VEHICLE_NAME_TRAIN_WAGON_MAGLEV_TOFFEE_HOPPER               :Knäckvagn
 STR_VEHICLE_NAME_TRAIN_WAGON_MAGLEV_BUBBLE_VAN                  :Bubbelvagn
@@ -5956,11 +5979,11 @@ STR_FORMAT_WAYPOINT_NAME_SERIAL                                 :Riktmärke {TOW
 
 ###length 6
 STR_FORMAT_DEPOT_NAME_TRAIN                                     :{TOWN} Järnvägsdepå
-STR_FORMAT_DEPOT_NAME_TRAIN_SERIAL                              :{TOWN} Järnvägsterminal #{COMMA}
+STR_FORMAT_DEPOT_NAME_TRAIN_SERIAL                              :{TOWN} Järnvägsdepå #{COMMA}
 STR_FORMAT_DEPOT_NAME_ROAD_VEHICLE                              :{TOWN} vägfordonsdepå
 STR_FORMAT_DEPOT_NAME_ROAD_VEHICLE_SERIAL                       :{TOWN} vägfordonsdepå #{COMMA}
-STR_FORMAT_DEPOT_NAME_SHIP                                      :{TOWN} Hamnterminal
-STR_FORMAT_DEPOT_NAME_SHIP_SERIAL                               :{TOWN} Hamnterminal#{COMMA}
+STR_FORMAT_DEPOT_NAME_SHIP                                      :{TOWN} Skeppsvarv
+STR_FORMAT_DEPOT_NAME_SHIP_SERIAL                               :{TOWN} Skeppsvarv #{COMMA}
 ###next-name-looks-similar
 
 STR_FORMAT_DEPOT_NAME_AIRCRAFT                                  :{STATION} Hangar

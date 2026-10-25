@@ -27,6 +27,7 @@
 #include "track_type.h"
 #include "air_type.h"
 #include "transport_type.h"
+#include "newgrf_type.h"
 
 /** Number of blueprint slots on one page; the toolbar shows exactly one page at a time. */
 static const uint NUM_BLUEPRINT_SLOTS = 8;
@@ -113,7 +114,7 @@ struct BlueprintRailTrack {
 
 /** Stable identity of a NewGRF style; zero GRFID means the original style. */
 struct BlueprintSpecRef {
-	uint32_t grfid = 0;
+	GrfID grfid = {};
 	uint16_t local_id = 0;
 	bool operator==(const BlueprintSpecRef &) const = default;
 };

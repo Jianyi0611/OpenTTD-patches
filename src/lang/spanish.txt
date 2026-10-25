@@ -631,7 +631,6 @@ STR_GRAPH_LAST_24_MONTHS                                        :{TINY_FONT}{BLA
 STR_GRAPH_LAST_24_QUARTERS                                      :{TINY_FONT}{BLACK}6 años (trimestral)
 STR_GRAPH_LAST_24_YEARS                                         :{TINY_FONT}{BLACK}24 años (anual)
 
-STR_GRAPH_TOGGLE_RANGE                                          :Alterna entre mostrar/ocultar la gráfica para este rango de datos
 STR_GRAPH_SELECT_SCALE                                          :Cambia la escala horizontal de la gráfica
 
 STR_GRAPH_CARGO_PAYMENT_RATES_CAPTION                           :{WHITE}Tarifas de pago de cargas
@@ -1209,9 +1208,9 @@ STR_RIVERS_MODERATE                                             :Medio
 STR_RIVERS_LOT                                                  :Muchos
 
 ###length 3
-STR_DISASTER_NONE                                               :Ninguno
-STR_DISASTER_REDUCED                                            :Reducidos
-STR_DISASTER_NORMAL                                             :Normales
+STR_BREAKDOWNS_NONE                                             :Ninguno
+STR_BREAKDOWNS_REDUCED                                          :Reducidos
+STR_BREAKDOWNS_NORMAL                                           :Normales
 
 ###length 4
 STR_SUBSIDY_X1_5                                                :x1.5
@@ -3814,6 +3813,7 @@ STR_GOALS_PROGRESS_COMPLETE                                     :{GREEN}{STRING}
 STR_GOALS_TOOLTIP_CLICK_ON_SERVICE_TO_CENTER                    :{BLACK}Clica en un objetivo para centrar la vista principal en la casilla, industria o municipio. Ctrl+clic abre un punto de vista en dicha posición
 
 # Goal question window
+###length 4
 STR_GOAL_QUESTION_CAPTION_QUESTION                              :{BLACK}Pregunta
 STR_GOAL_QUESTION_CAPTION_INFORMATION                           :{BLACK}Información
 STR_GOAL_QUESTION_CAPTION_WARNING                               :{BLACK}Advertencia

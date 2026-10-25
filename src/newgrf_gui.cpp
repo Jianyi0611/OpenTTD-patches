@@ -105,7 +105,7 @@ static void ShowNewGRFInfo(const GRFConfig &c, const Rect &r, bool show_params)
 	}
 
 	/* Prepare and draw GRF ID */
-	tr.top = DrawStringMultiLine(tr, GetString(STR_NEWGRF_SETTINGS_GRF_ID, fmt::format("{:08X}", std::byteswap(c.ident.grfid))));
+	tr.top = DrawStringMultiLine(tr, GetString(STR_NEWGRF_SETTINGS_GRF_ID, FormatArrayAsHex(c.ident.grfid)));
 
 	if ((_settings_client.gui.newgrf_developer_tools || _settings_client.gui.newgrf_show_old_versions) && c.version != 0) {
 		tr.top = DrawStringMultiLine(tr, GetString(STR_NEWGRF_SETTINGS_VERSION, c.version));
@@ -590,7 +590,7 @@ void ShowNewGRFTextfileWindow(Window *parent, TextfileType file_type, const GRFC
 	new NewGRFTextfileWindow(parent, file_type, c);
 }
 
-typedef robin_hood::unordered_flat_map<uint32_t, const GRFConfig *> GrfIdMap; ///< Map of grfid to the grf config.
+typedef robin_hood::unordered_flat_map<GrfID, const GRFConfig *> GrfIdMap; ///< Map of grfid to the grf config.
 
 /**
  * Add all grf configs from \a c into the map.
@@ -940,7 +940,7 @@ struct NewGRFWindow : public Window, NewGRFScanCallback {
 			case WID_NS_NEWGRF_INFO_TITLE: {
 				/* Create the nice darker rectangle at the details top. */
 				GfxFillRect(r.Shrink(WidgetDimensions::scaled.bevel), GetColourGradient(Colours::Mauve, Shade::Normal));
-				DrawString(r.left, r.right, CentreBounds(r.top, r.bottom, GetCharacterHeight(FontSize::Normal)), STR_NEWGRF_SETTINGS_INFO_TITLE, TextColour::FromString, SA_HOR_CENTER);
+				DrawString(r.left, r.right, CentreBounds(r.top, r.bottom, GetCharacterHeight(FontSize::Normal)), STR_NEWGRF_SETTINGS_INFO_TITLE, TextColour::FromString, AlignmentH::Centre);
 				break;
 			}
 
@@ -957,7 +957,7 @@ struct NewGRFWindow : public Window, NewGRFScanCallback {
 
 	void OnClick([[maybe_unused]] Point pt, WidgetID widget, [[maybe_unused]] int click_count) override
 	{
-		if (widget >= WID_NS_NEWGRF_TEXTFILE && widget < WID_NS_NEWGRF_TEXTFILE + TFT_CONTENT_END) {
+		if (widget >= WID_NS_NEWGRF_TEXTFILE && widget < WID_NS_NEWGRF_TEXTFILE + TextfileType::ContentEnd) {
 			if (this->active_sel == nullptr && this->avail_sel == nullptr) return;
 
 			ShowNewGRFTextfileWindow(this, (TextfileType)(widget - WID_NS_NEWGRF_TEXTFILE), this->active_sel != nullptr ? this->active_sel : this->avail_sel);
@@ -1304,7 +1304,7 @@ struct NewGRFWindow : public Window, NewGRFScanCallback {
 		);
 
 		const GRFConfig *selected_config = (this->avail_sel == nullptr) ? this->active_sel : this->avail_sel;
-		for (TextfileType tft : EnumRange(TFT_CONTENT_BEGIN, TFT_CONTENT_END)) {
+		for (TextfileType tft : EnumRange(TextfileType::ContentBegin, TextfileType::ContentEnd)) {
 			this->SetWidgetDisabledState(WID_NS_NEWGRF_TEXTFILE + tft, selected_config == nullptr || !selected_config->GetTextfile(tft).has_value());
 		}
 		this->SetWidgetDisabledState(WID_NS_OPEN_URL, selected_config == nullptr || !selected_config->GetURL().has_value());
@@ -1593,7 +1593,7 @@ void ShowMissingContentWindow(const GRFConfigList &list)
 		ci->type = ContentType::NewGRF;
 		ci->state = ContentInfo::State::DoesNotExist;
 		ci->name = c->GetName();
-		ci->unique_id = std::byteswap(c->ident.grfid);
+		ci->unique_id = std::byteswap(FlattenNewGRFLabel(c->ident.grfid));
 		ci->md5sum = c->flags.Test(GRFConfigFlag::Compatible) ? c->original_md5sum : c->ident.md5sum;
 		cv.push_back(std::move(ci));
 	}
@@ -1937,13 +1937,13 @@ static constexpr std::initializer_list<NWidgetPart> _nested_newgrf_infopanel_wid
 			NWidget(NWID_HORIZONTAL, NWidContainerFlag::EqualSize),
 				NWidget(WWT_PUSHTXTBTN, Colours::Yellow, WID_NS_OPEN_URL), SetFill(1, 0), SetResize(1, 0),
 						SetStringTip(STR_CONTENT_OPEN_URL, STR_CONTENT_OPEN_URL_TOOLTIP),
-				NWidget(WWT_PUSHTXTBTN, Colours::Yellow, WID_NS_NEWGRF_TEXTFILE + TFT_README), SetFill(1, 0), SetResize(1, 0),
+				NWidget(WWT_PUSHTXTBTN, Colours::Yellow, WID_NS_NEWGRF_TEXTFILE + TextfileType::Readme), SetFill(1, 0), SetResize(1, 0),
 						SetStringTip(STR_TEXTFILE_VIEW_README, STR_TEXTFILE_VIEW_README_TOOLTIP),
 			EndContainer(),
 			NWidget(NWID_HORIZONTAL, NWidContainerFlag::EqualSize),
-				NWidget(WWT_PUSHTXTBTN, Colours::Yellow, WID_NS_NEWGRF_TEXTFILE + TFT_CHANGELOG), SetFill(1, 0), SetResize(1, 0),
+				NWidget(WWT_PUSHTXTBTN, Colours::Yellow, WID_NS_NEWGRF_TEXTFILE + TextfileType::Changelog), SetFill(1, 0), SetResize(1, 0),
 						SetStringTip(STR_TEXTFILE_VIEW_CHANGELOG, STR_TEXTFILE_VIEW_CHANGELOG_TOOLTIP),
-				NWidget(WWT_PUSHTXTBTN, Colours::Yellow, WID_NS_NEWGRF_TEXTFILE + TFT_LICENSE), SetFill(1, 0), SetResize(1, 0),
+				NWidget(WWT_PUSHTXTBTN, Colours::Yellow, WID_NS_NEWGRF_TEXTFILE + TextfileType::License), SetFill(1, 0), SetResize(1, 0),
 						SetStringTip(STR_TEXTFILE_VIEW_LICENCE, STR_TEXTFILE_VIEW_LICENCE_TOOLTIP),
 			EndContainer(),
 		EndContainer(),
@@ -2279,14 +2279,14 @@ struct ScanProgressWindow : public Window {
 				Rect ir = r.Shrink(WidgetDimensions::scaled.bevel);
 				uint percent = scanned * 100 / std::max(1U, _settings_client.gui.last_newgrf_count);
 				DrawFrameRect(ir.WithWidth(ir.Width() * percent / 100, _current_text_dir == TD_RTL), Colours::Mauve, {});
-				DrawString(ir.left, ir.right, CentreBounds(ir.top, ir.bottom, GetCharacterHeight(FontSize::Normal)), GetString(STR_GENERATION_PROGRESS, percent), TextColour::FromString, SA_HOR_CENTER);
+				DrawString(ir.left, ir.right, CentreBounds(ir.top, ir.bottom, GetCharacterHeight(FontSize::Normal)), GetString(STR_GENERATION_PROGRESS, percent), TextColour::FromString, AlignmentH::Centre);
 				break;
 			}
 
 			case WID_SP_PROGRESS_TEXT:
-				DrawString(r.left, r.right, r.top, GetString(STR_NEWGRF_SCAN_STATUS, this->scanned, _settings_client.gui.last_newgrf_count), TextColour::FromString, SA_HOR_CENTER);
+				DrawString(r.left, r.right, r.top, GetString(STR_NEWGRF_SCAN_STATUS, this->scanned, _settings_client.gui.last_newgrf_count), TextColour::FromString, AlignmentH::Centre);
 
-				DrawString(r.left, r.right, r.top + GetCharacterHeight(FontSize::Normal) + WidgetDimensions::scaled.vsep_normal, this->last_name, TextColour::Black, SA_HOR_CENTER);
+				DrawString(r.left, r.right, r.top + GetCharacterHeight(FontSize::Normal) + WidgetDimensions::scaled.vsep_normal, this->last_name, TextColour::Black, AlignmentH::Centre);
 				break;
 		}
 	}

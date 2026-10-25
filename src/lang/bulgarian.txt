@@ -1179,9 +1179,9 @@ STR_RIVERS_MODERATE                                             :Средно
 STR_RIVERS_LOT                                                  :Много
 
 ###length 3
-STR_DISASTER_NONE                                               :Никакви
-STR_DISASTER_REDUCED                                            :Намалени
-STR_DISASTER_NORMAL                                             :Нормални
+STR_BREAKDOWNS_NONE                                             :Никакви
+STR_BREAKDOWNS_REDUCED                                          :Намалени
+STR_BREAKDOWNS_NORMAL                                           :Нормални
 
 ###length 4
 STR_SUBSIDY_X1_5                                                :x1.5
@@ -3700,6 +3700,7 @@ STR_GOALS_PROGRESS_COMPLETE                                     :{GREEN}{STRING}
 STR_GOALS_TOOLTIP_CLICK_ON_SERVICE_TO_CENTER                    :{BLACK}Кликнете на задачата, за да се центрира камерата върху фабрика/град/поле от картата. Ctrl+Click отваря прозорец с нов изглед към фабриката/града/полето от картата
 
 # Goal question window
+###length 4
 STR_GOAL_QUESTION_CAPTION_QUESTION                              :{BLACK}Въпрос
 STR_GOAL_QUESTION_CAPTION_INFORMATION                           :{BLACK}Информация
 STR_GOAL_QUESTION_CAPTION_WARNING                               :{BLACK}Внимание

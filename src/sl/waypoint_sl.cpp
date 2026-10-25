@@ -35,7 +35,7 @@ struct OldWaypoint {
 	uint8_t delete_ctr;
 	CalTime::Date build_date;
 	uint8_t localidx;
-	uint32_t grfid;
+	GrfID grfid;
 	const StationSpec *spec;
 	Owner owner;
 
@@ -173,7 +173,7 @@ static const SaveLoad _old_waypoint_desc[] = {
 	SLE_CONDVAR(OldWaypoint, build_date, SLE_FILE_U16 | SLE_VAR_I32,  SLV_3, SLV_31),
 	SLE_CONDVAR(OldWaypoint, build_date, SLE_INT32,                  SLV_31, SL_MAX_VERSION),
 	SLE_CONDVAR(OldWaypoint, localidx,   SLE_UINT8,                   SLV_3, SL_MAX_VERSION),
-	SLE_CONDVAR(OldWaypoint, grfid,      SLE_UINT32,                 SLV_17, SL_MAX_VERSION),
+	SLE_CONDVAR(OldWaypoint, grfid,      SLE_LABEL,                  SLV_17, SL_MAX_VERSION),
 	SLE_CONDVAR(OldWaypoint, owner,      SLE_UINT8,                 SLV_101, SL_MAX_VERSION),
 };
 
@@ -198,7 +198,7 @@ static void Ptrs_WAYP()
 		SlObject(&wp, _old_waypoint_desc);
 
 		if (IsSavegameVersionBefore(SLV_12)) {
-			wp.town_cn = (wp.string_id & 0xC000) == 0xC000 ? (wp.string_id >> 8) & 0x3F : 0;
+			wp.town_cn = (wp.string_id.base() & 0xC000) == 0xC000 ? (wp.string_id.base() >> 8) & 0x3F : 0;
 			wp.town = ClosestTownFromTile(wp.xy, UINT_MAX);
 		} else if (IsSavegameVersionBefore(SLV_122)) {
 			/* Only for versions 12 .. 122 */
@@ -220,7 +220,7 @@ static void Ptrs_WAYP()
 }
 
 static const ChunkHandler waypoint_chunk_handlers[] = {
-	{ 'CHKP', nullptr, Load_WAYP, Ptrs_WAYP, nullptr, CH_READONLY },
+	{ 'CHKP', nullptr, Load_WAYP, Ptrs_WAYP, nullptr, ChunkType::ReadOnly },
 };
 
 extern const ChunkHandlerTable _waypoint_chunk_handlers(waypoint_chunk_handlers);

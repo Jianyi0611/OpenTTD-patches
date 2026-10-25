@@ -24,30 +24,30 @@ Engine *GetTempDataEngine(EngineID index, VehicleType type, uint16_t local_id);
 namespace upstream_sl {
 
 static const SaveLoad _engine_desc[] = {
-	 SLE_CONDVAR(Engine, intro_date,          SLE_FILE_U16 | SLE_VAR_I32,  SL_MIN_VERSION,  SLV_31),
-	 SLE_CONDVAR(Engine, intro_date,          SLE_INT32,                  SLV_31, SL_MAX_VERSION),
-	 SLE_CONDVAR(Engine, age,                 SLE_FILE_U16 | SLE_VAR_I32,  SL_MIN_VERSION,  SLV_31),
-	 SLE_CONDVAR(Engine, age,                 SLE_INT32,                  SLV_31, SL_MAX_VERSION),
-	     SLE_VAR(Engine, reliability,         SLE_UINT16),
-	     SLE_VAR(Engine, reliability_spd_dec, SLE_UINT16),
-	     SLE_VAR(Engine, reliability_start,   SLE_UINT16),
-	     SLE_VAR(Engine, reliability_max,     SLE_UINT16),
-	     SLE_VAR(Engine, reliability_final,   SLE_UINT16),
-	     SLE_VAR(Engine, duration_phase_1,    SLE_UINT16),
-	     SLE_VAR(Engine, duration_phase_2,    SLE_UINT16),
-	     SLE_VAR(Engine, duration_phase_3,    SLE_UINT16),
-	     SLE_VAR(Engine, flags,               SLE_UINT8),
-	 SLE_CONDVAR(Engine, preview_asked,       SLE_UINT16,                SLV_179, SL_MAX_VERSION),
-	 SLE_CONDVAR(Engine, preview_company,     SLE_UINT8,                 SLV_179, SL_MAX_VERSION),
-	     SLE_VAR(Engine, preview_wait,        SLE_UINT8),
-	 SLE_CONDVAR(Engine, company_avail,       SLE_FILE_U8  | SLE_VAR_U16,  SL_MIN_VERSION, SLV_104),
-	 SLE_CONDVAR(Engine, company_avail,       SLE_UINT16,                SLV_104, SL_MAX_VERSION),
-	 SLE_CONDVAR(Engine, company_hidden,      SLE_UINT16,                SLV_193, SL_MAX_VERSION),
-	 SLE_CONDSTR(Engine, name,                SLE_STR, 0,                SLV_84, SL_MAX_VERSION),
+	 SLE_CONDVAR(Engine, intro_date, VarFileType::U16 | VarMemType::I32, SaveLoadVersion::MinVersion, SaveLoadVersion::BigDates),
+	 SLE_CONDVAR(Engine, intro_date, VarTypes::I32, SaveLoadVersion::BigDates, SaveLoadVersion::MaxVersion),
+	 SLE_CONDVAR(Engine, age, VarFileType::U16 | VarMemType::I32, SaveLoadVersion::MinVersion, SaveLoadVersion::BigDates),
+	 SLE_CONDVAR(Engine, age, VarTypes::I32, SaveLoadVersion::BigDates, SaveLoadVersion::MaxVersion),
+	     SLE_VAR(Engine, reliability,         VarTypes::U16),
+	     SLE_VAR(Engine, reliability_spd_dec, VarTypes::U16),
+	     SLE_VAR(Engine, reliability_start,   VarTypes::U16),
+	     SLE_VAR(Engine, reliability_max,     VarTypes::U16),
+	     SLE_VAR(Engine, reliability_final,   VarTypes::U16),
+	     SLE_VAR(Engine, duration_phase_1,    VarTypes::U16),
+	     SLE_VAR(Engine, duration_phase_2,    VarTypes::U16),
+	     SLE_VAR(Engine, duration_phase_3,    VarTypes::U16),
+	     SLE_VAR(Engine, flags,               VarTypes::U8),
+	 SLE_CONDVAR(Engine, preview_asked, VarTypes::U16, SaveLoadVersion::RobustEnginePreview, SaveLoadVersion::MaxVersion),
+	 SLE_CONDVAR(Engine, preview_company, VarTypes::U8, SaveLoadVersion::RobustEnginePreview, SaveLoadVersion::MaxVersion),
+	     SLE_VAR(Engine, preview_wait,        VarTypes::U8),
+	 SLE_CONDVAR(Engine, company_avail, VarFileType::U8 | VarMemType::U16, SaveLoadVersion::MinVersion, SaveLoadVersion::MoreCompanies),
+	 SLE_CONDVAR(Engine, company_avail, VarTypes::U16, SaveLoadVersion::MoreCompanies, SaveLoadVersion::MaxVersion),
+	 SLE_CONDVAR(Engine, company_hidden, VarTypes::U16, SaveLoadVersion::HideEnginesForCompany, SaveLoadVersion::MaxVersion),
+	 SLE_CONDSTR(Engine, name, VarTypes::STR, 0, SaveLoadVersion::ReplaceCustomNameArray, SaveLoadVersion::MaxVersion),
 };
 
 struct ENGNChunkHandler : ChunkHandler {
-	ENGNChunkHandler() : ChunkHandler('ENGN', CH_TABLE) {}
+	ENGNChunkHandler() : ChunkHandler("ENGN", ChunkType::Table) {}
 
 	void Save() const override
 	{
@@ -71,7 +71,7 @@ struct ENGNChunkHandler : ChunkHandler {
 			Engine *e = GetTempDataEngine(static_cast<EngineID>(index), VehicleType::Invalid, 0);
 			SlObject(e, slt);
 
-			if (IsSavegameVersionBefore(SLV_179)) {
+			if (IsSavegameVersionBefore(SaveLoadVersion::RobustEnginePreview)) {
 				/* preview_company_rank was replaced with preview_company and preview_asked.
 				 * Just cancel any previews. */
 				e->flags.Reset(EngineFlag{2}); // ENGINE_OFFER_WINDOW_OPEN
@@ -84,14 +84,14 @@ struct ENGNChunkHandler : ChunkHandler {
 
 /** Save and load the mapping between the engine id in the pool, and the grf file it came from. */
 static const SaveLoad _engine_id_mapping_desc[] = {
-	SLE_VAR(EngineIDMapping, grfid,         SLE_UINT32),
-	SLE_VAR(EngineIDMapping, internal_id,   SLE_UINT16),
-	SLE_VAR(EngineIDMapping, type,          SLE_UINT8),
-	SLE_VAR(EngineIDMapping, substitute_id, SLE_UINT8),
+	SLE_VAR(EngineIDMapping, grfid, VarTypes::LABEL),
+	SLE_VAR(EngineIDMapping, internal_id,   VarTypes::U16),
+	SLE_VAR(EngineIDMapping, type,          VarTypes::U8),
+	SLE_VAR(EngineIDMapping, substitute_id, VarTypes::U8),
 };
 
 struct EIDSChunkHandler : ChunkHandler {
-	EIDSChunkHandler() : ChunkHandler('EIDS', CH_TABLE) {}
+	EIDSChunkHandler() : ChunkHandler("EIDS", ChunkType::Table) {}
 
 	void Save() const override
 	{

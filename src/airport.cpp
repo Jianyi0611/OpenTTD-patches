@@ -85,7 +85,7 @@ void ResetAirTypes()
 			},
 			{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 }, // Icons
 			{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 }, // Cursors
-			{ 0, 0, 0, 0 }, // Strings
+			{ STR_NULL, STR_NULL, STR_NULL, STR_NULL }, // Strings
 			0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, false, false };
 	for (; i < lengthof(_airtypes); i++) _airtypes[i] = empty_airtype;
 }

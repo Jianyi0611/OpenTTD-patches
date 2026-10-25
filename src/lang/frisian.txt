@@ -1017,9 +1017,9 @@ STR_RIVERS_MODERATE                                             :Middel
 STR_RIVERS_LOT                                                  :In protte
 
 ###length 3
-STR_DISASTER_NONE                                               :Gjin
-STR_DISASTER_REDUCED                                            :Minder
-STR_DISASTER_NORMAL                                             :Gewoan
+STR_BREAKDOWNS_NONE                                             :Gjin
+STR_BREAKDOWNS_REDUCED                                          :Minder
+STR_BREAKDOWNS_NORMAL                                           :Gewoan
 
 ###length 4
 STR_SUBSIDY_X1_5                                                :x1,5
@@ -2942,6 +2942,7 @@ STR_GOALS_PROGRESS                                              :{ORANGE}{STRING
 STR_GOALS_PROGRESS_COMPLETE                                     :{GREEN}{STRING}
 
 # Goal question window
+###length 4
 STR_GOAL_QUESTION_CAPTION_QUESTION                              :Fraach
 STR_GOAL_QUESTION_CAPTION_INFORMATION                           :Ynformaasje
 STR_GOAL_QUESTION_CAPTION_WARNING                               :Warskôging

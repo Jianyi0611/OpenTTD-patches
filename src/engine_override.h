@@ -18,7 +18,7 @@
 #include <vector>
 
 struct EngineIDMapping {
-	uint32_t grfid = 0;        ///< The GRF ID of the file the entity belongs to
+	GrfID grfid{};             ///< The GRF ID of the file the entity belongs to
 	uint16_t internal_id = 0;  ///< The internal ID within the GRF file
 	VehicleType type{};        ///< The engine type
 	uint8_t substitute_id{};   ///< The (original) entity ID to use if this GRF is not available (currently not used)
@@ -34,9 +34,9 @@ struct EngineOverrideManager {
 	static const uint NUM_DEFAULT_ENGINES; ///< Number of default entries
 
 private:
-	static uint64_t HashKey(VehicleType type, uint16_t grf_local_id, uint32_t grfid)
+	static uint64_t HashKey(VehicleType type, uint16_t grf_local_id, GrfID grfid)
 	{
-		return grfid | (static_cast<uint64_t>(grf_local_id) << 32) | (static_cast<uint64_t>(type) << 48);
+		return FlattenNewGRFLabel(grfid) | (static_cast<uint64_t>(grf_local_id) << 32) | (static_cast<uint64_t>(type) << 48);
 	}
 
 	static uint64_t HashKey(const EngineIDMapping &eid)
@@ -48,7 +48,7 @@ private:
 
 public:
 	void ResetToDefaultMapping();
-	EngineID GetID(VehicleType type, uint16_t grf_local_id, uint32_t grfid);
+	EngineID GetID(VehicleType type, uint16_t grf_local_id, GrfID grfid);
 
 	void AddToIndex(EngineID id);
 	void RemoveFromIndex(EngineID id);

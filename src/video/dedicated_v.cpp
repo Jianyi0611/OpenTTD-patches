@@ -20,7 +20,7 @@
 #include "../blitter/factory.hpp"
 #include "../company_func.h"
 #include "../core/random_func.hpp"
-#include "../sl/saveload.h"
+#include "../sl/saveload_func.h"
 #include "../thread.h"
 #include "../window_func.h"
 #include <iostream>

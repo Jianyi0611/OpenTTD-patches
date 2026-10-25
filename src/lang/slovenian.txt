@@ -1160,9 +1160,9 @@ STR_RIVERS_MODERATE                                             :Srednje
 STR_RIVERS_LOT                                                  :Mnogo
 
 ###length 3
-STR_DISASTER_NONE                                               :Brez
-STR_DISASTER_REDUCED                                            :Zmanjšano
-STR_DISASTER_NORMAL                                             :Normalno
+STR_BREAKDOWNS_NONE                                             :Brez
+STR_BREAKDOWNS_REDUCED                                          :Zmanjšano
+STR_BREAKDOWNS_NORMAL                                           :Normalno
 
 ###length 4
 STR_SUBSIDY_X1_5                                                :x1,5
@@ -3223,6 +3223,7 @@ STR_GOALS_PROGRESS_COMPLETE                                     :{GREEN}{STRING}
 STR_GOALS_TOOLTIP_CLICK_ON_SERVICE_TO_CENTER                    :{BLACK}Klikni na cilj za pogled na industrijo/mesto/polje. Ctrl+Klik odpre novo okno na industrijo/mesto/polje
 
 # Goal question window
+###length 4
 STR_GOAL_QUESTION_CAPTION_QUESTION                              :Vprašanje
 STR_GOAL_QUESTION_CAPTION_INFORMATION                           :Informacije
 STR_GOAL_QUESTION_CAPTION_WARNING                               :Opozorilo

@@ -96,7 +96,7 @@ void TextfileWindow::ConstructWindow()
 	this->CreateNestedTree();
 	this->vscroll = this->GetScrollbar(WID_TF_VSCROLLBAR);
 	this->hscroll = this->GetScrollbar(WID_TF_HSCROLLBAR);
-	this->GetWidget<NWidgetCore>(WID_TF_CAPTION)->SetStringTip(STR_TEXTFILE_README_CAPTION + this->file_type, STR_TOOLTIP_WINDOW_TITLE_DRAG_THIS);
+	this->GetWidget<NWidgetCore>(WID_TF_CAPTION)->SetStringTip(STR_TEXTFILE_README_CAPTION + to_underlying(this->file_type), STR_TOOLTIP_WINDOW_TITLE_DRAG_THIS);
 	this->GetWidget<NWidgetStacked>(WID_TF_SEL_JUMPLIST)->SetDisplayedPlane(SZSP_HORIZONTAL);
 	this->FinishInitNested(this->file_type);
 
@@ -583,9 +583,9 @@ void TextfileWindow::AfterLoadMarkdown()
 		int y_offset = (top - pos) * line_height;
 		if (line.wrapped_width != 0) {
 			Rect tr = fr.WithWidth(line.wrapped_width, _current_text_dir == TD_RTL);
-			DrawStringMultiLineWithClipping(tr.left, tr.right, y_offset, y_offset + line.num_lines * line_height, line.text, line.colour, SA_TOP | SA_LEFT, false, FontSize::Monospace);
+			DrawStringMultiLineWithClipping(tr.left, tr.right, y_offset, y_offset + line.num_lines * line_height, line.text, line.colour, {AlignmentH::Start, AlignmentV::Top}, false, FontSize::Monospace);
 		} else {
-			DrawString(fr.left, fr.right, y_offset, line.text, line.colour, SA_TOP | SA_LEFT, false, FontSize::Monospace);
+			DrawString(fr.left, fr.right, y_offset, line.text, line.colour, {AlignmentH::Start, AlignmentV::Top}, false, FontSize::Monospace);
 		}
 	}
 }
@@ -928,15 +928,14 @@ void TextfileWindow::LoadText(std::string_view buf)
  */
 std::optional<std::string> GetTextfile(TextfileType type, Subdirectory dir, std::string_view filename)
 {
-	static const std::string_view prefixes[] = {
+	static const EnumIndexArray<std::string_view, TextfileType, TextfileType::ContentEnd> prefixes = {
 		"readme",
 		"changelog",
 		"license",
 	};
-	static_assert(lengthof(prefixes) == TFT_CONTENT_END);
 
 	/* Only the generic text file types allowed for this function */
-	if (type >= TFT_CONTENT_END) return std::nullopt;
+	if (type >= TextfileType::ContentEnd) return std::nullopt;
 
 	std::string_view prefix = prefixes[type];
 

@@ -22,6 +22,8 @@ add_files(
     geometry_type.hpp
     integer_type.hpp
     kdtree.hpp
+    label.cpp
+    label_type.hpp
     math_func.cpp
     math_func.hpp
     mem_func.hpp

@@ -129,22 +129,22 @@ public:
  * when we have to load/remove it from the old versus reading it from the new
  * location. These versions assist with situations like that.
  */
-enum IniFileVersion : uint32_t {
-	IFV_0,                                                 ///< 0  All versions prior to introduction.
-	IFV_PRIVATE_SECRETS,                                   ///< 1  PR#9298  Moving of settings from openttd.cfg to private.cfg / secrets.cfg.
-	IFV_GAME_TYPE,                                         ///< 2  PR#9515  Convert server_advertise to server_game_type.
-	IFV_LINKGRAPH_SECONDS,                                 ///< 3  PR#10610 Store linkgraph update intervals in seconds instead of days.
-	IFV_NETWORK_PRIVATE_SETTINGS,                          ///< 4  PR#10762 Move use_relay_service to private settings.
+enum class IniFileVersion : uint16_t {
+	MinVersion, ///< IniFile Version: 0, All versions prior to introduction.
+	PrivateSecrets, ///< IniFile version: 1, GitHub pull request 9298\n  Moving of settings from openttd.cfg to private.cfg / secrets.cfg.
+	GameType, ///< IniFile version: 2, GitHub pull request 9515\n  Convert server_advertise to server_game_type.
+	LinkgraphSeconds, ///< IniFile version: 3, GitHub pull request 10610\n Store linkgraph update intervals in seconds instead of days.
+	NetworkPrivateSettings, ///< IniFile version: 4, GitHub pull request 10762\n Move use_relay_service to private settings.
 
-	IFV_AUTOSAVE_RENAME,                                   ///< 5  PR#11143 Renamed values of autosave to be in minutes.
-	IFV_RIGHT_CLICK_CLOSE,                                 ///< 6  PR#10204 Add alternative right click to close windows setting.
-	IFV_REMOVE_GENERATION_SEED,                            ///< 7  PR#11927 Remove "generation_seed" from configuration.
-	IFV_DEFAULT_RAIL_ROAD,                                 ///< 8  PR#15585 Update default rail type setting to support road and tram tiles
+	AutosaveRename, ///< IniFile version: 5, GitHub pull request 11143\n Renamed values of autosave to be in minutes.
+	RightClickClose, ///< IniFile version: 6, GitHub pull request 10204\n Add alternative right click to close windows setting.
+	RemoveGenerationSeed, ///< IniFile version: 7, GitHub pull request 11927\n Remove "generation_seed" from configuration.
+	DefaultRailRoad, ///< IniFile version: 8, GitHub pull request 15585\n Update default rail type setting to support road and tram tiles.
 
-	IFV_MAX_VERSION,       ///< Highest possible ini-file version.
+	MaxVersion, ///< Highest possible ini-file version.
 };
 
-const uint16_t INIFILE_VERSION = (IniFileVersion)(IFV_MAX_VERSION - 1); ///< Current ini-file version of OpenTTD.
+const IniFileVersion INIFILE_VERSION{to_underlying(IniFileVersion::MaxVersion) - 1}; ///< Current ini-file version of OpenTTD.
 
 /**
  * Find whether a string was a valid int setting
@@ -269,7 +269,7 @@ static std::optional<std::vector<uint32_t>> ParseIntList(std::string_view str)
  * @param type the type of elements the array holds (eg INT8, UINT16, etc.)
  * @return return true on success and false on error
  */
-static bool LoadIntList(std::optional<std::string_view> str, void *array, int nelems, VarType type)
+static bool LoadIntList(std::optional<std::string_view> str, void *array, int nelems, VarMemType type)
 {
 	size_t elem_size = SlVarSize(type);
 	std::byte *p = static_cast<std::byte *>(array);
@@ -300,7 +300,7 @@ void ListSettingDesc::FormatValue(format_target &buf, const void *object) const
 	int i, v = 0;
 
 	for (i = 0; i != this->save.length; i++) {
-		switch (GetVarMemType(this->save.conv)) {
+		switch (this->save.conv.mem) {
 			case SLE_VAR_BL:
 			case SLE_VAR_I8:  v = *(const   int8_t *)p; p += 1; break;
 			case SLE_VAR_U8:  v = *(const  uint8_t *)p; p += 1; break;
@@ -531,7 +531,7 @@ void IntSettingDesc::MakeValueValid(int32_t &val) const
 	 * supported. Unsigned 8 and 16-bit variables are safe since they fit into a signed
 	 * 32-bit variable
 	 * TODO: Support 64-bit settings/variables; requires 64 bit over command protocol! */
-	switch (GetVarMemType(this->save.conv)) {
+	switch (this->save.conv.mem) {
 		case SLE_VAR_NULL: return;
 		case SLE_VAR_BL:
 		case SLE_VAR_I8:
@@ -588,7 +588,7 @@ void IntSettingDesc::MakeValueValid(int32_t &val) const
 void IntSettingDesc::Write(const void *object, int32_t val) const
 {
 	void *ptr = GetVariableAddress(object, this->save);
-	WriteValue(ptr, this->save.conv, (int64_t)val);
+	WriteValue(ptr, this->save.conv.mem, (int64_t)val);
 }
 
 /**
@@ -599,7 +599,7 @@ void IntSettingDesc::Write(const void *object, int32_t val) const
 int32_t IntSettingDesc::Read(const void *object) const
 {
 	void *ptr = GetVariableAddress(object, this->save);
-	return (int32_t)ReadValue(ptr, this->save.conv);
+	return (int32_t)ReadValue(ptr, this->save.conv.mem);
 }
 
 /**
@@ -736,13 +736,13 @@ void ListSettingDesc::ParseValue(const IniItem *item, void *object) const
 		str = this->def;
 	}
 	void *ptr = GetVariableAddress(object, this->save);
-	if (!LoadIntList(str, ptr, this->save.length, GetVarMemType(this->save.conv))) {
+	if (!LoadIntList(str, ptr, this->save.length, this->save.conv.mem)) {
 		_settings_error_list.emplace_back(
 			GetEncodedString(STR_CONFIG_ERROR),
 			GetEncodedString(STR_CONFIG_ERROR_ARRAY, this->name));
 
 		/* Use default */
-		LoadIntList(this->def, ptr, this->save.length, GetVarMemType(this->save.conv));
+		LoadIntList(this->def, ptr, this->save.length, this->save.conv.mem);
 	}
 }
 
@@ -834,7 +834,7 @@ void IntSettingDesc::ResetToDefault(void *object) const
 void StringSettingDesc::FormatValue(format_target &buf, const void *object) const
 {
 	const std::string &str = this->Read(object);
-	switch (GetVarMemType(this->save.conv)) {
+	switch (this->save.conv.mem) {
 		case SLE_VAR_STR:
 			buf.append(str);
 			break;
@@ -853,7 +853,7 @@ bool StringSettingDesc::IsSameValue(const IniItem *item, void *object) const
 {
 	/* The ini parsing removes the quotes, which are needed to retain the spaces in STRQs,
 	 * so those values are always different in the parsed ini item than they should be. */
-	if (GetVarMemType(this->save.conv) == SLE_VAR_STRQ) return false;
+	if (this->save.conv.mem == SLE_VAR_STRQ) return false;
 
 	const std::string &str = this->Read(object);
 	return item->value->compare(str) == 0;
@@ -1179,7 +1179,7 @@ static GRFConfigList GRFLoadConfig(const IniFile &ini, std::string_view grpname,
 	for (const IniItem &item : group->items) {
 		std::unique_ptr<GRFConfig> c{};
 
-		std::array<uint8_t, 4> grfid_buf;
+		GrfID grfid;
 		MD5Hash md5sum;
 		std::string_view item_name = item.name;
 		bool has_md5sum = false;
@@ -1189,7 +1189,7 @@ static GRFConfigList GRFLoadConfig(const IniFile &ini, std::string_view grpname,
 		if (grfid_pos != std::string_view::npos) {
 			std::string_view grfid_str = item_name.substr(0, grfid_pos);
 
-			if (ConvertHexToBytes(grfid_str, grfid_buf)) {
+			if (ConvertHexToBytes(grfid_str, grfid)) {
 				item_name = item_name.substr(grfid_pos + 1);
 
 				auto md5sum_pos = item_name.find("|");
@@ -1200,7 +1200,6 @@ static GRFConfigList GRFLoadConfig(const IniFile &ini, std::string_view grpname,
 					if (has_md5sum) item_name = item_name.substr(md5sum_pos + 1);
 				}
 
-				uint32_t grfid = grfid_buf[0] | (grfid_buf[1] << 8) | (grfid_buf[2] << 16) | (grfid_buf[3] << 24);
 				if (has_md5sum) {
 					const GRFConfig *s = FindGRFConfig(grfid, FindGRFConfigMode::Exact, &md5sum);
 					if (s != nullptr) c = std::make_unique<GRFConfig>(*s);
@@ -1277,14 +1276,14 @@ static GRFConfigList GRFLoadConfig(const IniFile &ini, std::string_view grpname,
 static IniFileVersion LoadVersionFromConfig(const IniFile &ini)
 {
 	const IniGroup *group = ini.GetGroup("version");
-	if (group == nullptr) return IFV_0;
+	if (group == nullptr) return IniFileVersion::MinVersion;
 
 	auto version_number = group->GetItem("ini_version");
 	/* Older ini-file versions don't have this key yet. */
-	if (version_number == nullptr || !version_number->value.has_value()) return IFV_0;
+	if (version_number == nullptr || !version_number->value.has_value()) return IniFileVersion::MinVersion;
 
 	auto version_result = IntFromChars<uint32_t>(*version_number->value);
-	if (!version_result.has_value()) return IFV_0;
+	if (!version_result.has_value()) return IniFileVersion::MinVersion;
 
 	return static_cast<IniFileVersion>(*version_result);
 }
@@ -1370,7 +1369,7 @@ static void GRFSaveConfig(IniFile &ini, std::string_view grpname, const GRFConfi
 	for (const auto &c : list) {
 		/* Hex grfid (4 bytes in nibbles), "|", hex md5sum (16 bytes in nibbles), "|", file system path. */
 		format_buffer key;
-		key.format("{:08X}|{}|{}", std::byteswap(c->ident.grfid), c->ident.md5sum, c->filename);
+		key.format("{}|{}|{}", c->ident.grfid, c->ident.md5sum, c->filename);
 		group.GetOrCreateItem(key).SetValue(GRFBuildParamList(*c));
 	}
 }
@@ -1514,7 +1513,7 @@ void LoadFromConfig(bool startup)
 	HandleSettingDescs(generic_ini, IniLoadSettings, IniLoadSettingList, startup);
 
 	/* Before the split of private/secrets, we have to look in the generic for these settings. */
-	if (generic_version < IFV_PRIVATE_SECRETS) {
+	if (generic_version < IniFileVersion::PrivateSecrets) {
 		HandlePrivateSettingDescs(generic_ini, IniLoadSettings, IniLoadSettingList, startup);
 		HandleSecretsSettingDescs(generic_ini, IniLoadSettings, IniLoadSettingList, startup);
 	} else {
@@ -1524,13 +1523,13 @@ void LoadFromConfig(bool startup)
 
 	/* Load basic settings only during bootstrap, load other settings not during bootstrap */
 	if (!startup) {
-		if (generic_version < IFV_LINKGRAPH_SECONDS) {
+		if (generic_version < IniFileVersion::LinkgraphSeconds) {
 			_settings_newgame.linkgraph.recalc_interval *= SECONDS_PER_DAY;
 			_settings_newgame.linkgraph.recalc_time     *= SECONDS_PER_DAY;
 		}
 
 		/* Move use_relay_service from generic_ini to private_ini. */
-		if (generic_version < IFV_NETWORK_PRIVATE_SETTINGS) {
+		if (generic_version < IniFileVersion::NetworkPrivateSettings) {
 			const IniGroup *network = generic_ini.GetGroup("network");
 			if (network != nullptr) {
 				const IniItem *use_relay_service = network->GetItem("use_relay_service");
@@ -1548,12 +1547,12 @@ void LoadFromConfig(bool startup)
 
 		const IniItem *old_item;
 
-		if (generic_version < IFV_GAME_TYPE && IsConversionNeeded(generic_ini, "network", "server_advertise", "server_game_type", &old_item)) {
+		if (generic_version < IniFileVersion::GameType && IsConversionNeeded(generic_ini, "network", "server_advertise", "server_game_type", &old_item)) {
 			auto old_value = BoolSettingDesc::ParseSingleValue(*old_item->value);
 			_settings_client.network.server_game_type = old_value.value_or(false) ? ServerGameType::Public : ServerGameType::Local;
 		}
 
-		if (generic_version < IFV_AUTOSAVE_RENAME && IsConversionNeeded(generic_ini, "gui", "autosave", "autosave_interval", &old_item)) {
+		if (generic_version < IniFileVersion::AutosaveRename && IsConversionNeeded(generic_ini, "gui", "autosave", "autosave_interval", &old_item)) {
 			static constexpr std::initializer_list<const char *> _old_autosave_interval{"off", "monthly", "quarterly", "half year", "yearly", "custom_days", "custom_realtime_minutes"};
 			auto old_value = OneOfManySettingDesc::ParseSingleValue(*old_item->value, _old_autosave_interval);
 
@@ -1584,12 +1583,12 @@ void LoadFromConfig(bool startup)
 		}
 
 		/* Persist the right click close option from older versions. */
-		if (generic_version < IFV_RIGHT_CLICK_CLOSE && IsConversionNeeded(generic_ini, "gui", "right_mouse_wnd_close", "right_click_wnd_close", &old_item)) {
+		if (generic_version < IniFileVersion::RightClickClose && IsConversionNeeded(generic_ini, "gui", "right_mouse_wnd_close", "right_click_wnd_close", &old_item)) {
 			auto old_value = BoolSettingDesc::ParseSingleValue(*old_item->value);
 			_settings_client.gui.right_click_wnd_close = old_value.value_or(false) ? RightClickClose::Yes : RightClickClose::No;
 		}
 
-		if (generic_version < IFV_DEFAULT_RAIL_ROAD && IsConversionNeeded(generic_ini, "gui", "default_rail_type", "default_rail_road_type", &old_item)) {
+		if (generic_version < IniFileVersion::DefaultRailRoad && IsConversionNeeded(generic_ini, "gui", "default_rail_type", "default_rail_road_type", &old_item)) {
 			auto old_value = IntSettingDesc::ParseSingleValue(*old_item->value, 0, 2);
 			_settings_client.gui.default_rail_road_type = static_cast<DefaultRailRoadType>(old_value.value_or(0));
 		}
@@ -1669,7 +1668,7 @@ void SaveToConfig(SaveToConfigFlags flags)
 
 	IniFileVersion generic_version = LoadVersionFromConfig(generic_ini);
 
-	if (generic_version == IFV_0) {
+	if (generic_version == IniFileVersion::MinVersion) {
 		/* Remove some obsolete groups. These have all been loaded into other groups. */
 		generic_ini.RemoveGroup("patches");
 		generic_ini.RemoveGroup("yapf");
@@ -1689,7 +1688,7 @@ void SaveToConfig(SaveToConfigFlags flags)
 		}
 	}
 
-	if (generic_version < IFV_REMOVE_GENERATION_SEED) {
+	if (generic_version < IniFileVersion::RemoveGenerationSeed) {
 		IniGroup *game_creation = generic_ini.GetGroup("game_creation");
 		if (game_creation != nullptr) {
 			game_creation->RemoveItem("generation_seed");
@@ -1697,7 +1696,7 @@ void SaveToConfig(SaveToConfigFlags flags)
 	}
 
 	/* These variables are migrated from generic ini to private ini now. */
-	if (generic_version < IFV_NETWORK_PRIVATE_SETTINGS) {
+	if (generic_version < IniFileVersion::NetworkPrivateSettings) {
 		IniGroup *network = generic_ini.GetGroup("network");
 		if (network != nullptr) {
 			network->RemoveItem("use_relay_service");
@@ -2060,7 +2059,7 @@ bool SetSettingValue(const StringSettingDesc *sd, std::string_view value, bool f
 {
 	assert(sd->flags.Test(SettingFlag::NoNetworkSync));
 
-	if (GetVarMemType(sd->save.conv) == SLE_VAR_STRQ && value == "(null)") {
+	if (sd->save.conv.mem == SLE_VAR_STRQ && value == "(null)") {
 		value = {};
 	}
 
@@ -2561,23 +2560,25 @@ static void Check_PATX()
 }
 
 static const ChunkHandler setting_chunk_handlers[] = {
-	{ 'OPTS', nullptr,   Load_OPTS, nullptr, nullptr,    CH_READONLY },
+	{ 'OPTS', nullptr,   Load_OPTS, nullptr, nullptr,    ChunkType::ReadOnly },
 	MakeSaveUpstreamFeatureConditionalLoadUpstreamChunkHandler<'PATS', XSLFI_TABLE_PATS>(Load_PATS, nullptr, Check_PATS),
-	{ 'PATX', nullptr,   Load_PATX, nullptr, Check_PATX, CH_READONLY },
+	{ 'PATX', nullptr,   Load_PATX, nullptr, Check_PATX, ChunkType::ReadOnly },
 };
 
 extern const ChunkHandlerTable _setting_chunk_handlers(setting_chunk_handlers);
 
 static bool IsSignedVarMemType(VarType vt)
 {
-	switch (GetVarMemType(vt)) {
+	switch (vt.mem) {
 		case SLE_VAR_I8:
 		case SLE_VAR_I16:
 		case SLE_VAR_I32:
 		case SLE_VAR_I64:
 			return true;
+
+		default:
+			return false;
 	}
-	return false;
 }
 
 void SetupTimeSettings()

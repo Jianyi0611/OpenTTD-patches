@@ -245,7 +245,7 @@ public:
 				auto [first, last] = this->vscroll->GetVisibleRangeIterators(this->bridges);
 				for (auto it = first; it != last; ++it) {
 					const BridgeSpec *b = it->spec;
-					DrawSpriteIgnorePadding(b->sprite, b->pal, tr.WithWidth(this->icon_width, rtl), SA_HOR_CENTER | SA_BOTTOM);
+					DrawSpriteIgnorePadding(b->sprite, b->pal, tr.WithWidth(this->icon_width, rtl), {AlignmentH::Centre, AlignmentV::Bottom});
 					DrawStringMultiLineWithClipping(tr.Indent(this->icon_width + WidgetDimensions::scaled.hsep_normal, rtl), GetBridgeSelectString(*it));
 					tr = tr.Translate(0, this->resize.step_height);
 				}
@@ -390,12 +390,12 @@ void ShowBuildBridgeWindow(TileIndex start, TileIndex end, TransportType transpo
 	CommandCost ret = Command<Commands::BuildBridge>::Do(CommandFlagsToDCFlags(GetCommandFlags<Commands::BuildBridge>()).Set(DoCommandFlag::QueryCost), end, start, transport_type, 0, road_rail_type, BuildBridgeFlags::None);
 
 	auto is_per_bridge_type_error_string = [](StringID error_msg) -> bool {
-		switch (error_msg) {
-			case STR_ERROR_BRIDGE_PILLARS_OBSTRUCT_STATION:
-			case STR_ERROR_BRIDGE_PILLARS_OBSTRUCT_LOCKS:
-			case STR_ERROR_BRIDGE_PILLARS_OBSTRUCT_TRAIN_DEPOT:
-			case STR_ERROR_BRIDGE_PILLARS_OBSTRUCT_ROADVEH_DEPOT:
-			case STR_ERROR_BRIDGE_PILLARS_OBSTRUCT_SHIP_DEPOT:
+		switch (error_msg.base()) {
+			case STR_ERROR_BRIDGE_PILLARS_OBSTRUCT_STATION.base():
+			case STR_ERROR_BRIDGE_PILLARS_OBSTRUCT_LOCKS.base():
+			case STR_ERROR_BRIDGE_PILLARS_OBSTRUCT_TRAIN_DEPOT.base():
+			case STR_ERROR_BRIDGE_PILLARS_OBSTRUCT_ROADVEH_DEPOT.base():
+			case STR_ERROR_BRIDGE_PILLARS_OBSTRUCT_SHIP_DEPOT.base():
 				return true;
 
 			default:

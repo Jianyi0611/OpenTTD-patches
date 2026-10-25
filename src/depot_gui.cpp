@@ -180,7 +180,7 @@ static void InitBlocksizeForVehicles(VehicleType type, EngineImageType image_typ
 {
 	int max_extend_left  = 0;
 	int max_extend_right = 0;
-	uint max_height = 0;
+	uint height = 0;
 
 	for (const Engine *e : Engine::IterateType(type)) {
 		if (!e->IsEnabled()) continue;
@@ -196,7 +196,7 @@ static void InitBlocksizeForVehicles(VehicleType type, EngineImageType image_typ
 			case VehicleType::Ship: GetShipSpriteSize(eid, x, y, x_offs, y_offs, image_type); break;
 			case VehicleType::Aircraft: GetAircraftSpriteSize(eid, x, y, x_offs, y_offs, image_type); break;
 		}
-		if (y > max_height) max_height = y;
+		if (y > height) height = y;
 		if (-x_offs > max_extend_left) max_extend_left = -x_offs;
 		if ((int)x + x_offs > max_extend_right) max_extend_right = x + x_offs;
 	}
@@ -204,15 +204,19 @@ static void InitBlocksizeForVehicles(VehicleType type, EngineImageType image_typ
 	int min_extend = ScaleSpriteTrad(16);
 	int max_extend = ScaleSpriteTrad(98);
 
+	/* Limit sprite height to limits based on original design height to prevent window size running away. */
+	int min_height = ScaleSpriteTrad(GetVehicleHeight(type));
+	int max_height = min_height + min_height / 2;
+
 	switch (image_type) {
 		case EngineImageType::InDepot:
-			_base_block_sizes_depot[type].height       = std::max<uint>(ScaleSpriteTrad(GetVehicleHeight(type)), max_height);
-			_base_block_sizes_depot[type].extend_left  = Clamp(max_extend_left, min_extend, max_extend);
+			_base_block_sizes_depot[type].height = Clamp(height, min_height, max_height);
+			_base_block_sizes_depot[type].extend_left = Clamp(max_extend_left, min_extend, max_extend);
 			_base_block_sizes_depot[type].extend_right = Clamp(max_extend_right, min_extend, max_extend);
 			break;
 		case EngineImageType::Purchase:
-			_base_block_sizes_purchase[type].height       = std::max<uint>(ScaleSpriteTrad(GetVehicleHeight(type)), max_height);
-			_base_block_sizes_purchase[type].extend_left  = Clamp(max_extend_left, min_extend, max_extend);
+			_base_block_sizes_purchase[type].height = Clamp(height, min_height, max_height);
+			_base_block_sizes_purchase[type].extend_left = Clamp(max_extend_left, min_extend, max_extend);
 			_base_block_sizes_purchase[type].extend_right = Clamp(max_extend_right, min_extend, max_extend);
 			break;
 
@@ -378,7 +382,7 @@ struct DepotWindow : Window {
 				Rect count = text.WithWidth(this->count_width - WidgetDimensions::scaled.hsep_normal, !rtl);
 				DrawString(count.left, count.right, count.bottom - GetCharacterHeight(FontSize::Small) + 1,
 						GetString(STR_JUST_DECIMAL, CeilDiv(length * 10, TILE_SIZE), 1),
-						TextColour::Black, SA_RIGHT | SA_FORCE, false, FontSize::Small); // Draw the counter
+						TextColour::Black, AlignmentH::ForceRight, false, FontSize::Small); // Draw the counter
 				break;
 			}
 
@@ -407,7 +411,7 @@ struct DepotWindow : Window {
 			 * primary vehicle; the drawn images come from the chain head. */
 			const Vehicle *ident = v->Primary();
 			Rect flag = r.WithWidth(this->flag_size.width, rtl).WithHeight(this->flag_size.height).Translate(0, diff_y);
-			DrawSpriteIgnorePadding((ident->vehstatus.Test(VehState::Stopped)) ? SPR_FLAG_VEH_STOPPED : SPR_FLAG_VEH_RUNNING, PAL_NONE, flag, SA_CENTER);
+			DrawSpriteIgnorePadding((ident->vehstatus.Test(VehState::Stopped)) ? SPR_FLAG_VEH_STOPPED : SPR_FLAG_VEH_RUNNING, PAL_NONE, flag, {AlignmentH::Centre, AlignmentV::Middle});
 
 			DrawString(text, GetString(STR_JUST_COMMA, ident->unitnumber), (ident->max_age - DAYS_IN_LEAP_YEAR) >= ident->age || (ident->type == VehicleType::Train && Train::From(ident)->IsFrontWagon()) ? TextColour::Black : TextColour::Red);
 		}

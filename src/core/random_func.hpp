@@ -12,11 +12,6 @@
 
 #include "bitmath_func.hpp"
 
-#if defined(__APPLE__)
-	/* Apple already has Random declared */
-#	define Random OTTD_Random
-#endif /* __APPLE__ */
-
 /**
  * Structure to encapsulate the pseudo random number generators.
  */
@@ -74,14 +69,16 @@ void SetRandomSeed(uint32_t seed);
 void InitialiseRandomSeeds();
 
 #ifdef RANDOM_DEBUG
-#	ifdef __APPLE__
-#		define OTTD_Random() DoRandom(__LINE__, __FILE__)
-#	else
-#		define Random() DoRandom(__LINE__, __FILE__)
-#	endif
+#	define Random() DoRandom(__LINE__, __FILE__)
 	uint32_t DoRandom(int line, const char *file);
 #	define RandomRange(limit) DoRandomRange(limit, __LINE__, __FILE__)
 	uint32_t DoRandomRange(uint32_t limit, int line, const char *file);
+
+	template <typename T> requires std::is_enum_v<T>
+	inline T DoRandomRange(T limit, int line, const char *file)
+	{
+		return static_cast<T>(DoRandomRange(to_underlying(limit), line, file));
+	}
 #else
 	static inline uint32_t Random()
 	{
@@ -98,6 +95,13 @@ void InitialiseRandomSeeds();
 	static inline uint32_t RandomRange(uint32_t limit)
 	{
 		return _random.Next(limit);
+	}
+
+	/** @copydoc RandomRange */
+	template <typename T> requires std::is_enum_v<T>
+	inline T RandomRange(T limit)
+	{
+		return static_cast<T>(RandomRange(to_underlying(limit)));
 	}
 #endif
 

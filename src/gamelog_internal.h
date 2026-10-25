@@ -56,14 +56,14 @@ struct LoggedChange {
 		} oldver;
 		GRFIdentifier grfadd;    ///< ID and md5sum of added GRF
 		struct {
-			uint32_t grfid;      ///< ID of removed GRF
+			GrfID grfid;         ///< ID of removed GRF
 		} grfrem;
 		GRFIdentifier grfcompat; ///< ID and new md5sum of changed GRF
 		struct {
-			uint32_t grfid;      ///< ID of GRF with changed parameters
+			GrfID grfid;         ///< ID of GRF with changed parameters
 		} grfparam;
 		struct {
-			uint32_t grfid;      ///< ID of moved GRF
+			GrfID grfid;         ///< ID of moved GRF
 			int32_t offset;      ///< offset, positive = move down
 		} grfmove;
 		struct {
@@ -73,7 +73,7 @@ struct LoggedChange {
 		} setting;
 		struct {
 			uint64_t data;       ///< additional data
-			uint32_t grfid;      ///< ID of problematic GRF
+			GrfID grfid;         ///< ID of problematic GRF
 			GRFBug bug;          ///< type of bug, @see enum GRFBugs
 		} grfbug;
 	};

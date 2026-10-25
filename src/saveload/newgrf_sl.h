@@ -15,10 +15,16 @@
 
 namespace upstream_sl {
 
+/** Chunk handler for data of the OverrideManagerBase. */
 struct NewGRFMappingChunkHandler : ChunkHandler {
-	OverrideManagerBase &mapping;
+	OverrideManagerBase &mapping; ///< The override manager to save/load.
 
-	NewGRFMappingChunkHandler(uint32_t id, OverrideManagerBase &mapping) : ChunkHandler(id, CH_TABLE), mapping(mapping) {}
+	/**
+	 * Create the handler.
+	 * @param id The identifier of the chunk
+	 * @param mapping The override manager to save/load.
+	 */
+	NewGRFMappingChunkHandler(ChunkId id, OverrideManagerBase &mapping) : ChunkHandler(id, ChunkType::Table), mapping(mapping) {}
 	void Save() const override;
 	void Load() const override;
 };

@@ -27,25 +27,25 @@ namespace upstream_sl {
 SaveLoadTable GetCargoPacketDesc()
 {
 	static const SaveLoad _cargopacket_desc[] = {
-		SLE_VARNAME(CargoPacket, first_station, "source", SLE_UINT16),
-		SLE_VAR(CargoPacket, source_xy,       SLE_UINT32),
-		SLE_CONDVARNAME(CargoPacket, next_hop, "loaded_at_xy", SLE_FILE_U32 | SLE_VAR_U16, SL_MIN_VERSION, SLV_REMOVE_LOADED_AT_XY),
-		SLE_CONDVARNAME(CargoPacket, next_hop, "loaded_at_xy", SLE_UINT16, SLV_REMOVE_LOADED_AT_XY, SL_MAX_VERSION),
-		SLE_VAR(CargoPacket, count,           SLE_UINT16),
-		SLE_CONDVARNAME(CargoPacket, periods_in_transit, "days_in_transit", SLE_FILE_U8 | SLE_VAR_U16, SL_MIN_VERSION, SLV_MORE_CARGO_AGE),
-		SLE_CONDVARNAME(CargoPacket, periods_in_transit, "days_in_transit", SLE_UINT16, SLV_MORE_CARGO_AGE, SLV_PERIODS_IN_TRANSIT_RENAME),
-		SLE_CONDVAR(CargoPacket, periods_in_transit, SLE_UINT16, SLV_PERIODS_IN_TRANSIT_RENAME, SL_MAX_VERSION),
-		SLE_VAR(CargoPacket, feeder_share,    SLE_INT64),
-		SLE_CONDVARNAME(CargoPacket, source.type, "source_type", SLE_UINT8, SLV_125, SL_MAX_VERSION),
-		SLE_CONDVARNAME(CargoPacket, source.id,   "source_id",   SLE_UINT16, SLV_125, SL_MAX_VERSION),
-		SLE_CONDVAR(CargoPacket, travelled.x, SLE_FILE_I16 | SLE_VAR_I32, SLV_CARGO_TRAVELLED, SL_MAX_VERSION),
-		SLE_CONDVAR(CargoPacket, travelled.y, SLE_FILE_I16 | SLE_VAR_I32, SLV_CARGO_TRAVELLED, SL_MAX_VERSION),
+		SLE_VARNAME(CargoPacket, first_station, "source", VarTypes::U16),
+		SLE_VAR(CargoPacket, source_xy,       VarTypes::U32),
+		SLE_CONDVARNAME(CargoPacket, next_hop, "loaded_at_xy", VarFileType::U32 | VarMemType::U16, SaveLoadVersion::MinVersion, SaveLoadVersion::RemoveLoadedAtXY),
+		SLE_CONDVARNAME(CargoPacket, next_hop, "loaded_at_xy", VarTypes::U16, SaveLoadVersion::RemoveLoadedAtXY, SaveLoadVersion::MaxVersion),
+		SLE_VAR(CargoPacket, count,           VarTypes::U16),
+		SLE_CONDVARNAME(CargoPacket, periods_in_transit, "days_in_transit", VarFileType::U8 | VarMemType::U16, SaveLoadVersion::MinVersion, SaveLoadVersion::MoreCargoAge),
+		SLE_CONDVARNAME(CargoPacket, periods_in_transit, "days_in_transit", VarTypes::U16, SaveLoadVersion::MoreCargoAge, SaveLoadVersion::PeriodsInTransitRename),
+		SLE_CONDVAR(CargoPacket, periods_in_transit, VarTypes::U16, SaveLoadVersion::PeriodsInTransitRename, SaveLoadVersion::MaxVersion),
+		SLE_VAR(CargoPacket, feeder_share,    VarTypes::I64),
+		SLE_CONDVARNAME(CargoPacket, source.type, "source_type", VarTypes::U8, SaveLoadVersion::RemoveSubsidyStationBinding, SaveLoadVersion::MaxVersion),
+		SLE_CONDVARNAME(CargoPacket, source.id,   "source_id",   VarTypes::U16, SaveLoadVersion::RemoveSubsidyStationBinding, SaveLoadVersion::MaxVersion),
+		SLE_CONDVAR(CargoPacket, travelled.x, VarFileType::I16 | VarMemType::I32, SaveLoadVersion::CargoTravelled, SaveLoadVersion::MaxVersion),
+		SLE_CONDVAR(CargoPacket, travelled.y, VarFileType::I16 | VarMemType::I32, SaveLoadVersion::CargoTravelled, SaveLoadVersion::MaxVersion),
 	};
 	return _cargopacket_desc;
 }
 
 struct CAPAChunkHandler : ChunkHandler {
-	CAPAChunkHandler() : ChunkHandler('CAPA', CH_TABLE) {}
+	CAPAChunkHandler() : ChunkHandler("CAPA", ChunkType::Table) {}
 
 	void Save() const override
 	{

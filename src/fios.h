@@ -10,11 +10,13 @@
 #ifndef FIOS_H
 #define FIOS_H
 
-#include "gfx_type.h"
 #include "company_base.h"
 #include "newgrf_config.h"
 #include "network/core/tcp_content_type.h"
 #include "order_type.h"
+#include "vehiclelist.h"
+#include <optional>
+#include <variant>
 #include <vector>
 
 
@@ -60,7 +62,11 @@ struct FiosOrderListInfo {
 			: veh(veh), order_insert_index(order_insert_index), reverse(reverse) {}
 };
 
-void ShowSaveLoadDialog(AbstractFileType abstract_filetype, SaveLoadOperation fop, std::optional<FiosOrderListInfo> order_list_info = std::nullopt);
+using FiosExtraInfo = std::variant<std::monostate, VehicleListIdentifier, FiosOrderListInfo>;
+
+void ShowSaveLoadDialog(AbstractFileType abstract_filetype, SaveLoadOperation fop, FiosOrderListInfo order_list_info);
+void ShowSaveLoadDialog(AbstractFileType abstract_filetype, SaveLoadOperation fop, VehicleListIdentifier vehicle_list);
+void ShowSaveLoadDialog(AbstractFileType abstract_filetype, SaveLoadOperation fop);
 
 void FiosGetSavegameList(SaveLoadOperation fop, bool show_dirs, FileList &file_list);
 void FiosGetScenarioList(SaveLoadOperation fop, bool show_dirs, FileList &file_list);

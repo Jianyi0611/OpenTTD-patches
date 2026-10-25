@@ -25,6 +25,7 @@
 #include "base_media_music.h"
 #include "base_media_sounds.h"
 #include "sl/saveload.h"
+#include "sl/saveload_func.h"
 #include "company_cmd.h"
 #include "company_func.h"
 #include "company_gui.h"
@@ -318,7 +319,7 @@ static void WriteSavegameInfo(const char *name)
 	buffer.append("NewGRFs:\n");
 	if (_load_check_data.HasNewGrfs()) {
 		for (const auto &c : _load_check_data.grfconfig) {
-			buffer.format("{:08X} {} {}\n", std::byteswap(c->ident.grfid), c->flags.Test(GRFConfigFlag::Compatible) ? c->original_md5sum : c->ident.md5sum, c->filename);
+			buffer.format("{} {} {}\n", c->ident.grfid, c->flags.Test(GRFConfigFlag::Compatible) ? c->original_md5sum : c->ident.md5sum, c->filename);
 		}
 	}
 
@@ -1519,9 +1520,9 @@ void WriteVehicleInfo(format_target &buffer, const Vehicle *u, const Vehicle *v,
 	buffer.format(": type {}, vehicle {} ({}), company {}, unit number {}, wagon {}, engine: ",
 			u->type, u->index, v->index, u->owner, v->unitnumber, length);
 	AppendStringInPlace(buffer, STR_ENGINE_NAME, u->engine_type);
-	uint32_t grfid = u->GetGRFID();
-	if (grfid) {
-		buffer.format(", GRF:{:08X}", std::byteswap(grfid));
+	GrfID grfid = u->GetGRFID();
+	if (!grfid.Empty()) {
+		buffer.format(", GRF:{}", grfid);
 		GRFConfig *grfconfig = GetGRFConfig(grfid);
 		if (grfconfig) {
 			buffer.format(", {}, {}", grfconfig->GetName(), grfconfig->filename);
