@@ -10,6 +10,14 @@ on:
       is_tag:
         required: true
         type: string
+  # Manual run: builds from the current checkout without publishing anything
+  # (artifacts are downloadable from the run page for local verification).
+  workflow_dispatch:
+    inputs:
+      survey_key:
+        required: false
+        type: string
+        default: ""
 
 jobs:
   # x86/x64: MinGW (msvcrt) build, compatible with Windows 7.
@@ -51,12 +59,20 @@ jobs:
           mingw-w64-${{ matrix.prefix }}-xz
           mingw-w64-${{ matrix.prefix }}-opusfile
 
-    - name: Download source
+    - name: Download source (called from Release)
+      if: github.event_name == 'workflow_call'
       uses: actions/download-artifact@v8
       with:
         name: internal-source
 
-    - name: Unpack source
+    - name: Check out source (manual run)
+      if: github.event_name == 'workflow_dispatch'
+      uses: actions/checkout@v7
+      with:
+        fetch-depth: 0
+
+    - name: Unpack source (called from Release)
+      if: github.event_name == 'workflow_call'
       run: |
         tar -xf source.tar.gz --strip-components=1
 
@@ -111,7 +127,7 @@ jobs:
         cmake ${GITHUB_WORKSPACE} \
           -GNinja \
           -DHOST_BINARY_DIR=${GITHUB_WORKSPACE}/build-host \
-          -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+          -DCMAKE_BUILD_TYPE=Release \
           -DOPTION_USE_NSIS=OFF \
           -DCMAKE_FIND_LIBRARY_SUFFIXES=".a" \
           -DCMAKE_EXE_LINKER_FLAGS="-static -static-libgcc -static-libstdc++" \
@@ -160,7 +176,9 @@ jobs:
         retention-days: 5
 
   # arm64: only exists on Windows 10+, keep the MSVC + vcpkg build.
+  # (Requires the internal-source artifact, so it only runs in the release flow.)
   windows:
+    if: github.event_name == 'workflow_call'
     strategy:
       fail-fast: false
       matrix:
