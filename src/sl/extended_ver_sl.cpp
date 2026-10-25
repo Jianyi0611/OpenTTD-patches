@@ -760,6 +760,21 @@ static void Load_SLXI()
 			}
 		}
 	}
+
+	/* Old px-patch builds (before the JGRPP 0.73.4 merge) reused the upstream
+	 * savegame version numbers 367/368 for their own features, while actually
+	 * being based on upstream <= 366. Such saves never carry the
+	 * 'slv_double_ended_ships' feature tag, which every genuine upstream >= 367
+	 * based build always writes. Clamp the claimed upstream version so that
+	 * format migrations gated on upstream versions (e.g. the label orientation
+	 * unification, affecting rail/road type label chunks RAIL/ROTT) apply
+	 * correctly to these saves. */
+	if (_sl_xv_upstream_version >= SLV_LABEL_ORIENTATION_UNIFICATION &&
+			_sl_xv_feature_versions[XSLFI_DOUBLE_ENDED_SHIPS] == 0) {
+		Debug(sl, 1, "Adjusting upstream savegame version from {} to {} (pre-0.73.4-merge px-patch save)",
+				(uint)_sl_xv_upstream_version, (uint)SLV_DEPOTS_UNDER_BRIDGES);
+		_sl_xv_upstream_version = SLV_DEPOTS_UNDER_BRIDGES;
+	}
 }
 
 static void IgnoreWrongLengthExtraData(const SlxiSubChunkInfo &info, uint32_t length)
