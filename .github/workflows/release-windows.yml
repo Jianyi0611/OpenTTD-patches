@@ -65,16 +65,19 @@ jobs:
       run: |
         pacman --noconfirm -S --needed mingw-w64-x86_64-lzo2
 
-    # MSYS2 no longer ships an i686 lzo2 package; build it from source for x86.
+    # MSYS2 no longer ships i686 lzo2/make packages; build lzo2 with cmake
+    # (already installed) from source for x86.
     - name: Build lzo2 from source (i686 only)
       if: matrix.arch == 'x86'
       run: |
         curl -sL -o lzo.tar.gz https://www.oberhumer.com/opensource/lzo/download/lzo-2.10.tar.gz
         tar -xf lzo.tar.gz
-        cd lzo-2.10
-        ./configure --prefix=/mingw32 --enable-static --disable-shared
-        make -j$(nproc)
-        make install
+        cmake -B lzo-build -S lzo-2.10 -GNinja \
+          -DCMAKE_BUILD_TYPE=Release \
+          -DBUILD_SHARED_LIBS=OFF \
+          -DCMAKE_INSTALL_PREFIX=/mingw32
+        cmake --build lzo-build
+        cmake --install lzo-build
 
     - name: Install pandoc
       shell: pwsh
