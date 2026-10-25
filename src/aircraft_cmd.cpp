@@ -1752,8 +1752,20 @@ void HandleAircraftTakingoff(Aircraft *v)
 			break;
 
 		case AS_FLYING_LEAVING_AIRPORT: {
-			v->state = AS_FLYING;
-			v->UpdateNextTile(FindClosestLandingTile(v));
+			TileIndex landing_tile = FindClosestLandingTile(v);
+			if (landing_tile != TileIndex{} && IsValidTile(landing_tile)) {
+				v->state = AS_FLYING;
+				v->UpdateNextTile(landing_tile);
+			} else {
+				/* No reachable landing tile (e.g. the runway this aircraft was
+				 * climbing out from was removed and the target airport has no
+				 * usable runway left): do not keep the stale runway-end next
+				 * tile, circle until a destination can be planned again. */
+				v->state = AS_FLYING_NO_DEST;
+				v->next_pos.pos = AP_DEFAULT;
+				v->UpdateNextTile(v->tile);
+				v->next_pos.pos = AP_PLANE_HOLD_START;
+			}
 			break;
 		}
 
@@ -1764,6 +1776,38 @@ void HandleAircraftTakingoff(Aircraft *v)
 }
 
 TileIndex FindClosestFreeLandingTile(Aircraft *v);
+
+/**
+ * Refresh the target position of a freely flying aircraft, healing the case
+ * where the runway it was heading to was removed from the airport while it
+ * was flying (e.g. during take-off climb-out or while holding): the stale
+ * next tile would otherwise fail the runway assertions in
+ * SetNextAircraftPosition. Re-target instead of asserting.
+ * @param v A freely flying aircraft.
+ */
+static void UpdateAircraftTargetTile(Aircraft *v)
+{
+	TileIndex tile = v->GetNextTile();
+	bool valid = IsValidTile(tile) && IsAirportTile(tile) &&
+			(v->IsHelicopter() || IsRunwayExtreme(tile));
+	if (valid) {
+		v->UpdateNextTile(tile);
+		return;
+	}
+
+	if (v->IsAircraftFreelyFlying()) {
+		AssignLandingTile(v, FindClosestLandingTile(v));
+		return;
+	}
+
+	/* Cannot re-target from this state (e.g. an approaching plane whose
+	 * reservation was somehow lost): give up the approach and circle until
+	 * the controller plans a new target. */
+	v->state = AS_FLYING_NO_DEST;
+	v->next_pos.pos = AP_DEFAULT;
+	v->UpdateNextTile(v->tile);
+	v->next_pos.pos = AP_PLANE_HOLD_START;
+}
 
 /**
  * Handle Aircraft flying outside any airport or keeping a holding pattern
@@ -1810,7 +1854,7 @@ void HandleAircraftFlying(Aircraft *v)
 					v->state = AS_ON_HOLD_APPROACHING;
 					v->UpdateNextTile(landing_tile);
 				} else {
-					v->UpdateNextTile(v->GetNextTile());
+					UpdateAircraftTargetTile(v);
 				}
 			}
 			break;
@@ -1830,12 +1874,12 @@ void HandleAircraftFlying(Aircraft *v)
 					v->state = AS_DESCENDING;
 				}
 			}
-			v->UpdateNextTile(v->GetNextTile());
+			UpdateAircraftTargetTile(v);
 			break;
 
 		case AS_FLYING:
 			v->state = AS_ON_HOLD_WAITING;
-			v->UpdateNextTile(v->GetNextTile());
+			UpdateAircraftTargetTile(v);
 			break;
 
 		case AS_FLYING_NO_DEST:
