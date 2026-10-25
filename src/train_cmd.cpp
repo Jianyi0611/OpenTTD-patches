@@ -2086,6 +2086,37 @@ static void RestoreTrainBackup(TrainList &list)
 }
 
 /**
+ * Fully rebuild a chain from a backup list, unlike RestoreTrainBackup also
+ * terminating the restored tail. RestoreTrainBackup relies on the head of the
+ * backed-up chain following the previous chain's tail in the (rearranged)
+ * world, so its implicit cut lands on the right link for vanilla
+ * arrange-then-restore flows. A trial that flips a chain's order before
+ * merging breaks that adjacency: the cut lands mid-chain and the restored
+ * tail keeps stale links into the other chain, leaving vehicles shared
+ * between two chains. This variant explicitly detaches the head from any
+ * stale predecessor and nulls the last vehicle's next, so it restores any
+ * full-chain backup regardless of how the trial rearranged the world.
+ * @param list the complete chain, in order, to rebuild.
+ */
+static void RestoreChainFromList(const TrainList &list)
+{
+	/* No train, nothing to do. */
+	if (list.empty()) return;
+
+	/* Detach the head from any stale predecessor (e.g. the other trial chain
+	 * still pointing at it). */
+	if (list.front()->Previous() != nullptr) list.front()->Previous()->SetNext(nullptr);
+
+	Train *prev = nullptr;
+	for (Train *t : list) {
+		if (prev != nullptr) prev->SetNext(t);
+		prev = t;
+	}
+	/* Terminate the tail: it may still point into the other trial chain. */
+	prev->SetNext(nullptr);
+}
+
+/**
  * Remove the given wagon from its consist.
  * @param part the part of the train to remove.
  * @param chain whether to remove the whole chain.
@@ -7862,7 +7893,7 @@ bool IsCoupleArrangementValid(Train *v_phys, Train *u_phys)
 	trial_guard.SnapshotChain(original_src);
 	trial_guard.SnapshotChain(original_dst);
 
-	/* A real couple flips one or both consists before merging (see Couple());
+	/* A real couple flips one or both consists before merging (see Couple())
 	 * so the trial must evaluate the flipped arrangement, not the current one. */
 	TrialApplyCoupleOrientation(&v_phys, &u_phys);
 
@@ -7886,8 +7917,11 @@ bool IsCoupleArrangementValid(Train *v_phys, Train *u_phys)
 	CommandCost cb = CheckVehicleStartStopCallback(merged_prim);
 	ok &= !cb.Failed();
 
-	RestoreTrainBackup(original_src);
-	RestoreTrainBackup(original_dst);
+	/* The trial flipped chain orders before merging, so the vanilla
+	 * RestoreTrainBackup cut can land mid-chain (see RestoreChainFromList);
+	 * restore both chains explicitly, tail terminated. */
+	RestoreChainFromList(original_src);
+	RestoreChainFromList(original_dst);
 
 	return ok;
 }
