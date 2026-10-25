@@ -1249,23 +1249,28 @@ public:
 	/**
 	 * Get the first part of an articulated engine.
 	 * @return First part of the engine.
+	 * @note An in-place reversed consist can have an articulated part as the
+	 * chain front; the front itself is returned then.
 	 */
 	inline Vehicle *GetFirstEnginePart()
 	{
 		Vehicle *v = this;
-		while (v->IsArticulatedPart()) v = v->Previous();
-		return v;
+		while (v != nullptr && v->IsArticulatedPart()) v = v->Previous();
+		return v != nullptr ? v : this;
 	}
 
 	/**
 	 * Get the first part of an articulated engine.
 	 * @return First part of the engine.
+	 * @note An in-place reversed consist can have an articulated part as the
+	 * chain front, in which case no base precedes it; the front itself is
+	 * returned then.
 	 */
 	inline const Vehicle *GetFirstEnginePart() const
 	{
 		const Vehicle *v = this;
-		while (v->IsArticulatedPart()) v = v->Previous();
-		return v;
+		while (v != nullptr && v->IsArticulatedPart()) v = v->Previous();
+		return v != nullptr ? v : this;
 	}
 
 	/**

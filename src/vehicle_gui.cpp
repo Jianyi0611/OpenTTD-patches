@@ -387,7 +387,7 @@ bool ShowCargoIconOverlay()
 void AddCargoIconOverlay(std::vector<CargoIconOverlay> &overlays, int x, int width, const Vehicle *v)
 {
 	bool rtl = _current_text_dir == TD_RTL;
-	if (!v->IsArticulatedPart() || v->cargo_type != v->Previous()->cargo_type) {
+	if (!v->IsArticulatedPart() || v->Previous() == nullptr || v->cargo_type != v->Previous()->cargo_type) {
 		/* Add new overlay slot. */
 		overlays.emplace_back(rtl ? x - width : x, rtl ? x : x + width, v->cargo_type, v->cargo_cap);
 	} else {
