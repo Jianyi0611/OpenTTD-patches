@@ -8070,13 +8070,24 @@ static void MoveTrainToPosition(Train *v, int x, int y)
 		 * and direction while standing on the new tile -- a state the next
 		 * movement tick resolves into garbage (e.g. an invalid direction).
 		 * Adopt the track bit and direction that match how we just moved. */
-		Direction motion_dir = DirectionFromDelta(x - v->x_pos, y - v->y_pos);
-		TrackBits desired = TrackToTrackBits(TrackdirToTrack(DiagDirToDiagTrackdir(DirToDiagDir(motion_dir))));
-		TrackBits available = TrackdirBitsToTrackBits(GetTileTrackdirBits(tile, TransportType::Rail, 0));
-		TrackBits match = available & desired;
-		if (match != TRACK_BIT_NONE) {
-			v->track = match;
-			v->direction = v->IsDrivingBackwards() ? ReverseDir(motion_dir) : motion_dir;
+		if (abs(x - v->x_pos) <= (int)TILE_SIZE && abs(y - v->y_pos) <= (int)TILE_SIZE) {
+			Direction motion_dir = DirectionFromDelta(x - v->x_pos, y - v->y_pos);
+			TrackBits desired = TrackToTrackBits(TrackdirToTrack(DiagDirToDiagTrackdir(DirToDiagDir(motion_dir))));
+			TrackBits available = TrackdirBitsToTrackBits(GetTileTrackdirBits(tile, TransportType::Rail, 0));
+			TrackBits match = available & desired;
+			if (match != TRACK_BIT_NONE) {
+				v->track = match;
+				v->direction = v->IsDrivingBackwards() ? ReverseDir(motion_dir) : motion_dir;
+			}
+		} else {
+			/* A teleport across the map (e.g. the ferry unload placement puts a
+			 * consist straight from the carrier onto a platform) is not an
+			 * along-track move: deriving track/direction from its delta would
+			 * turn every vehicle against the facing its caller just set. The
+			 * caller has laid out track bit and facing already; only repair a
+			 * track bit that does not exist on the new tile. */
+			TrackBits available = TrackdirBitsToTrackBits(GetTileTrackdirBits(tile, TransportType::Rail, 0));
+			if (available != TRACK_BIT_NONE && !(available & v->track)) v->track = TrackToTrackBits(FindFirstTrack(available));
 		}
 	}
 

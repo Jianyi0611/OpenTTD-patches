@@ -1705,11 +1705,11 @@ bool RVTransportDetachAtStation(Vehicle *carrier, Station *st, bool force)
 
 		/* Trains are put back on the rails of this station's platforms; road vehicles use the
 		 * road stops below. */
-		if (v->type == VehicleType::Train) {
-			Train *consist = Train::From(v->First());
-			std::vector<RVTransportRailCandidate> ranked;
-			FindFreeRailPlatformCandidates(st, consist, ranked);
-			if (ranked.empty()) continue; // no room: stay on the carrier, retry later
+			if (v->type == VehicleType::Train) {
+				Train *consist = Train::From(v->First());
+				std::vector<RVTransportRailCandidate> ranked;
+				FindFreeRailPlatformCandidates(st, consist, ranked);
+				if (ranked.empty()) continue; // no room: stay on the carrier, retry later
 
 			/* Don't let the train back out of the platform: when only the chain tail can lead the
 			 * train (a locomotive at the rear), place the consist mirrored and marked as driving
