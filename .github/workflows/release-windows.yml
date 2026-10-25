@@ -73,6 +73,7 @@ jobs:
         curl -sL -o lzo.tar.gz https://www.oberhumer.com/opensource/lzo/download/lzo-2.10.tar.gz
         tar -xf lzo.tar.gz
         cmake -B lzo-build -S lzo-2.10 -GNinja \
+          -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
           -DCMAKE_BUILD_TYPE=Release \
           -DBUILD_SHARED_LIBS=OFF \
           -DCMAKE_INSTALL_PREFIX=/mingw32
