@@ -46,6 +46,8 @@
 #include "core/checksum_func.hpp"
 static void AdvanceWagonsAfterCouple(Train *v);
 static void MoveTrainToPosition(Train *v, int x, int y);
+static bool RepairVehicleTrackBit(Train *w, const Train *hint);
+static void RespaceVehicleTo(Train *v, const Train *target, int offset);
 #include "debug_dbg_assert.h"
 #include "debug_settings.h"
 #include "train_settings.h"
@@ -6268,6 +6270,43 @@ static TileIndexDiffC CoupleMotionDelta(const Train *w)
 }
 
 /**
+ * Unit motion delta along the vehicle's own track, pointing from \a v towards
+ * \a target. Unlike CoupleMotionDelta() this does not consult the vehicle's
+ * stored direction: after a pairwise-swap turnaround a vehicle's direction is
+ * inherited from its swap partner and can disagree with the track at its new
+ * position on curves, which shoves re-spacing vehicles off the rail axis.
+ * The track bit, in contrast, always matches the position it was swapped with.
+ * Falls back to CoupleMotionDelta() where no track bit is usable.
+ */
+static TileIndexDiffC TrackAxisToward(const Train *v, const Train *target)
+{
+	if (!(v->track & TRACK_BIT_WORMHOLE) && v->track != TRACK_BIT_DEPOT) {
+		TrackBits tb = v->track & TRACK_BIT_MASK;
+		/* Only trust the track bit when it actually exists on the tile. */
+		if (tb != TRACK_BIT_NONE && (TrackdirBitsToTrackBits(GetTileTrackdirBits(v->tile, TransportType::Rail, 0)) & tb) == tb) {
+			int bx = target->x_pos - v->x_pos;
+			int by = target->y_pos - v->y_pos;
+			int best = INT_MIN;
+			TileIndexDiffC axis{0, 0};
+			for (Track t : SetTrackBitIterator(tb)) {
+				Trackdir td = TrackToTrackdir(t);
+				for (int i = 0; i < 2; i++) {
+					TileIndexDiffC dd = TileIndexDiffCByDir(DiagDirToDir(TrackdirToExitdir(td)));
+					int score = dd.x * bx + dd.y * by;
+					if (score > best) {
+						best = score;
+						axis = dd;
+					}
+					td = ReverseTrackdir(td);
+				}
+			}
+			return axis;
+		}
+	}
+	return CoupleMotionDelta(v);
+}
+
+/**
  * Expected centre distance of the chain-adjacent pair (\a a, \a a->Next()).
  * CalcNextVehicleOffset() cannot be used here: for DrivingBackwards vehicles
  * it pairs the vehicle with GetMovingNext() (its chain predecessor), not with
@@ -6276,6 +6315,31 @@ static TileIndexDiffC CoupleMotionDelta(const Train *w)
 static int CouplePairOffset(const Train *a)
 {
 	return CoupleJointOffset(a->gcache.cached_veh_length, a->Next()->gcache.cached_veh_length, a->IsDrivingBackwards());
+}
+
+/**
+ * Move \a v so that its Chebyshev distance to \a target equals \a offset,
+ * stepping ONE PIXEL at a time along the track axis that points towards the
+ * target (recomputed every step; a stale track bit is repaired from the chain
+ * geometry as we go). Single-axis steps follow the track through curves,
+ * unlike placing the whole offset in one straight jump, which cuts across
+ * curve tiles and lands vehicles off the rail.
+ */
+static void RespaceVehicleTo(Train *v, const Train *target, int offset)
+{
+	for (int guard = 0; guard < 64; guard++) {
+		int dx = target->x_pos - v->x_pos;
+		int dy = target->y_pos - v->y_pos;
+		int dist = std::max(abs(dx), abs(dy));
+		if (dist == offset) return;
+		TileIndexDiffC dd = TrackAxisToward(v, target);
+		if (dist < offset) {
+			dd.x = -dd.x;
+			dd.y = -dd.y;
+		}
+		MoveTrainToPosition(v, v->x_pos + dd.x, v->y_pos + dd.y);
+		RepairVehicleTrackBit(v, nullptr);
+	}
 }
 
 /**
@@ -6292,27 +6356,23 @@ static void AdvanceWagonsAfterCouple(Train *v)
 		? CoupleJointOffset(v->gcache.cached_veh_length, u_first->gcache.cached_veh_length, false)
 		: CoupleJointOffset(u_first->gcache.cached_veh_length, v->gcache.cached_veh_length, true);
 
-	int diff_x = abs(v->x_pos - u_first->x_pos);
-	int diff_y = abs(v->y_pos - u_first->y_pos);
-	int actual = std::max(diff_x, diff_y);
-	int shift = actual - difference;
-
 	/* Contact coupling can land a pixel or two inside/outside the partner when
-	 * the approach step jumps over the exact-contact sample. Fix the seam with
-	 * a rigid translation of the u-half: every vehicle moves by the same 1px
-	 * step, so all internal pair spacings are preserved exactly and only the
-	 * joint gap changes. Pushing via TrainController cannot be used here: a
-	 * half that drives backwards would be pushed away from v, widening the
-	 * seam instead of closing it. */
-	if (shift == 0) return;
+	 * the approach step jumps over the exact-contact sample. Fix the seam by
+	 * re-spacing the MOVING half (the chain up to and including v) instead of
+	 * the waiting half: the moving consist approached along this very track,
+	 * so adjusting it only ever moves it over ground it already occupied -- it
+	 * cannot be pushed off the rail end. The waiting half often parks flush
+	 * against the platform/rail end, and moving it pushed its far wagon past
+	 * the end of the track onto a rail-less tile.
+	 * TrainController must not be used here: its movement-time side effects
+	 * (line-end checks, station entry, turnarounds) must not run mid-couple,
+	 * and with the freshly merged consist's mixed states they resolve into
+	 * garbage (invalid directions, off-track wagons). */
+	RespaceVehicleTo(v, u_first, difference);
 
-	/* Joint axis: for a straight-axis v_last/u_first delta only one is nonzero. */
-	int sx = (u_first->x_pos != v->x_pos) ? (u_first->x_pos > v->x_pos ? 1 : -1) : 0;
-	int sy = (sx == 0) ? (u_first->y_pos > v->y_pos ? 1 : -1) : 0;
-	int dx = -sx * shift, dy = -sy * shift;
-
-	for (Train *w = u_first; w != nullptr; w = w->Next()) {
-		MoveTrainToPosition(w, w->x_pos + dx, w->y_pos + dy);
+	for (Train *b = v; b->Previous() != nullptr; b = b->Previous()) {
+		Train *a = b->Previous();
+		RespaceVehicleTo(a, b, CouplePairOffset(a));
 	}
 }
 
@@ -7833,6 +7893,63 @@ bool IsCoupleArrangementValid(Train *v_phys, Train *u_phys)
 }
 
 /**
+ * Repair a stale track bit of one vehicle: the bit must exist on the vehicle's
+ * tile. Pick the bit of that tile which connects towards the vehicle's chain
+ * neighbour's tile -- on curve tiles the two candidate tracks connect
+ * different corner pairs, so the chain geometry identifies the right one
+ * without trusting the (possibly swap-inherited) direction. Falls back to the
+ * tile's only bit. Returns false only when the tile has no rail at all or no
+ * bit can be adopted.
+ */
+static bool RepairVehicleTrackBit(Train *w, const Train *hint)
+{
+	if (w->track & TRACK_BIT_WORMHOLE) return true;
+	if (w->track == TRACK_BIT_DEPOT) return true;
+	TrackBits tile_bits = TrackdirBitsToTrackBits(GetTileTrackdirBits(w->tile, TransportType::Rail, 0));
+	if (tile_bits == TRACK_BIT_NONE) return false;
+	if ((tile_bits & w->track) != TRACK_BIT_NONE) return true;
+
+	const Train *n = (hint != nullptr && hint != w) ? hint : ((w->Next() != nullptr) ? w->Next() : w->Previous());
+	TrackBits cand = TRACK_BIT_NONE;
+	if (n != nullptr && n->tile != w->tile) {
+		DiagDirection want = DiagdirBetweenTiles(w->tile, n->tile);
+		if (IsValidDiagDirection(want)) {
+			for (Track t : SetTrackBitIterator(tile_bits)) {
+				Trackdir td = TrackToTrackdir(t);
+				if (TrackdirToExitdir(td) == want || TrackdirToExitdir(ReverseTrackdir(td)) == want) {
+					cand = TrackToTrackBits(t);
+					break;
+				}
+			}
+		}
+	}
+	if (cand == TRACK_BIT_NONE && HasExactlyOneBit(tile_bits)) cand = tile_bits;
+	if (cand == TRACK_BIT_NONE) return false;
+	Debug(desync, 0, "ChainOnRail: veh={} repairs track {:X} -> {:X} on tile=({},{})",
+			w->index, to_underlying(w->track), to_underlying(cand), TileX(w->tile), TileY(w->tile));
+	w->track = cand;
+	return true;
+}
+
+/**
+ * Verify that every vehicle of a freshly rearranged chain stands on a tile
+ * that actually carries the vehicle's track; repair stale track bits where
+ * possible. Only a genuinely rail-less tile (e.g. a wagon pushed past the end
+ * of the track) rejects the couple.
+ */
+static bool ChainOnRail(Train *head)
+{
+	for (Train *w = head; w != nullptr; w = w->Next()) {
+		if (!RepairVehicleTrackBit(w, nullptr)) {
+			Debug(desync, 0, "ChainOnRail: veh={} stands on unusable tile=({},{}) track={:X} xy=({},{})",
+					w->index, TileX(w->tile), TileY(w->tile), to_underlying(w->track), w->x_pos, w->y_pos);
+			return false;
+		}
+	}
+	return true;
+}
+
+/**
  * Try to couple the two consists together.
  */
 static bool TryTrainCouple(Train *v, Train *u)
@@ -7859,6 +7976,8 @@ static bool TryTrainCouple(Train *v, Train *u)
 
 	CommandCost ret = CheckTrainAttachment(v);
 	bool ok = v->CanConsistChange(CCF_ARRANGE_CHECK);
+	/* Geometric safety net: the arranged chain must stand on actual track. */
+	ok &= ChainOnRail(v);
 
 	/* The merged consist's primary must satisfy the NewGRF start/stop check. */
 	Train *merged_prim = GetStartStopCheckVehicle(v);
@@ -7887,12 +8006,39 @@ static bool TryTrainCouple(Train *v, Train *u)
  * @param x new x position.
  * @param y new y position.
  */
+/** Direction of travel (facing of a forward-driving vehicle) from a pixel delta. */
+static Direction DirectionFromDelta(int dx, int dy)
+{
+	if (dx > 0) return dy > 0 ? Direction::SE : (dy < 0 ? Direction::NE : Direction::E);
+	if (dx < 0) return dy > 0 ? Direction::SW : (dy < 0 ? Direction::NW : Direction::W);
+	return dy > 0 ? Direction::S : Direction::N;
+}
+
 static void MoveTrainToPosition(Train *v, int x, int y)
 {
 	if (v->x_pos == x && v->y_pos == y) return;
 
 	TileIndex tile = TileVirtXY(x, y);
 	bool changed_tile = (tile != v->tile);
+
+	if (changed_tile && !(v->track & TRACK_BIT_WORMHOLE) && v->track != TRACK_BIT_DEPOT
+			&& !IsRailDepotTile(tile) && !IsTileType(tile, TileType::TunnelBridge)) {
+		/* The couple/flip re-spacing moves vehicles along their own track
+		 * axis, which can cross a tile boundary on a curve. VehicleEnterTile
+		 * does not update a train's track/direction on plain rail tiles, so
+		 * without this fix the vehicle would keep the old tile's track bit
+		 * and direction while standing on the new tile -- a state the next
+		 * movement tick resolves into garbage (e.g. an invalid direction).
+		 * Adopt the track bit and direction that match how we just moved. */
+		Direction motion_dir = DirectionFromDelta(x - v->x_pos, y - v->y_pos);
+		TrackBits desired = TrackToTrackBits(TrackdirToTrack(DiagDirToDiagTrackdir(DirToDiagDir(motion_dir))));
+		TrackBits available = TrackdirBitsToTrackBits(GetTileTrackdirBits(tile, TransportType::Rail, 0));
+		TrackBits match = available & desired;
+		if (match != TRACK_BIT_NONE) {
+			v->track = match;
+			v->direction = v->IsDrivingBackwards() ? ReverseDir(motion_dir) : motion_dir;
+		}
+	}
 
 	v->x_pos = x;
 	v->y_pos = y;
@@ -7944,21 +8090,18 @@ static void RespaceFlippedHalf(Train *half_first, bool joint_at_tail)
 {
 	if (joint_at_tail) {
 		/* Lay out towards the chain head: every predecessor takes its position
-		 * from its already placed successor. */
+		 * from its already placed successor. RespaceVehicleTo steps pixel by
+		 * pixel along the vehicle's own track, which follows curve tiles. */
 		for (Train *b = half_first->Last(); b->Previous() != nullptr; b = b->Previous()) {
 			Train *a = b->Previous();
-			TileIndexDiffC dd = CoupleMotionDelta(a);
-			int offset = CouplePairOffset(a);
-			MoveTrainToPosition(a, b->x_pos + dd.x * offset, b->y_pos + dd.y * offset);
+			RespaceVehicleTo(a, b, CouplePairOffset(a));
 		}
 	} else {
 		/* Lay out towards the chain tail: every successor takes its position from
 		 * its already placed predecessor. */
 		for (Train *a = half_first; a->Next() != nullptr; a = a->Next()) {
 			Train *b = a->Next();
-			TileIndexDiffC dd = CoupleMotionDelta(a);
-			int offset = CouplePairOffset(a);
-			MoveTrainToPosition(b, a->x_pos - dd.x * offset, a->y_pos - dd.y * offset);
+			RespaceVehicleTo(b, a, CouplePairOffset(a));
 		}
 	}
 }
@@ -8029,7 +8172,15 @@ static void ReverseTrainForCouple(Train *v, bool joint_at_tail)
 	/* The flip reverses the chain order, so the local pointer now sits
 	 * mid-chain; re-anchor at the new chain head before re-spacing. */
 	v = v->First();
+	/* The pairwise swap can leave a vehicle with its swap partner's track bit,
+	 * which does not exist on the partner's tile on curve tiles. Repair stale
+	 * bits BEFORE re-spacing: RespaceFlippedHalf derives its step axes from
+	 * the track bits, and a stale bit walks vehicles off the rail. */
+	ChainOnRail(v);
 	RespaceFlippedHalf(v, joint_at_tail);
+	/* Re-spacing can move vehicles across tile boundaries; repair again so
+	 * the seam fix in AdvanceWagonsAfterCouple also sees valid track. */
+	ChainOnRail(v);
 }
 
 /**
@@ -9672,10 +9823,21 @@ bool TrainController(Train *v, Vehicle *nomove, bool reverse)
 							{TRACK_BIT_RIGHT, TRACK_BIT_NONE,  TRACK_BIT_LOWER, TRACK_BIT_Y    }
 						}}};
 						DiagDirection exitdir = DiagdirBetweenTiles(gp.new_tile, TileVirtXY(prev->x_pos, prev->y_pos));
-						dbg_assert(IsValidDiagDirection(exitdir));
+						/* prev must be on a tile adjacent to the entered one. A consist
+						 * whose spatial and chain order disagree (e.g. mid-couple
+						 * states after a turnaround and rollback) can violate this;
+						 * indexing the table with an invalid direction reads out of
+						 * bounds, so bail out to invalid_rail instead. */
+						if (!IsValidDiagDirection(exitdir)) goto invalid_rail;
 						chosen_track = _connecting_track[enterdir][exitdir];
 					}
 					chosen_track &= bits;
+					/* The follow-prev selection can come up empty when prev->track
+					 * (or the connecting track) does not intersect the reachable
+					 * tracks of the entered tile. Storing an empty track would
+					 * poison the vehicle (track 0 + invalid direction) and crash
+					 * the next tick; stop the vehicle instead. */
+					if (chosen_track == TRACK_BIT_NONE) goto invalid_rail;
 				}
 
 				/* Update XY to reflect the entrance to the new tile, and select the direction to use */
