@@ -60,7 +60,7 @@ jobs:
           mingw-w64-${{ matrix.prefix }}-opusfile
 
     - name: Download source (called from Release)
-      if: github.event_name == 'workflow_call'
+      if: github.event_name != 'workflow_dispatch'
       uses: actions/download-artifact@v8
       with:
         name: internal-source
@@ -72,7 +72,7 @@ jobs:
         fetch-depth: 0
 
     - name: Unpack source (called from Release)
-      if: github.event_name == 'workflow_call'
+      if: github.event_name != 'workflow_dispatch'
       run: |
         tar -xf source.tar.gz --strip-components=1
 
@@ -182,7 +182,7 @@ jobs:
   # arm64: only exists on Windows 10+, keep the MSVC + vcpkg build.
   # (Requires the internal-source artifact, so it only runs in the release flow.)
   windows:
-    if: github.event_name == 'workflow_call'
+    if: github.event_name != 'workflow_dispatch'
     strategy:
       fail-fast: false
       matrix:
