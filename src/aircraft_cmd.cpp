@@ -1914,7 +1914,17 @@ void HandleAircraftLanding(Aircraft *v)
 			Trackdir trackdir = DiagDirToDiagTrackdir(GetRunwayExtremeDirection(v->tile));
 			Trackdir next_trackdir = GetFreeAirportTrackdir(v->tile, trackdir);
 			if (!IsValidTrackdir(next_trackdir)) {
+				/* No exit from the runway end yet: hold the runway and wait.
+				 * The state stays AS_LANDED, so the runway reservation is kept.
+				 * Zero the speed and stop moving this tick: any movement now
+				 * would push the aircraft off its exact stopping position, and
+				 * HandleAircraftState (which re-arms this wait) only runs while
+				 * the aircraft is exactly on its next position. */
+				v->cur_speed = 0;
+				v->subspeed = 0;
+				v->progress = 0;
 				v->SetWaitTime(AIRCRAFT_CANT_LEAVE_RUNWAY);
+				SetWindowWidgetDirty(WindowClass::VehicleView, v->index, WID_VV_START_STOP);
 				break;
 			}
 
@@ -2138,7 +2148,10 @@ bool HandleAircraftState(Aircraft *v)
 		case AS_DESCENDING:
 		case AS_LANDED:
 			HandleAircraftLanding(v);
-			return v->IsHelicopter() || v->state == AS_IDLE;
+			/* Also stop moving while the plane is stuck on the runway end
+			 * waiting for an exit (state stays AS_LANDED with a wait time). */
+			return v->IsHelicopter() || v->state == AS_IDLE ||
+					(v->state == AS_LANDED && v->IsWaiting());
 
 		case AS_FLYING_HELICOPTER_LANDING:
 			RaiseLowerHelicopter(v);
@@ -2973,6 +2986,20 @@ void MoveAircraft(Aircraft *v, const bool nudge_towards_target)
 		}
 
 		gp = GetNewVehiclePos(v);
+
+		if (v->state == AS_LANDED && !IsRunway(gp.new_tile)) {
+			/* The landing roll is about to leave the runway without the
+			 * controller having converted the state (e.g. the runway end
+			 * ahead vanished, or the stop position no longer lines up).
+			 * Stop on the runway and hold it instead of rolling off the
+			 * airport: the runway reservation is still held, and the
+			 * controller re-plans once an exit exists again. */
+			v->cur_speed = 0;
+			v->subspeed = 0;
+			v->progress = 0;
+			v->SetWaitTime(AIRCRAFT_CANT_LEAVE_RUNWAY);
+			return;
+		}
 	} else {
 		/* Aircraft is taxiing on the airport. */
 		assert(v->state == AS_RUNNING);
