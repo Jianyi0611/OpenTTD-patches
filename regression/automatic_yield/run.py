@@ -88,13 +88,14 @@ def main():
     modes = args.modes.split(",") if args.modes else ["basic", "red", "unknown", "front", "tail", "two", "delete", "cancel", "different", "reroute", "crossing", "crossing-foreign", "turnover-far", "turnover-near", "stream", "stream-serial", "stream-reroute", "station-same", "station-merge", "station-merge-split", "station-different", "station-priority", "far-basic", "far-two", "far-empty-first", "normal-free-first", "layout-add", "layout-switch", "layout-legal-old", "stock-full-fastest", "stock-full-closest", "stock-full-near", "stock-full-long-block", "stock-full-long-train"]
     if not args.modes:
         modes += ["layout-new-first", "layout-new-second", "layout-new-third", "layout-new-platform", "far-multi-outlet", "far-near-wrong-outlet", "topology-merge2", "topology-merge3", "topology-merge3-signals", "topology-split", "topology-rejoin", "occupied-second", "occupied-third", "occupied-platform"]
+        modes += ["mixed-p1o1-pass", "mixed-p1o1-stop", "mixed-p2o1-pass", "mixed-p2o1-stop", "mixed-p1o2-pass", "mixed-p1o2-stop", "mixed-p3o2-pass", "mixed-p3o2-stop", "mixed-p3o2-signals", "mixed-shared", "mixed-independent", "mixed-rejoin", "mixed-add", "mixed-full", "mixed-outlet-explicit", "mixed-outlet-conditional", "mixed-outlet-single-clear", "mixed-outlet-change", "mixed-outlet-blocked"]
     for mode in modes:
         if mode.startswith("grf-") and mode not in {"grf-basic", "grf-two", "grf-200", "grf-160-250", "grf-consecutive"}:
             raise SystemExit("Unknown exact-speed scenario: " + mode)
         for style in ["exit", "explicit"]:
             folder = output / (mode + "-" + style)
             folder.mkdir(exist_ok=True)
-            for reload in ([False, True] if mode.startswith(("layout-new-", "grf-", "topology-", "occupied-")) or mode in ["basic", "red", "unknown", "two", "stream", "stream-serial", "stream-reroute", "station-same", "station-merge", "station-merge-split", "station-different", "station-priority", "far-basic", "far-two", "far-empty-first", "far-multi-outlet", "far-near-wrong-outlet", "normal-free-first", "layout-add", "layout-switch", "layout-legal-old", "stock-full-fastest", "stock-full-closest", "stock-full-long-train"] else [False]):
+            for reload in ([False, True] if mode.startswith(("layout-new-", "grf-", "topology-", "occupied-", "mixed-")) or mode in ["basic", "red", "unknown", "two", "stream", "stream-serial", "stream-reroute", "station-same", "station-merge", "station-merge-split", "station-different", "station-priority", "far-basic", "far-two", "far-empty-first", "far-multi-outlet", "far-near-wrong-outlet", "normal-free-first", "layout-add", "layout-switch", "layout-legal-old", "stock-full-fastest", "stock-full-closest", "stock-full-long-train"] else [False]):
                 env = dict(environment, PXP_STRICT=mode, PXP_DEMO_OUTPUT=str(folder))
                 if mode.startswith("grf-"):
                     if not args.newgrf_config:
@@ -106,7 +107,7 @@ def main():
                 if style == "exit":
                     env["PXP_DEMO_EXIT_ONLY"] = "1"
                 case_config = output / "regression.cfg"
-                if mode.startswith(("far-", "layout-", "stock-full-", "topology-", "occupied-")):
+                if mode.startswith(("far-", "layout-", "stock-full-", "topology-", "occupied-", "mixed-")):
                     case_config = folder / "regression.cfg"
                     case_config.write_text((output / "regression.cfg").read_text().replace("map_x = 8", "map_x = " + ("11" if mode=="far-empty-first" else "9")), encoding="utf-8")
                 argv = [str(exe), "-v", "null:until_exit", "-s", "null", "-m", "null", "-x", "-c", str(case_config)]

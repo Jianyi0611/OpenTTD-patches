@@ -416,8 +416,10 @@ std::optional<uint> RouteToRole(const Area &area, const Train *v, TileIndex star
  * the junction/crossing. Exclude that tile rather than guessing its inlet
  * topology. Parallel, disjoint curves remain separate tracks. Length uses the
  * same full/half-tile units as trains; route admission remains a separate proof. */
-std::optional<uint> SidingParkingLength(const Area &area, const Train *v, const Binding &exit, std::vector<StationID> *stations = nullptr)
+std::optional<uint> SidingParkingLength(const Area &area, const Train *v, const Binding &exit, std::vector<StationID> *stations = nullptr,
+		std::optional<TraceRestrictRefId> *entrance = nullptr)
 {
+	if (entrance != nullptr) entrance->reset();
 	TileIndex tile = GetTraceRestrictRefIdTileIndex(exit.ref);
 	Trackdir reverse_td = ReverseTrackdir(exit.td);
 	uint length = 0;
@@ -439,7 +441,10 @@ std::optional<uint> SidingParkingLength(const Area &area, const Train *v, const 
 		/* Do not count the exit signal tile itself. Keep an additional full
 		 * tile of tail clearance in the common length comparison. */
 		if (tile != GetTraceRestrictRefIdTileIndex(exit.ref)) length += IsDiagonalTrackdir(reverse_td) ? TILE_SIZE : TILE_SIZE / 2;
-		if (AtRole(area, tile, forward_td, AutoYieldRole::Siding)) return length;
+		if (AtRole(area, tile, forward_td, AutoYieldRole::Siding)) {
+			if (entrance != nullptr) *entrance = MakeTraceRestrictRefId(tile, TrackdirToTrack(forward_td));
+			return length;
+		}
 		AutoYieldTrack backward(v);
 		if (!backward.Follow(tile, reverse_td) || (backward.tiles_skipped != 0 && !backward.is_station && !backward.is_tunnel && !backward.is_bridge) ||
 				(!IsPlainRailTile(backward.new_tile) && !HasStationTileRail(backward.new_tile) && !IsRailTunnelBridgeTile(backward.new_tile)) || backward.new_td_bits == TRACKDIR_BIT_NONE) return std::nullopt;
@@ -522,7 +527,16 @@ PlatformInfo GetPlatformInfo(const Area &area, const Train *v, TraceRestrictRefI
 {
 	for (size_t i = 0; i < platform_cache_count; i++) {
 		const auto &entry = platform_cache[i];
-		if (entry.area == &area && entry.train == v && entry.ref == ref) return entry.info;
+		if (entry.area != &area || entry.ref != ref) continue;
+		if (entry.train == v) return entry.info;
+		/* Reuse only complete geometry in mixed stations. Native ownership
+		 * and rail compatibility are its train-dependent inputs; orders,
+		 * occupancy and PBS admission are evaluated separately. */
+		if (area.lanes.size() > 1 && entry.info.known && entry.train->owner == v->owner &&
+				entry.train->railtypes == v->railtypes && entry.train->compatible_railtypes == v->compatible_railtypes &&
+				std::any_of(area.bindings.begin(), area.bindings.end(), [](const Binding &b) {
+					return b.role == AutoYieldRole::Exit && !b.platform;
+				})) return entry.info;
 	}
 	auto info = ComputePlatformInfo(area, v, ref);
 	if (platform_cache_count < platform_cache.size()) platform_cache[platform_cache_count++] = {&area, v, ref, info};
@@ -1932,6 +1946,28 @@ bool FreeLane(const Area &area, const Train *v, bool approaching, bool ordinary_
 	}
 	const auto candidate_clearance = [&](TraceRestrictRefId ref, const Binding &binding) -> std::optional<TraceRestrictRefId> {
 		if (!check_candidate_destination) return required_clearance;
+		const auto prediction = GetPredictionOrders(v);
+		/* Mixed-station admission can satisfy the current stop before its
+		 * departure is predictable. Keep a positive physical first-exit proof;
+		 * this does not forecast a conflict or permit crossing a held signal.
+		 * Single-lane and all-platform layouts retain their existing rules. */
+		if (area.has_platform && area.lanes.size() > 1 && prediction.next == nullptr) {
+			const auto platform = GetPlatformInfo(area, v, ref);
+			if (ScheduledPlatformStop(v, platform) && platform.exit &&
+					std::any_of(area.lanes.begin(), area.lanes.end(), [&](const auto &other) {
+						return other.first != ref && !GetPlatformInfo(area, v, other.first).marked;
+					})) {
+				const Binding *exit = FindBinding(area, *platform.exit);
+				std::optional<TraceRestrictRefId> entrance, clearance;
+				if (exit != nullptr && SidingParkingLength(area, v, *exit, nullptr, &entrance) &&
+						(binding.role == AutoYieldRole::Exit ? exit->ref == ref : entrance == ref) &&
+						RouteToRole(area, v, GetTraceRestrictRefIdTileIndex(exit->ref), exit->td, AutoYieldRole::Clear,
+								false, required_clearance, nullptr, nullptr, &clearance, std::nullopt, false, true)) {
+					Debug(yapf, 7, "AutoYield area={} train={} lane={} admission=current-stop-with-forward-exit outlet={}", area.id, v->index, ref, *clearance);
+					return clearance;
+				}
+			}
+		}
 		/* An exit-only platform's exclusive parking segment contains the
 		 * mandatory stop before this forecast's start. Do not demand reaching
 		 * that station again behind the exit. Legacy entrances still forecast
@@ -1945,7 +1981,6 @@ bool FreeLane(const Area &area, const Train *v, bool approaching, bool ordinary_
 		 * local departure reaches an allowed first clearance. Its small shared
 		 * segment-node allowance is independent of local YAPF cache history.
 		 * This positive admission result never establishes a unique outlet. */
-		const auto prediction = GetPredictionOrders(v);
 		const Order *target = stopped_before_exit || prediction.first_reached ? prediction.next : prediction.first;
 		if (goal != nullptr && target != nullptr && target->IsType(OT_GOTO_STATION)) {
 			/* A nearer first outlet may lead to a different destination. Test

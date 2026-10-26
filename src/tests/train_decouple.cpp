@@ -5438,3 +5438,4 @@ TEST_CASE_METHOD(AutomaticYieldStationRouteFixture,"Automatic yield station cont
 
 #include "auto_yield_topology_proof.inc"
 #include "auto_yield_outlet_candidates.inc"
+#include "auto_yield_mixed_platform.inc"

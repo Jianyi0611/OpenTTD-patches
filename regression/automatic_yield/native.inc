@@ -237,7 +237,9 @@ void LayoutTick();
 void StockFullTick();
 void TopologyTick();
 void OccupiedTick();
+void MixedTick();
 void AutoYieldDemoTick() {
+ if(const char *mode=std::getenv("PXP_STRICT");mode && std::string_view(mode).starts_with("mixed-")){if(!HasModalProgress()&&!_generating_world)MixedTick();return;}
  if(HasModalProgress() || _generating_world)return;
  if(const char *mode=std::getenv("PXP_STRICT");mode && std::string_view(mode).starts_with("occupied-")){OccupiedTick();return;}
  if(const char *mode=std::getenv("PXP_STRICT");mode && std::string_view(mode).starts_with("topology-")){TopologyTick();return;}
@@ -257,6 +259,7 @@ void AutoYieldDemoTick() {
 #include "stock_full.inc"
 #include "topology.inc"
 #include "occupied.inc"
+#include "mixed.inc"
 
 void EmergencyStrictTick() {
  static uint n=0, stopped_ticks=0, pass_stopped_ticks=0, second_pass_stopped_ticks=0, third_pass_stopped_ticks=0, express_min=UINT_MAX;
