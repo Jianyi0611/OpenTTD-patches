@@ -673,13 +673,16 @@ static std::span<const TraceRestrictDropDownListItem> GetActionDropDownListItems
 static std::span<const TraceRestrictDropDownListItem> GetConditionDropDownListItems()
 {
 	static const TraceRestrictDropDownListItem conditions[] = {
-		{ TRIT_COND_AUTO_YIELD_FASTER,                              STR_TRACE_RESTRICT_AUTO_FASTER,                       TRDDLIF_NONE },
-		{ TRIT_COND_AUTO_YIELD_SIDING,                              STR_TRACE_RESTRICT_AUTO_NEEDS_SIDING,                 TRDDLIF_NONE },
-		{ TRIT_COND_AUTO_YIELD_FREE,                                STR_TRACE_RESTRICT_AUTO_FREE,                         TRDDLIF_NONE },
-		{ TRIT_COND_AUTO_YIELD_WAIT,                                STR_TRACE_RESTRICT_AUTO_WAIT,                         TRDDLIF_NONE },
-		{ TRIT_COND_AUTO_YIELD_FULL,                                STR_TRACE_RESTRICT_AUTO_FULL,                         TRDDLIF_NONE },
-		{ TRIT_COND_AUTO_YIELD_EVACUATE,                            STR_TRACE_RESTRICT_AUTO_EVACUATE,                     TRDDLIF_NONE },
-		{ TRIT_COND_AUTO_YIELD_LEAVE,                               STR_TRACE_RESTRICT_AUTO_LEAVE,                        TRDDLIF_NONE },
+		/* The four automatic actions manage the complete lifecycle. Keep old
+		 * conditional instructions readable and executable without offering
+		 * a second configuration scheme in the insertion/type menus. */
+		{ TRIT_COND_AUTO_YIELD_FASTER,                              STR_TRACE_RESTRICT_AUTO_FASTER,                       TRDDLIF_HIDDEN },
+		{ TRIT_COND_AUTO_YIELD_SIDING,                              STR_TRACE_RESTRICT_AUTO_NEEDS_SIDING,                 TRDDLIF_HIDDEN },
+		{ TRIT_COND_AUTO_YIELD_FREE,                                STR_TRACE_RESTRICT_AUTO_FREE,                         TRDDLIF_HIDDEN },
+		{ TRIT_COND_AUTO_YIELD_WAIT,                                STR_TRACE_RESTRICT_AUTO_WAIT,                         TRDDLIF_HIDDEN },
+		{ TRIT_COND_AUTO_YIELD_FULL,                                STR_TRACE_RESTRICT_AUTO_FULL,                         TRDDLIF_HIDDEN },
+		{ TRIT_COND_AUTO_YIELD_EVACUATE,                            STR_TRACE_RESTRICT_AUTO_EVACUATE,                     TRDDLIF_HIDDEN },
+		{ TRIT_COND_AUTO_YIELD_LEAVE,                               STR_TRACE_RESTRICT_AUTO_LEAVE,                        TRDDLIF_HIDDEN },
 		{ TRIT_COND_UNDEFINED,                                        STR_TRACE_RESTRICT_VARIABLE_UNDEFINED,                 TRDDLIF_HIDDEN },
 		{ TRIT_COND_TRAIN_LENGTH,                                     STR_TRACE_RESTRICT_VARIABLE_TRAIN_LENGTH,              TRDDLIF_NONE },
 		{ TRIT_COND_MAX_SPEED,                                        STR_TRACE_RESTRICT_VARIABLE_MAX_SPEED,                 TRDDLIF_NONE },

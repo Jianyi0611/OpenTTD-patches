@@ -258,7 +258,7 @@ const std::initializer_list<SlxiSubChunkInfo> _sl_xv_sub_chunk_infos = {
 	{ XSLFI_WAIT_COUPLE_TARGET,              XSCF_NULL,                1,   1, "wait_couple_target",              nullptr, nullptr, nullptr          },
 	{ XSLFI_COUPLE_CHECK_POINT,               XSCF_NULL,                1,   1, "couple_check_point",               nullptr, nullptr, nullptr          },
 	{ XSLFI_COUPLE_SPEED_FILTER,              XSCF_NULL,                2,   2, "couple_speed_filter",              nullptr, nullptr, nullptr          },
-	{ XSLFI_AUTOMATIC_YIELD,                 XSCF_NULL,               10,  10, "pxp_automatic_yield",              nullptr, nullptr, nullptr          },
+	{ XSLFI_AUTOMATIC_YIELD,                 XSCF_NULL,               11,  11, "pxp_automatic_yield",              nullptr, nullptr, nullptr          },
 };
 
 /**

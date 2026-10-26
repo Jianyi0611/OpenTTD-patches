@@ -1522,14 +1522,14 @@ TileIndex VehiclePosTraceRestrictPreviousSignalCallback(const Train *v, const vo
 }
 
 /**
- * Test whether a train's reservation passes through a given tile.
+ * Test whether a train's reservation passes through a given tile and, optionally, track.
  */
-bool TrainReservationPassesThroughTile(const Train *v, TileIndex search_tile)
+bool TrainReservationPassesThroughTile(const Train *v, TileIndex search_tile, Track search_track)
 {
 	bool found = false;
 	const Train *moving_front = v->GetMovingFront();
 	FollowReservationEnumerate(v->owner, v->GetIndirectCompatibleRailTypes(), moving_front->tile, moving_front->GetVehicleTrackdir(), FRF_NONE, [&](TileIndex tile, Trackdir trackdir) -> bool {
-		if (tile == search_tile) {
+		if (tile == search_tile && (search_track == INVALID_TRACK || TrackdirToTrack(trackdir) == search_track)) {
 			found = true;
 			return true;
 		}

@@ -8,6 +8,9 @@
 #include "../stdafx.h"
 #include "../3rdparty/catch2/catch.hpp"
 #include "../train.h"
+#include "../clear_map.h"
+#include "../debug.h"
+#include "../direction_func.h"
 #include "../cargotype.h"
 #include "../tracerestrict_overtaking.h"
 #include "../tracerestrict_cmd.h"
@@ -17,12 +20,14 @@
 #include "../company_func.h"
 #include "../core/pool_func.hpp"
 #include "../station_base.h"
+#include "../waypoint_base.h"
 #include "../pathfinder/yapf/yapf.h"
 #include "../pbs.h"
 #include "../pathfinder/follow_track.hpp"
 #include "../aircraft.h"
 #include "../engine_base.h"
 #include "../newgrf.h"
+#include "../newgrf_newsignals.h"
 #include "../newgrf_spritegroup.h"
 #include "../settings_type.h"
 #include "../core/random_func.hpp"
@@ -30,6 +35,8 @@
 #include "../map_func.h"
 #include "../station_map.h"
 #include "../rail_map.h"
+#include "../rail_cmd.h"
+#include "../signal_func.h"
 #include "../bridge_map.h"
 #include "../roadveh_transport.h"
 #include "../scope.h"
@@ -961,6 +968,7 @@ class CouplePowerFixture : public TrainDecoupleFixture {
 protected:
 	AutoRestoreBackup<CompanyID> company_backup{_current_company, AutoRestoreBackupNoNewValueTag{}};
 	AutoRestoreBackup<uint8_t> length_limit{_settings_game.vehicle.max_train_length, uint8_t{8}};
+	AutoRestoreBackup<bool> turns_backup{_settings_game.pf.forbid_90_deg, AutoRestoreBackupNoNewValueTag{}};
 	AutoRestoreBackup<RailTypes> rail_direct{const_cast<RailTypeInfo *>(GetRailTypeInfo(RAILTYPE_RAIL))->compatible_railtypes, RailTypes{RAILTYPE_RAIL}};
 	AutoRestoreBackup<RailTypes> rail_power{const_cast<RailTypeInfo *>(GetRailTypeInfo(RAILTYPE_RAIL))->powered_railtypes, RailTypes{RAILTYPE_RAIL}};
 	AutoRestoreBackup<RailTypes> rail_compatibility{const_cast<RailTypeInfo *>(GetRailTypeInfo(RAILTYPE_RAIL))->indirect_compatible_railtypes, RailTypes{RAILTYPE_RAIL}};
@@ -1316,6 +1324,7 @@ static constexpr uint32_t TEST_YIELD_CONFIG = 25u << 16;
 class AutomaticYieldFixture : public TrainDecoupleFixture {
 protected:
 	AutoRestoreBackup<bool> automatic_yield_setting{_settings_game.vehicle.automatic_yield, true};
+	AutoRestoreBackup<int8_t> diagnostic_level{_debug_levels[size_t(DebugLevelID::yapf)], std::getenv("PXP_YIELD_TEST_DEBUG") ? int8_t{7} : _debug_levels[size_t(DebugLevelID::yapf)]};
 	AutoRestoreBackup<CompanyID> company_backup{_current_company, AutoRestoreBackupNoNewValueTag{}};
 	AutoRestoreBackup<uint8_t> length_limit{_settings_game.vehicle.max_train_length, uint8_t{8}};
 	AutoRestoreBackup<RailTypes> rail_direct{const_cast<RailTypeInfo *>(GetRailTypeInfo(RAILTYPE_RAIL))->compatible_railtypes, RailTypes{RAILTYPE_RAIL}};
@@ -1335,6 +1344,11 @@ protected:
 		membership->name = "Test yielding area";
 		membership->max_occupancy = 16;
 		for (uint x = 1; x <= 40; ++x) MakeRailNormal(TileXY(x, 10), _current_company, TRACK_BIT_X, RAILTYPE_RAIL);
+		/* Model the next native PBS block beyond the area Clear at 27.
+		 * A released occupant must clear that block, not just the PXP marker. */
+		SB(_m[TileXY(33,10)].m5,6,2,to_underlying(RailTileType::Signals));
+		SetPresentSignals(TileXY(33,10),SignalAlongTrackdir(TRACKDIR_X_SW));
+		SetSignalType(TileXY(33,10),TRACK_X,SignalType::Path);
 		for (uint x = 8; x <= 20; ++x) MakeRailNormal(TileXY(x, 12), _current_company, TRACK_BIT_X, RAILTYPE_RAIL);
 		MakeRailNormal(TileXY(8, 10), _current_company, TRACK_BIT_X | TRACK_BIT_RIGHT, RAILTYPE_RAIL);
 		MakeRailNormal(TileXY(8, 11), _current_company, TRACK_BIT_Y, RAILTYPE_RAIL);
@@ -1397,7 +1411,7 @@ protected:
 	TraceRestrictSlot *Resource(uint32_t ref)
 	{
 		if (ref == AUTO_YIELD_DETECTION_REF) return membership;
-		for (TraceRestrictSlot *slot : TraceRestrictSlot::Iterate()) if (slot->automatic_yield_area == membership->index.base() + 1 && slot->automatic_yield_signal == ref) return slot;
+		for (TraceRestrictSlot *slot : TraceRestrictSlot::Iterate()) if (slot->automatic_yield_area == membership->index.base() + 1 && slot->automatic_yield_signal == ref && !slot->flags.Test(TraceRestrictSlot::Flag::AutoYieldTargets)) return slot;
 		return nullptr;
 	}
 	TraceRestrictProgramResult Execute(Train *v, uint x, uint y, TraceRestrictProgramInputSlotPermissions permissions = TRPISP_NONE)
@@ -1409,6 +1423,23 @@ protected:
 		return out;
 	}
 	void Register(Train *v) { Execute(v, 3, 10, TRPISP_PBS_RES_END_ACQUIRE); Execute(v, 3, 10, TRPISP_RELEASE_FRONT); }
+	/** Selection tests need a genuinely distant moving express: the old four
+	 * tile gap now correctly fails the independent turnover-risk check. */
+	void DistantExpress(Train *v, uint x = 2, uint entry_row = 10)
+	{
+		_settings_game.pf.forbid_90_deg = true;
+		for (uint i = 2; i < 60; i++) {
+			MakeRailNormal(TileXY(i,22),_current_company,TRACK_BIT_X,RAILTYPE_RAIL);
+			MakeRailNormal(TileXY(i,4),_current_company,TRACK_BIT_X,RAILTYPE_RAIL);
+		}
+		for (uint y = 5; y < 22; y++) MakeRailNormal(TileXY(60,y),_current_company,y==entry_row?TRACK_BIT_X|TRACK_BIT_Y:TRACK_BIT_Y,RAILTYPE_RAIL);
+		MakeRailNormal(TileXY(60,22),_current_company,TRACK_BIT_UPPER,RAILTYPE_RAIL);
+		MakeRailNormal(TileXY(60,4),_current_company,TRACK_BIT_RIGHT,RAILTYPE_RAIL);
+		MakeRailNormal(TileXY(1,4),_current_company,TRACK_BIT_LOWER,RAILTYPE_RAIL);
+		for (uint y = 5; y < entry_row; y++) MakeRailNormal(TileXY(1,y),_current_company,TRACK_BIT_Y,RAILTYPE_RAIL);
+		MakeRailNormal(TileXY(1,entry_row),_current_company,TRACK_BIT_LEFT,RAILTYPE_RAIL);
+		Place(v,x+23,22);
+	}
 	void BackSignal(uint x, SignalType type)
 	{
 		TileIndex tile = TileXY(x, 12);
@@ -1441,7 +1472,7 @@ protected:
 
 TEST_CASE_METHOD(AutomaticYieldFixture, "Automatic yield - ordinary slot associates signals and only lane claims are hidden")
 {
-	REQUIRE(TraceRestrictSlot::GetNumItems() == 3);
+	REQUIRE(TraceRestrictSlot::GetNumItems() == 4);
 	CHECK(Resource(AUTO_YIELD_DETECTION_REF) != nullptr);
 	CHECK(Resource(MakeTraceRestrictRefId(TileXY(10,12),TRACK_X)) != nullptr);
 	CHECK(Resource(MakeTraceRestrictRefId(TileXY(10,12),TRACK_X))->max_occupancy == 1);
@@ -1500,6 +1531,7 @@ TEST_CASE_METHOD(AutomaticYieldFixture, "Automatic yield - multiple faster membe
 	CHECK(EvaluateAutoYield(medium,membership->index.base(),AutoYieldCondition::MustWait));
 	CHECK_FALSE(EvaluateAutoYield(fast,membership->index.base(),AutoYieldCondition::MustWait));
 	Place(fast,30,10);
+	Train *tail = MakeActor(27,10,200); tail->SetWagon(); fast->SetNext(tail);
 	Execute(fast,27,10,TRPISP_RELEASE_FRONT);
 	CHECK(EvaluateAutoYield(medium,membership->index.base(),AutoYieldCondition::MustWait));
 	Execute(fast,27,10,TRPISP_RELEASE_BACK);
@@ -1535,6 +1567,19 @@ TEST_CASE_METHOD(AutomaticYieldFixture, "Automatic yield - full siding can safel
 	CHECK((Execute(slow,10,10).flags & TRPRF_WAIT_AT_PBS) != 0);
 	Place(medium,30,10); Execute(medium,27,10,TRPISP_RELEASE_BACK);
 	CHECK(EvaluateAutoYield(slow,membership->index.base(),AutoYieldCondition::FreeSiding));
+}
+
+TEST_CASE_METHOD(AutomaticYieldFixture, "Automatic yield free lanes - future capacity demand cannot evict an occupied lane while normal parking is free")
+{
+	UpperSiding(false);
+	Register(slow);Register(medium);Register(fast);
+	Place(medium,14,12);Execute(medium,10,12,TRPISP_ACQUIRE);
+	DistantExpress(fast);fast->cur_speed=200;
+	REQUIRE(EvaluateAutoYield(slow,membership->index.base(),AutoYieldCondition::FreeSiding));
+	CHECK(EvaluateAutoYield(slow,membership->index.base(),AutoYieldCondition::NeedsSiding));
+	CHECK_FALSE(EvaluateAutoYield(medium,membership->index.base(),AutoYieldCondition::Evacuate));
+	CHECK((Execute(slow,10,10).flags&TRPRF_DENY)!=0);
+	CHECK((Execute(medium,18,12).flags&TRPRF_WAIT_AT_PBS)!=0);
 }
 
 TEST_CASE_METHOD(AutomaticYieldFixture, "Automatic yield - manual cancellation disables all conditions and frees the lane immediately")
@@ -1668,6 +1713,10 @@ TEST_CASE_METHOD(AutomaticYieldFixture, "Automatic yield - version one conversio
 	const auto source_id = membership->index;
 	TraceRestrictSlot *pending=Resource(AUTO_YIELD_PENDING_REF);
 	REQUIRE(pending != nullptr); TraceRestrictRemoveSlotID(pending->index); delete pending;
+	/* Version one had no saved wait-target resources. */
+	std::vector<TraceRestrictSlot *> target_resources;
+	for (auto *slot : TraceRestrictSlot::Iterate()) if (slot->flags.Test(TraceRestrictSlot::Flag::AutoYieldTargets)) target_resources.push_back(slot);
+	for (auto *slot : target_resources) { TraceRestrictRemoveSlotID(slot->index); delete slot; }
 	/* Simulate v1's numeric area, deliberately different from the slot ID. */
 	for (TraceRestrictProgram *program : TraceRestrictProgram::Iterate()) {
 		for (auto iter : program->IterateInstructionsMutable()) iter.InstructionRef().SetValue(42);
@@ -1766,7 +1815,7 @@ TEST_CASE_METHOD(AutomaticYieldFixture, "Automatic yield - an exit alone identif
 	TraceRestrictSlot *lane = Resource(exit_ref);
 	REQUIRE(lane != nullptr);
 	CHECK(Resource(MakeTraceRestrictRefId(TileXY(10,12),TRACK_X)) == nullptr);
-	CHECK(TraceRestrictSlot::GetNumItems() == 3);
+	CHECK(TraceRestrictSlot::GetNumItems() == 4);
 	GameRandomSeedChecker random_checker;
 	CHECK(EvaluateAutoYield(slow, membership->index.base(), AutoYieldCondition::FreeSiding));
 	CHECK((Execute(slow,10,10).flags & TRPRF_DENY) != 0);
@@ -1802,7 +1851,7 @@ TEST_CASE_METHOD(AutomaticYieldFixture, "Automatic yield - exit only temporary c
 	CHECK(TraceRestrictSlot::ValidateVehicleIndex());
 }
 
-TEST_CASE_METHOD(AutomaticYieldFixture, "Automatic yield - exit only never treats a main line or a downstream merge as a free siding")
+TEST_CASE_METHOD(AutomaticYieldFixture, "Automatic yield - exit only rejects a marked main boundary and unsuitable parking segments")
 {
 	UseExitOnly();
 	Register(slow); Register(medium);
@@ -1811,9 +1860,11 @@ TEST_CASE_METHOD(AutomaticYieldFixture, "Automatic yield - exit only never treat
 		GetTraceRestrictProgram(MakeTraceRestrictRefId(TileXY(18,12),TRACK_X),false)->items.clear();
 		Marker(16,10,AutoYieldRole::Exit);
 	}
-	SECTION("exit after merge") {
+	SECTION("exit after a merge marked as main") {
 		GetTraceRestrictProgram(MakeTraceRestrictRefId(TileXY(18,12),TRACK_X),false)->items.clear();
 		Marker(24,10,AutoYieldRole::Exit);
+		Marker(20,10,AutoYieldRole::Main);
+		SetTrackBits(TileXY(20,10), TRACK_BIT_X | TRACK_BIT_LOWER);
 	}
 	SECTION("unreachable branch") { MakeRailNormal(TileXY(12,12),_current_company,TRACK_BIT_Y,RAILTYPE_RAIL); }
 	SECTION("occupied branch") { Place(fast,14,12); fast->vehstatus.Set(VehState::Stopped); }
@@ -1821,13 +1872,38 @@ TEST_CASE_METHOD(AutomaticYieldFixture, "Automatic yield - exit only never treat
 	CHECK((Execute(slow,10,10).flags & (TRPRF_DENY | TRPRF_WAIT_AT_PBS)) == 0);
 }
 
-TEST_CASE_METHOD(AutomaticYieldFixture, "Automatic yield - one siding prioritises the slowest reachable contender")
+TEST_CASE_METHOD(AutomaticYieldFixture, "Automatic yield - an additional feeder can merge before an exclusive siding parking segment")
+{
+	UseExitOnly();
+	MakeRailNormal(TileXY(14, 12), _current_company, TRACK_BIT_X | TRACK_BIT_LOWER, RAILTYPE_RAIL);
+	MakeRailNormal(TileXY(14, 13), _current_company, TRACK_BIT_Y, RAILTYPE_RAIL);
+	MakeRailNormal(TileXY(14, 14), _current_company, TRACK_BIT_UPPER, RAILTYPE_RAIL);
+	for (uint x = 10; x < 14; x++) MakeRailNormal(TileXY(x, 14), _current_company, TRACK_BIT_X, RAILTYPE_RAIL);
+	bool available = true;
+	SECTION("the last merge leaves enough independent parking length") { }
+	SECTION("a declared exit after an unmarked merge remains a siding") {
+		GetTraceRestrictProgram(MakeTraceRestrictRefId(TileXY(18,12),TRACK_X),false)->items.clear();
+		Marker(25,10,AutoYieldRole::Exit);
+	}
+	SECTION("a train must fit after the last merge") { slow->gcache.cached_total_length = 4 * TILE_SIZE; available = false; }
+	SECTION("a compound junction is excluded from otherwise exclusive parking") { MakeRailNormal(TileXY(14, 12), _current_company, TRACK_BIT_X | TRACK_BIT_LOWER | TRACK_BIT_RIGHT, RAILTYPE_RAIL); }
+	SECTION("a foreign reservation still blocks entry") { REQUIRE(TryReserveRailTrack(TileXY(17, 12), TRACK_X)); available = false; }
+	SECTION("a train already past the branch cannot enter") { Place(slow, 16, 10); available = false; }
+	Register(slow); Register(medium);
+	GameRandomSeedChecker random_checker;
+	CHECK(EvaluateAutoYield(slow, membership->index.base(), AutoYieldCondition::FreeSiding) == available);
+	CHECK(((Execute(slow, 10, 10).flags & TRPRF_DENY) != 0) == available);
+	CHECK(GetReservedTrackbits(TileXY(18, 12)) == TRACK_BIT_NONE);
+	CHECK(TraceRestrictSlot::ValidateVehicleIndex()); CHECK(random_checker.Check());
+}
+
+TEST_CASE_METHOD(AutomaticYieldFixture, "Automatic yield - one empty siding is not withheld for another approaching train")
 {
 	Register(slow); Register(medium); Register(fast);
 	GameRandomSeedChecker random_checker;
 	CHECK(EvaluateAutoYield(slow, membership->index.base(), AutoYieldCondition::NeedsSiding));
-	CHECK_FALSE(EvaluateAutoYield(medium, membership->index.base(), AutoYieldCondition::NeedsSiding));
-	CHECK((Execute(medium, 10, 10).flags & (TRPRF_DENY | TRPRF_WAIT_AT_PBS)) == 0);
+	CHECK(EvaluateAutoYield(medium, membership->index.base(), AutoYieldCondition::NeedsSiding));
+	CHECK((Execute(slow, 10, 10).flags & TRPRF_DENY) != 0);
 	SECTION("slow train already passed the branch") {
 		Place(slow, 12, 10);
 		CHECK(EvaluateAutoYield(medium, membership->index.base(), AutoYieldCondition::NeedsSiding));
@@ -1856,13 +1932,13 @@ TEST_CASE_METHOD(AutomaticYieldFixture, "Automatic yield - parallel curves on on
 	CHECK(GetRailReservationTrackBits(TileXY(18,12)) == TRACK_BIT_NONE);
 }
 
-TEST_CASE_METHOD(AutomaticYieldFixture, "Automatic yield - a medium train ahead leaves the only siding for a slower train behind")
+TEST_CASE_METHOD(AutomaticYieldFixture, "Automatic yield - a free siding is not withheld for a slower train behind")
 {
 	Place(medium,7,10); Place(slow,5,10); Place(fast,4,10);
 	Register(slow); Register(medium); Register(fast);
 	GameRandomSeedChecker random_checker;
-	CHECK_FALSE(EvaluateAutoYield(medium, membership->index.base(), AutoYieldCondition::NeedsSiding));
-	CHECK((Execute(medium,10,10).flags & (TRPRF_DENY | TRPRF_WAIT_AT_PBS)) == 0);
+	CHECK(EvaluateAutoYield(medium, membership->index.base(), AutoYieldCondition::NeedsSiding));
+	CHECK((Execute(medium,10,10).flags & TRPRF_DENY) != 0);
 	Place(medium,12,10);
 	CHECK(EvaluateAutoYield(slow, membership->index.base(), AutoYieldCondition::NeedsSiding));
 	CHECK(EvaluateAutoYield(slow, membership->index.base(), AutoYieldCondition::FreeSiding));
@@ -2006,7 +2082,168 @@ protected:
 	AutomaticYieldWideFixture() : AutomaticYieldFixture(2048) {}
 };
 
-TEST_CASE_METHOD(AutomaticYieldWideFixture, "Automatic yield - a distant registered follower is not discarded by distance or probe limits")
+TEST_CASE_METHOD(AutomaticYieldWideFixture, "Automatic yield free lanes - an unreachable first siding cannot spend admission on downstream track")
+{
+	const bool exit_only=GENERATE(false,true);
+	if(exit_only)UseExitOnly();
+	UpperSiding(exit_only);
+	MakeRailNormal(TileXY(8,9),_current_company,TRACK_BIT_X,RAILTYPE_RAIL);
+	for(uint x=41;x<1600;x++)MakeRailNormal(TileXY(x,10),_current_company,TRACK_BIT_X,RAILTYPE_RAIL);
+	Register(slow);Register(fast);
+	GameRandomSeedChecker random_checker;
+	CHECK(EvaluateAutoYield(slow,membership->index.base(),AutoYieldCondition::FreeSiding));
+	CHECK((Execute(slow,10,10).flags&TRPRF_DENY)!=0);
+	CHECK(TraceRestrictSlot::ValidateVehicleIndex());CHECK(random_checker.Check());
+}
+
+TEST_CASE_METHOD(AutomaticYieldFixture, "Automatic yield free lanes - full-lane incoming ranking cannot veto a free normal siding")
+{
+	medium->vcache.cached_max_speed=140;
+	Register(slow);Register(medium);Register(fast);
+	GameRandomSeedChecker random_checker;
+	REQUIRE(EvaluateAutoYield(slow,membership->index.base(),AutoYieldCondition::FreeSiding));
+	CHECK(EvaluateAutoYield(slow,membership->index.base(),AutoYieldCondition::NeedsSiding));
+	CHECK((Execute(slow,10,10).flags&TRPRF_DENY)!=0);
+	CHECK(TraceRestrictSlot::ValidateVehicleIndex());CHECK(random_checker.Check());
+}
+
+TEST_CASE_METHOD(AutomaticYieldWideFixture, "Automatic yield free lanes - destination admission does not require exhausting unrelated downstream branches")
+{
+	const bool exit_only=GENERATE(false,true);
+	if(exit_only)UseExitOnly();
+	/* The siding and main have different first clearances but both serve the
+	 * explicit depot. A long, irrelevant branch beyond the merge must not
+	 * invalidate a positively reachable destination from the empty siding. */
+	Marker(19,12,AutoYieldRole::Clear);
+	MakeRailDepot(TileXY(40,10),_current_company,DepotID{0},DiagDirection::NE,RAILTYPE_RAIL);
+	slow->current_order.MakeGoToDepot(DepotID{0},{});slow->dest_tile=TileXY(40,10);
+	MakeRailNormal(TileXY(30,10),_current_company,TRACK_BIT_X|TRACK_BIT_RIGHT,RAILTYPE_RAIL);
+	for(uint y=11;y<20;y++)MakeRailNormal(TileXY(30,y),_current_company,TRACK_BIT_Y,RAILTYPE_RAIL);
+	MakeRailNormal(TileXY(30,20),_current_company,TRACK_BIT_LEFT,RAILTYPE_RAIL);
+	for(uint x=31;x<1600;x++)MakeRailNormal(TileXY(x,20),_current_company,TRACK_BIT_X,RAILTYPE_RAIL);
+	Register(slow);
+	bool reachable=true;
+	SECTION("a legal destination continuation admits the empty siding"){}
+	SECTION("a different mandatory depot cannot be bypassed"){
+		slow->current_order.MakeGoToDepot(DepotID{1},{});reachable=false;
+	}
+	SECTION("an ordinary restriction still rejects the only destination continuation"){
+		auto*p=Marker(31,10,AutoYieldRole::Approach,INVALID_TRACE_RESTRICT_SLOT_ID.base());
+		TraceRestrictInstructionItem deny{};deny.SetType(TRIT_PF_DENY);p->items={deny.AsProgramItem()};
+		REQUIRE(p->Validate().Succeeded());InvalidateAutoYieldAreas();UpdateAutoYieldAreas();reachable=false;
+	}
+	GameRandomSeedChecker random;
+	CHECK(EvaluateAutoYield(slow,membership->index.base(),AutoYieldCondition::FreeSiding)==reachable);
+	CHECK(TraceRestrictSlot::ValidateVehicleIndex());CHECK(random.Check());
+}
+
+TEST_CASE_METHOD(AutomaticYieldWideFixture, "Automatic yield free lanes - a distant station remains reachable beyond the local forecast horizon")
+{
+	/* Unit settings are otherwise zero-initialised; use the game's normal
+	 * restriction lookahead when exercising the native pathfinder itself. */
+	AutoRestoreBackup<uint32_t> lookahead(_settings_game.pf.yapf.rail_look_ahead_max_signals,10);
+	const bool exit_only=GENERATE(false,true);
+	if(exit_only)UseExitOnly();
+	Marker(19,12,AutoYieldRole::Clear);
+	for(uint x=41;x<=400;x++)MakeRailNormal(TileXY(x,10),_current_company,TRACK_BIT_X,RAILTYPE_RAIL);
+	Station*target=Station::Create(TileXY(380,10));target->owner=_current_company;target->facilities={StationFacility::Train};
+	target->train_station=TileArea(target->xy,1,1);target->rect.BeforeAddTile(target->xy,StationRect::ADD_FORCE);
+	MakeRailStation(target->xy,_current_company,target->index,Axis::X,0,RAILTYPE_RAIL);
+	slow->current_order.MakeGoToStation(target->index);slow->dest_tile=target->xy;
+	Register(slow);
+	bool reachable=true;
+	SECTION("the native non-reserving probe confirms the far destination"){}
+	SECTION("local path cache history cannot change a bounded proof"){
+		uint cold=0,warm=0;
+		const bool before=YapfTrainCanReachStationBounded(slow,TileXY(27,10),TRACKDIR_X_SW,target->index,32,cold);
+		REQUIRE(YapfTrainCanReachStation(slow,TileXY(27,10),TRACKDIR_X_SW,target->index));
+		CHECK(YapfTrainCanReachStationBounded(slow,TileXY(27,10),TRACKDIR_X_SW,target->index,32,warm)==before);
+		CHECK(before);CHECK(cold==warm);CHECK(cold>0);CHECK(cold<=32);
+	}
+	SECTION("a zero native budget cannot become an unlimited search"){
+		uint used=123;
+		CHECK_FALSE(YapfTrainCanReachStationBounded(slow,TileXY(27,10),TRACKDIR_X_SW,target->index,0,used));
+		CHECK(used==0);
+	}
+	SECTION("a disconnected destination is not permission to divert"){
+		MakeClear(TileXY(200,10),ClearGround::Grass,0);reachable=false;
+	}
+	SECTION("ordinary restrictions beyond the tile horizon still forbid admission"){
+		auto*p=Marker(300,10,AutoYieldRole::Approach,INVALID_TRACE_RESTRICT_SLOT_ID.base());
+		TraceRestrictInstructionItem deny{};deny.SetType(TRIT_PF_DENY);p->items={deny.AsProgramItem()};
+		REQUIRE(p->Validate().Succeeded());SetRestrictedSignal(TileXY(300,10),true);
+		InvalidateAutoYieldAreas();UpdateAutoYieldAreas();reachable=false;
+	}
+	GameRandomSeedChecker random;
+	const Order order=slow->current_order;
+	CHECK(EvaluateAutoYield(slow,membership->index.base(),AutoYieldCondition::FreeSiding)==reachable);
+	CHECK(slow->current_order.GetDestination()==order.GetDestination());
+	CHECK(slow->dest_tile==target->xy);
+	for(uint x:{7u,10u,18u,24u,27u,200u,380u})CHECK(GetReservedTrackbits(TileXY(x,10))==TRACK_BIT_NONE);
+	CHECK(TraceRestrictSlot::ValidateVehicleIndex());CHECK(random.Check());
+}
+
+class AutomaticYieldNativeLayoutFixture : public AutomaticYieldFixture {
+protected:
+	~AutomaticYieldNativeLayoutFixture()
+	{
+		/* Native commands also schedule updates while removing restriction
+		 * mappings. Drain them before the fixture's map changes size. */
+		ClearTraceRestrictMapping();
+		UpdateSignalsInBuffer();
+	}
+};
+
+TEST_CASE_METHOD(AutomaticYieldNativeLayoutFixture, "Automatic yield layout edits - native signal changes refresh marker direction without editing its program")
+{
+	AutoRestoreBackup braking(_settings_game.vehicle.train_braking_model, uint8_t{0});
+	AutoRestoreBackup styles(_enabled_new_signal_styles_mask, uint16_t{1});
+	Register(slow); Register(fast);
+	REQUIRE(EvaluateAutoYield(slow, membership->index.base(), AutoYieldCondition::NeedsSiding));
+	const auto *program = GetExistingTraceRestrictProgram(TileXY(3,10), TRACK_X);
+	const auto items = program->items;
+	REQUIRE(CmdBuildSingleSignal(DoCommandFlag::Execute, TileXY(3,10), TRACK_X, SignalType::Block, SignalVariant::Electric,
+			0, 1, BuildSignalFlags::None, {}, 0, SignalOnTrack(TRACK_X)).Succeeded());
+	AutoYieldGameTick();
+	CHECK(GetExistingTraceRestrictProgram(TileXY(3,10), TRACK_X)->items == items);
+	CHECK_FALSE(EvaluateAutoYield(slow, membership->index.base(), AutoYieldCondition::NeedsSiding));
+	REQUIRE(CmdBuildSingleSignal(DoCommandFlag::Execute, TileXY(3,10), TRACK_X, SignalType::Path, SignalVariant::Electric,
+			0, 1, BuildSignalFlags::None, {}, 0, SignalAlongTrackdir(TRACKDIR_X_SW)).Succeeded());
+	AutoYieldGameTick();
+	CHECK(EvaluateAutoYield(slow, membership->index.base(), AutoYieldCondition::NeedsSiding));
+}
+
+TEST_CASE_METHOD(AutomaticYieldNativeLayoutFixture, "Automatic yield layout edits - disconnecting a chosen inlet releases only a proven orphan claim")
+{
+	const bool exit_only = GENERATE(false, true);
+	if (exit_only) UseExitOnly();
+	Register(slow); Register(fast);
+	const uint x = exit_only ? 18 : 10;
+	Execute(slow, x, 12, TRPISP_PBS_RES_END_ACQUIRE);
+	auto *old_lane = Resource(MakeTraceRestrictRefId(TileXY(x,12),TRACK_X));
+	REQUIRE(old_lane->IsOccupant(slow->index));
+	UpperSiding(exit_only);
+	bool retain = false;
+	SECTION("empty disconnected lane") {}
+	SECTION("tail still occupies the disconnected lane") {
+		Place(slow, 25,10);
+		const uint tail_x = GENERATE(9, 14); // Include parking behind a legacy inlet marker.
+		Train *tail = MakeActor(tail_x,12,100); tail->ClearFrontEngine(); slow->SetNext(tail);
+		retain = true;
+	}
+	SECTION("an unresolved exit reservation remains protected") {
+		SetTrackReservation(TileXY(18,12), TRACK_BIT_X); retain = true;
+	}
+	REQUIRE(CmdRemoveSingleRail(DoCommandFlag::Execute, TileXY(8,11), TRACK_Y).Succeeded());
+	AutoRestoreBackup tick(_state_ticks, StateTicks{64});
+	AutoYieldGameTick();
+	CHECK(old_lane->IsOccupant(slow->index) == retain);
+	CHECK(membership->IsOccupant(slow->index));
+	CHECK(membership->IsOccupant(fast->index));
+	CHECK(TraceRestrictSlot::ValidateVehicleIndex());
+}
+
+TEST_CASE_METHOD(AutomaticYieldWideFixture, "Automatic yield - unknown distant routes retain membership without inventing a conflict")
 {
 	GetTraceRestrictProgram(MakeTraceRestrictRefId(TileXY(10,10),TRACK_X),false)->items.clear();
 	for(uint x=41;x<=1801;x++) MakeRailNormal(TileXY(x,10),_current_company,TRACK_BIT_X,RAILTYPE_RAIL);
@@ -2016,8 +2253,8 @@ TEST_CASE_METHOD(AutomaticYieldWideFixture, "Automatic yield - a distant registe
 	Place(medium,900,50);
 	Register(slow);Register(fast);Register(medium);
 	GameRandomSeedChecker random_checker;
-	CHECK(EvaluateAutoYield(slow,membership->index.base(),AutoYieldCondition::Faster));
-	CHECK(EvaluateAutoYield(slow,membership->index.base(),AutoYieldCondition::MustWait));
+	CHECK_FALSE(EvaluateAutoYield(slow,membership->index.base(),AutoYieldCondition::Faster));
+	CHECK_FALSE(EvaluateAutoYield(slow,membership->index.base(),AutoYieldCondition::MustWait));
 	AutoRestoreBackup tick_backup(_state_ticks, StateTicks{64});
 	AutoYieldGameTick();
 	CHECK(membership->IsOccupant(slow->index));
@@ -2136,6 +2373,7 @@ TEST_CASE_METHOD(AutomaticYieldFixture, "Automatic yield - station platforms are
 
 TEST_CASE_METHOD(AutomaticYieldFixture, "Automatic yield - ordinary bridges do not read simulated signal fields")
 {
+	if (GENERATE(false, true)) UseExitOnly();
 	Register(slow); Register(medium);
 	MakeRailBridgeRamp(TileXY(12,12), _current_company, 0, DiagDirection::SW, RAILTYPE_RAIL, false);
 	MakeRailBridgeRamp(TileXY(16,12), _current_company, 0, DiagDirection::NE, RAILTYPE_RAIL, false);
@@ -2245,6 +2483,7 @@ TEST_CASE_METHOD(AutomaticYieldFixture, "Automatic yield - eviction requires an 
 	const bool exit_only = GENERATE(false, true);
 	if (exit_only) UseExitOnly();
 	Register(slow); Register(medium); Register(fast);
+	bool common_route = true;
 	Place(medium,14,12); Execute(medium,exit_only ? 18 : 10,12,TRPISP_ACQUIRE);
 	SECTION("another train blocks the incoming branch") {
 		Train *blocker = MakeActor(12,12,30); blocker->vehstatus.Set(VehState::Stopped);
@@ -2259,6 +2498,7 @@ TEST_CASE_METHOD(AutomaticYieldFixture, "Automatic yield - eviction requires an 
 	}
 	SECTION("incoming train cannot fit") { slow->gcache.cached_total_length = 20 * TILE_SIZE; }
 	SECTION("only the departing train can use the rail type after the merge") {
+		common_route = false;
 		medium->railtypes.Set(RAILTYPE_ELECTRIC);
 		medium->compatible_railtypes.Set(RAILTYPE_ELECTRIC);
 		MakeRailNormal(TileXY(23,10),_current_company,TRACK_BIT_X,RAILTYPE_ELECTRIC);
@@ -2272,7 +2512,7 @@ TEST_CASE_METHOD(AutomaticYieldFixture, "Automatic yield - eviction requires an 
 	REQUIRE(lane != nullptr);
 	const auto claims = lane->occupants;
 	CHECK_FALSE(EvaluateAutoYield(medium,membership->index.base(),AutoYieldCondition::Evacuate));
-	CHECK((Execute(medium,18,12).flags & TRPRF_WAIT_AT_PBS) != 0);
+	CHECK(((Execute(medium,18,12).flags & TRPRF_WAIT_AT_PBS) != 0) == common_route);
 	CHECK(membership->occupants == members);
 	CHECK(lane->occupants == claims);
 	CHECK(TraceRestrictSlot::ValidateVehicleIndex());
@@ -2401,6 +2641,7 @@ TEST_CASE_METHOD(AutomaticYieldFixture, "Automatic yield - repeated approach cro
 class AutomaticYieldPlatformFixture : public AutomaticYieldFixture {
 protected:
 	Station *platform_station = nullptr;
+	Station *passing_target = nullptr;
 	~AutomaticYieldPlatformFixture() { _station_pool.CleanPool(); }
 	void SetupPlatform(bool exit_only)
 	{
@@ -2417,7 +2658,14 @@ protected:
 	}
 	void PassStation(Train *v)
 	{
-		v->current_order.MakeGoToStation(platform_station->index);
+		/* A train passing this platform heads to a real station beyond Clear;
+		 * naming the siding's own station would require it to use that siding. */
+		if (passing_target == nullptr) {
+			passing_target = Station::Create(TileXY(35,10)); passing_target->owner=_current_company;
+			passing_target->facilities={StationFacility::Train}; passing_target->train_station=TileArea(passing_target->xy,4,1);
+			for(uint x=35;x<=38;x++)MakeRailStation(TileXY(x,10),_current_company,passing_target->index,Axis::X,0,RAILTYPE_RAIL);
+		}
+		v->current_order.MakeGoToStation(passing_target->index);
 		v->current_order.SetNonStopType(ONSF_NO_STOP_AT_ANY_STATION);
 	}
 };
@@ -2686,9 +2934,13 @@ TEST_CASE_METHOD(AutomaticYieldPlatformFixture, "Automatic yield platform - a ne
 		CHECK(Execute(slow,x,12).penalty == 120000);
 		CHECK((Execute(slow,10,10).flags & TRPRF_DENY) == 0);
 	}
-	SECTION("blocked departure cannot justify forcing the platform") {
+	SECTION("an occupied shared departure still allows safe parking") {
 		Train *blocker = MakeActor(25,10,80); blocker->vehstatus.Set(VehState::Stopped);
 		CHECK(Execute(slow,x,12).penalty == 120000);
+		CHECK((Execute(slow,10,10).flags & TRPRF_DENY) != 0);
+	}
+	SECTION("physical parking occupancy cannot justify forcing the platform") {
+		Train *blocker = MakeActor(14,12,80); blocker->vehstatus.Set(VehState::Stopped);
 		CHECK((Execute(slow,10,10).flags & TRPRF_DENY) == 0);
 	}
 	SECTION("mandatory station and coupling tasks keep their own rules") {
@@ -2737,6 +2989,9 @@ TEST_CASE_METHOD(AutomaticYieldWideFixture, "Automatic yield - Dezhou main admis
 	if (!exit_only) Marker(210,12,AutoYieldRole::Siding);
 	Marker(218,12,AutoYieldRole::Exit);
 	Marker(227,10,AutoYieldRole::Clear);
+	SB(_m[TileXY(233,10)].m5,6,2,to_underlying(RailTileType::Signals));
+	SetPresentSignals(TileXY(233,10),SignalAlongTrackdir(TRACKDIR_X_SW));
+	SetSignalType(TileXY(233,10),TRACK_X,SignalType::Path);
 	Place(slow,30,10); Place(medium,214,12); Place(fast,1,10);
 	Register(slow); Register(medium); Register(fast);
 	Execute(medium,exit_only ? 218 : 210,12,TRPISP_ACQUIRE);
@@ -2773,13 +3028,18 @@ TEST_CASE_METHOD(AutomaticYieldWideFixture, "Automatic yield turnover - equal sp
 	Marker(218,12,AutoYieldRole::Exit);
 	Marker(227,10,AutoYieldRole::Clear);
 	const bool near=GENERATE(false,true);
+	SB(_m[TileXY(233,10)].m5,6,2,to_underlying(RailTileType::Signals));
+	SetPresentSignals(TileXY(233,10),SignalAlongTrackdir(TRACKDIR_X_SW));
+	SetSignalType(TileXY(233,10),TRACK_X,SignalType::Path);
 	slow->vcache.cached_max_speed=medium->vcache.cached_max_speed=100;
-	Place(slow,near?180:179,10);Place(medium,214,12);Place(fast,160,10);fast->cur_speed=20;
+	Place(slow,near?180:179,10);Place(medium,214,12);Place(fast,80,10);fast->cur_speed=20;
 	Register(slow);Register(medium);Register(fast);
 	Execute(medium,exit_only?218:210,12,TRPISP_ACQUIRE);
 	GameRandomSeedChecker random_checker;
 	CHECK(EvaluateAutoYield(medium,membership->index.base(),AutoYieldCondition::Evacuate)==!near);
-	CHECK(((Execute(medium,218,12).flags&TRPRF_WAIT_AT_PBS)==0)==!near);
+	/* Turnover has the 32-tile boundary, but this remote express cannot
+	 * justify withholding an ordinary safe departure. */
+	CHECK((Execute(medium,218,12).flags&TRPRF_WAIT_AT_PBS)==0);
 	CHECK(TraceRestrictSlot::ValidateVehicleIndex());CHECK(random_checker.Check());
 }
 
@@ -2800,7 +3060,7 @@ TEST_CASE_METHOD(AutomaticYieldFixture, "Automatic yield turnover - equal nearby
 	CHECK(TraceRestrictSlot::ValidateVehicleIndex());CHECK(random_checker.Check());
 }
 
-TEST_CASE_METHOD(AutomaticYieldFixture, "Automatic yield turnover - passenger preference never selects a slower unsuitable occupant")
+TEST_CASE_METHOD(AutomaticYieldFixture, "Automatic yield turnover - highest design speed precedes passenger preference")
 {
 	UpperSiding(false);
 	Train *passenger=MakeActor(14,8,120);
@@ -2808,16 +3068,367 @@ TEST_CASE_METHOD(AutomaticYieldFixture, "Automatic yield turnover - passenger pr
 	AutoRestoreBackup freight_class(CargoSpec::Get(1)->classes,CargoClasses{CargoClass::Bulk});
 	passenger->cargo_type=CargoType{0};passenger->cargo_cap=10;
 	medium->cargo_type=CargoType{1};medium->cargo_cap=10;
-	Train *expected=passenger;
-	SECTION("a suitable passenger leaves before a faster freight") { }
+	Train *expected=medium;
+	SECTION("a slower passenger cannot precede a faster safe freight departure") { }
 	SECTION("fastest passenger among passenger candidates leaves") { medium->cargo_type=CargoType{0};expected=medium; }
 	SECTION("passenger slower than incoming cannot be selected") { slow->vcache.cached_max_speed=140;expected=medium; }
 	Register(slow);Register(medium);Register(fast);Register(passenger);
 	Place(medium,14,12);Execute(medium,10,12,TRPISP_ACQUIRE);Execute(passenger,10,8,TRPISP_ACQUIRE);
 	fast->cur_speed=20;
+	DistantExpress(fast);
+
+	CAPTURE(expected->index, slow->vcache.cached_max_speed, medium->vcache.cached_max_speed, passenger->vcache.cached_max_speed);
 	CHECK(EvaluateAutoYield(expected,membership->index.base(),AutoYieldCondition::Evacuate));
 	CHECK_FALSE(EvaluateAutoYield(expected==medium?passenger:medium,membership->index.base(),AutoYieldCondition::Evacuate));
 	CHECK(TraceRestrictSlot::ValidateVehicleIndex());
+}
+
+TEST_CASE_METHOD(AutomaticYieldFixture, "Automatic yield full lanes - the closest conflicting arrival precedes a slower train farther ahead")
+{
+	AutoRestoreBackup<int8_t> debug(_debug_levels[size_t(DebugLevelID::yapf)], std::getenv("PXP_YIELD_TEST_DEBUG") ? 7 : _debug_levels[size_t(DebugLevelID::yapf)]);
+	UpperSiding(false);
+	Train *occupant=MakeActor(14,8,180),*nearest=MakeActor(6,10,140);
+	Register(slow);Register(medium);Register(fast);Register(occupant);Register(nearest);
+	Place(medium,14,12);Execute(medium,10,12,TRPISP_ACQUIRE);Execute(occupant,10,8,TRPISP_ACQUIRE);
+	DistantExpress(fast);fast->cur_speed=40;
+	const auto farther=Execute(slow,10,10),closer=Execute(nearest,10,10);
+	CHECK((farther.flags&TRPRF_WAIT_AT_PBS)==0);
+	CHECK((closer.flags&TRPRF_WAIT_AT_PBS)==0); // Its actual ingress is still occupied by the front train.
+	Place(slow,30,10);Execute(slow,27,10,TRPISP_RELEASE_BACK);
+	CHECK((Execute(nearest,10,10).flags&TRPRF_WAIT_AT_PBS)!=0);
+	CHECK(TraceRestrictSlot::ValidateVehicleIndex());
+}
+
+TEST_CASE_METHOD(AutomaticYieldFixture, "Automatic yield full lanes - an arrival as fast as the fastest occupant retains the main exception")
+{
+	UpperSiding(false);
+	Train *other=MakeActor(14,8,100);
+	slow->vcache.cached_max_speed=160;
+	Register(slow);Register(medium);Register(fast);Register(other);
+	Place(medium,14,12);Execute(medium,10,12,TRPISP_ACQUIRE);Execute(other,10,8,TRPISP_ACQUIRE);
+	DistantExpress(fast);fast->cur_speed=40;
+	CHECK_FALSE(EvaluateAutoYield(medium,membership->index.base(),AutoYieldCondition::Evacuate));
+	CHECK_FALSE(EvaluateAutoYield(other,membership->index.base(),AutoYieldCondition::Evacuate));
+	CHECK((Execute(slow,10,10).flags&TRPRF_WAIT_AT_PBS)==0);
+	CHECK(TraceRestrictSlot::ValidateVehicleIndex());
+}
+
+TEST_CASE_METHOD(AutomaticYieldFixture, "Automatic yield full lanes - equal design speeds release the farthest safe occupant")
+{
+	UpperSiding(false);
+	Train *ahead=MakeActor(15,8,100);
+	medium->vcache.cached_max_speed=100;
+	Register(slow);Register(medium);Register(fast);Register(ahead);
+	Place(medium,14,12);Execute(medium,10,12,TRPISP_ACQUIRE);Execute(ahead,10,8,TRPISP_ACQUIRE);
+	medium->cur_speed=80;DistantExpress(fast);fast->cur_speed=40;
+	CHECK(EvaluateAutoYield(ahead,membership->index.base(),AutoYieldCondition::Evacuate));
+	CHECK_FALSE(EvaluateAutoYield(medium,membership->index.base(),AutoYieldCondition::Evacuate));
+	CHECK(TraceRestrictSlot::ValidateVehicleIndex());
+}
+
+TEST_CASE_METHOD(AutomaticYieldFixture, "Automatic yield split exits - only proven independent corridors relax priority")
+{
+	for (uint x=1; x<=40; x++) MakeRailNormal(TileXY(x,20),_current_company,TRACK_BIT_X,RAILTYPE_RAIL);
+	Marker(3,20,AutoYieldRole::Approach); Marker(10,20,AutoYieldRole::Main); Marker(27,20,AutoYieldRole::Clear);
+	Place(slow,9,10); Place(fast,7,20);
+	Register(slow); Register(fast);
+	[[maybe_unused]] bool independent = true;
+	bool confirmed_conflict = false;
+	SECTION("separate directed exits do not create a speed wait") { }
+	SECTION("a waiting siding can leave toward its separate exit") { Place(slow,14,12); }
+	SECTION("an unresolved split preserves the original waiting rule") {
+		MakeRailNormal(TileXY(15,20),_current_company,TRACK_BIT_X|TRACK_BIT_RIGHT,RAILTYPE_RAIL);
+		MakeRailNormal(TileXY(15,21),_current_company,TRACK_BIT_Y,RAILTYPE_RAIL);
+		MakeRailNormal(TileXY(15,22),_current_company,TRACK_BIT_LEFT,RAILTYPE_RAIL);
+		independent=false;
+	}
+	SECTION("an owned PBS branch resolves the split without running pathfinding") {
+		MakeRailNormal(TileXY(15,20),_current_company,TRACK_BIT_X|TRACK_BIT_RIGHT,RAILTYPE_RAIL);
+		MakeRailNormal(TileXY(15,21),_current_company,TRACK_BIT_Y,RAILTYPE_RAIL);
+		MakeRailNormal(TileXY(15,22),_current_company,TRACK_BIT_LEFT,RAILTYPE_RAIL);
+		for(uint x=7;x<=27;x++)REQUIRE(TryReserveRailTrack(TileXY(x,20),TRACK_X));
+	}
+	SECTION("an unowned reserved branch is not a route decision") {
+		MakeRailNormal(TileXY(15,20),_current_company,TRACK_BIT_X|TRACK_BIT_RIGHT,RAILTYPE_RAIL);
+		REQUIRE(TryReserveRailTrack(TileXY(15,20),TRACK_X)); independent=false;
+	}
+	SECTION("a gap cannot use a rear reservation to choose a future branch") {
+		MakeRailNormal(TileXY(15,20),_current_company,TRACK_BIT_X|TRACK_BIT_RIGHT,RAILTYPE_RAIL);
+		for(uint x=14;x<=27;x++)REQUIRE(TryReserveRailTrack(TileXY(x,20),TRACK_X)); independent=false;
+	}
+	SECTION("a future level crossing is still a conflict between different exits") {
+		confirmed_conflict = true; // Native crossing regression also proves the actual wait and tail release.
+		MakeRailNormal(TileXY(20,20),_current_company,TRACK_BIT_UPPER,RAILTYPE_RAIL);
+		for(uint y=1;y<20;y++)MakeRailNormal(TileXY(20,y),_current_company,TRACK_BIT_Y,RAILTYPE_RAIL);
+		MakeRailNormal(TileXY(20,10),_current_company,TRACK_BIT_X|TRACK_BIT_Y,RAILTYPE_RAIL);
+		const TileIndex clear=TileXY(20,3);
+		SB(_m[clear].m5,6,2,to_underlying(RailTileType::Signals));SetPresentSignals(clear,SignalAlongTrackdir(TRACKDIR_Y_NW));SetSignalType(clear,TRACK_Y,SignalType::Path);
+		auto *program=GetTraceRestrictProgram(MakeTraceRestrictRefId(clear,TRACK_Y),true);
+		TraceRestrictInstructionItem item{};item.SetType(TRIT_AUTO_YIELD_CLEAR);item.SetValue(membership->index);
+		program->items={item.AsProgramItem()};REQUIRE(program->Validate().Succeeded());InvalidateAutoYieldAreas();UpdateAutoYieldAreas();independent=false;
+	}
+	SECTION("a long unresolved body exhausts optional proof without granting priority") {
+		Train *part=fast;
+		for(uint i=0;i<260;i++){Train *tail=MakeActor(7,20,200);tail->SetMultiheaded();part->SetNext(tail);part=tail;}independent=false;
+	}
+	SECTION("a shared exit retains the priority wait") {
+		confirmed_conflict = true;
+		MakeRailNormal(TileXY(20,20),_current_company,TRACK_BIT_UPPER,RAILTYPE_RAIL);
+		for(uint y=11;y<20;y++)MakeRailNormal(TileXY(20,y),_current_company,TRACK_BIT_Y,RAILTYPE_RAIL);
+		independent=false;
+	}
+	SECTION("the fast train tail still on the slow route retains the wait") {
+		confirmed_conflict = true;
+		Train *tail=MakeActor(12,10,200);tail->SetMultiheaded();fast->SetNext(tail);independent=false;
+	}
+	SECTION("an unfinished route is unknown") {
+		MakeRailNormal(TileXY(25,20),_current_company,TRACK_BIT_RIGHT,RAILTYPE_RAIL);independent=false;
+	}
+	GameRandomSeedChecker random_checker;
+	CHECK(EvaluateAutoYield(slow,membership->index.base(),AutoYieldCondition::MustWait)==confirmed_conflict);
+	CHECK(TraceRestrictSlot::ValidateVehicleIndex()); CHECK(random_checker.Check());
+}
+
+TEST_CASE_METHOD(AutomaticYieldPlatformFixture, "Automatic yield target prediction - only a uniquely reachable mandatory target resolves a fork")
+{
+	for (uint x=1; x<=40; x++) MakeRailNormal(TileXY(x,20),_current_company,TRACK_BIT_X,RAILTYPE_RAIL);
+	Marker(3,20,AutoYieldRole::Approach); Marker(10,20,AutoYieldRole::Main); Marker(27,20,AutoYieldRole::Clear);
+	MakeRailNormal(TileXY(15,20),_current_company,TRACK_BIT_X|TRACK_BIT_RIGHT,RAILTYPE_RAIL);
+	MakeRailNormal(TileXY(15,21),_current_company,TRACK_BIT_Y,RAILTYPE_RAIL);
+	MakeRailNormal(TileXY(15,22),_current_company,TRACK_BIT_LEFT,RAILTYPE_RAIL);
+	Station *target=Station::Create(TileXY(40,20));
+	target->owner=_current_company; target->facilities={StationFacility::Train};
+	target->train_station=TileArea(target->xy,1,1);target->rect.BeforeAddTile(target->xy,StationRect::ADD_FORCE);
+	MakeRailStation(target->xy,_current_company,target->index,Axis::X,0,RAILTYPE_RAIL);
+	Place(slow,9,10); Place(fast,7,20);
+	fast->current_order.MakeGoToStation(target->index);
+	Register(slow); Register(fast);
+	bool independent=true;
+	bool confirmed_conflict=false;
+	SECTION("a single reachable station target identifies the exit before reservation") { }
+	SECTION("a waypoint is also a mandatory target") {
+		Waypoint *waypoint=Waypoint::Create(TileXY(39,20));waypoint->owner=_current_company;
+		MakeRailWaypoint(waypoint->xy,_current_company,waypoint->index,Axis::X,0,RAILTYPE_RAIL);
+		fast->current_order.MakeGoToWaypoint(waypoint->index);
+	}
+	SECTION("an explicit depot is a physical target") {
+		MakeRailDepot(TileXY(40,20),_current_company,DepotID{0},DiagDirection::NE,RAILTYPE_RAIL);
+		fast->current_order.MakeGoToDepot(DepotID{0},{});
+	}
+	SECTION("nearest depot does not bind to a stale explicit destination") {
+		fast->current_order.MakeGoToDepot(DepotID{0},{},ONSF_NO_STOP_AT_INTERMEDIATE_STATIONS,ODATFB_NEAREST_DEPOT);independent=false;
+	}
+	SECTION("an unspecified target preserves the old waiting rule") { fast->current_order.MakeDummy();independent=false; }
+	SECTION("multiple branches reaching the target remain ambiguous") {
+		for(uint x=16;x<20;x++)MakeRailNormal(TileXY(x,22),_current_company,TRACK_BIT_X,RAILTYPE_RAIL);
+		MakeRailNormal(TileXY(20,22),_current_company,TRACK_BIT_UPPER,RAILTYPE_RAIL);
+		MakeRailNormal(TileXY(20,21),_current_company,TRACK_BIT_Y,RAILTYPE_RAIL);
+		MakeRailNormal(TileXY(20,20),_current_company,TRACK_BIT_X|TRACK_BIT_LOWER,RAILTYPE_RAIL);independent=false;
+	}
+	SECTION("different exits rejoining after clearance do not prove a unique target route") {
+		for(uint x=16;x<30;x++)MakeRailNormal(TileXY(x,22),_current_company,TRACK_BIT_X,RAILTYPE_RAIL);
+		Marker(27,22,AutoYieldRole::Clear);
+		MakeRailNormal(TileXY(30,22),_current_company,TRACK_BIT_UPPER,RAILTYPE_RAIL);
+		MakeRailNormal(TileXY(30,21),_current_company,TRACK_BIT_Y,RAILTYPE_RAIL);
+		MakeRailNormal(TileXY(30,20),_current_company,TRACK_BIT_X|TRACK_BIT_LOWER,RAILTYPE_RAIL);independent=false;
+	}
+	SECTION("a loop in an alternative cannot be mistaken for a dead end") {
+		MakeRailNormal(TileXY(15,22),_current_company,TRACK_BIT_LEFT|TRACK_BIT_LOWER,RAILTYPE_RAIL);
+		for(uint x=16;x<30;x++)MakeRailNormal(TileXY(x,22),_current_company,TRACK_BIT_X,RAILTYPE_RAIL);
+		MakeRailNormal(TileXY(30,22),_current_company,TRACK_BIT_RIGHT,RAILTYPE_RAIL);
+		MakeRailNormal(TileXY(30,23),_current_company,TRACK_BIT_Y,RAILTYPE_RAIL);
+		MakeRailNormal(TileXY(30,24),_current_company,TRACK_BIT_UPPER,RAILTYPE_RAIL);
+		for(uint x=16;x<30;x++)MakeRailNormal(TileXY(x,24),_current_company,TRACK_BIT_X,RAILTYPE_RAIL);
+		MakeRailNormal(TileXY(15,24),_current_company,TRACK_BIT_LEFT,RAILTYPE_RAIL);
+		MakeRailNormal(TileXY(15,23),_current_company,TRACK_BIT_Y,RAILTYPE_RAIL);independent=false;
+	}
+	SECTION("a non-target depot may reverse and is never a dead-end proof") {
+		MakeRailDepot(TileXY(15,22),_current_company,DepotID{1},DiagDirection::NW,RAILTYPE_RAIL);independent=false;
+	}
+	SECTION("a long unresolved alternative is unknown, not unreachable") {
+		for(uint x=16;x<60;x++)MakeRailNormal(TileXY(x,22),_current_company,TRACK_BIT_X,RAILTYPE_RAIL);
+		MakeRailNormal(TileXY(60,22),_current_company,TRACK_BIT_RIGHT,RAILTYPE_RAIL);
+		for(uint y=23;y<50;y++)MakeRailNormal(TileXY(60,y),_current_company,TRACK_BIT_Y,RAILTYPE_RAIL);
+		MakeRailNormal(TileXY(60,50),_current_company,TRACK_BIT_UPPER,RAILTYPE_RAIL);
+		for(uint x=1;x<60;x++)MakeRailNormal(TileXY(x,50),_current_company,TRACK_BIT_X,RAILTYPE_RAIL);independent=false;
+	}
+	SECTION("a shared tail still prevents early independence") {
+		confirmed_conflict=true;
+		Train *tail=MakeActor(12,10,200);tail->SetMultiheaded();fast->SetNext(tail);independent=false;
+	}
+	SECTION("a mandatory target inside the area may change the next route") {
+		MakeRailStation(TileXY(22,20),_current_company,target->index,Axis::X,0,RAILTYPE_RAIL);independent=false;
+	}
+	GameRandomSeedChecker random_checker;
+	const auto order_index=fast->cur_real_order_index;
+	const auto destination=fast->dest_tile;
+	const auto flags=fast->flags;
+	const auto occupants=membership->occupants;
+	CHECK(EvaluateAutoYield(slow,membership->index.base(),AutoYieldCondition::MustWait)==confirmed_conflict);
+	if(independent){
+		/* Predictions cannot survive an active target change, even within the
+		 * same tick. No order advancement or cross-evaluation cache is allowed. */
+		Station *other=Station::Create(TileXY(40,10));other->owner=_current_company;
+		MakeRailStation(other->xy,_current_company,other->index,Axis::X,0,RAILTYPE_RAIL);
+		fast->current_order.MakeGoToStation(other->index);
+		/* The changed target is unreachable on this independent line: unknown
+		 * must not manufacture a shared resource. */
+		CHECK_FALSE(EvaluateAutoYield(slow,membership->index.base(),AutoYieldCondition::MustWait));
+	}
+	CHECK(fast->cur_real_order_index==order_index);
+	CHECK(fast->dest_tile==destination);CHECK(fast->flags==flags);
+	CHECK(membership->occupants==occupants);
+	CHECK(ValidateVehicleTileHash(slow));CHECK(ValidateVehicleTileHash(fast));
+	for(uint x=1;x<=40;x++)CHECK(GetReservedTrackbits(TileXY(x,20))==TRACK_BIT_NONE);
+	CHECK(TraceRestrictSlot::ValidateVehicleIndex());CHECK(random_checker.Check());
+}
+
+TEST_CASE_METHOD(AutomaticYieldFixture, "Automatic yield independent feeders - a free last lane precedes future capacity pressure")
+{
+	UpperSiding(false);
+	slow->vcache.cached_max_speed=120; medium->vcache.cached_max_speed=120;
+	Train *following=MakeActor(5,10,140);
+	Place(medium,14,12);
+	slow->cur_speed=20; medium->cur_speed=20; following->cur_speed=20; fast->cur_speed=20;
+	Register(slow); Register(medium); Register(following); Register(fast);
+	Execute(medium,10,12,TRPISP_ACQUIRE);
+	SECTION("two independent approaches require three lane turns") { }
+	SECTION("a second exit does not disable capacity turnover on a shared exit") {
+		for(uint x=1;x<=40;x++)MakeRailNormal(TileXY(x,20),_current_company,TRACK_BIT_X,RAILTYPE_RAIL);
+		Marker(27,20,AutoYieldRole::Clear);
+	}
+	SECTION("without the third demand the normal equal speed rule remains") { membership->Vacate(following); }
+	SECTION("manual cancellation excludes the candidate") { membership->Vacate(medium); }
+	SECTION("loading cannot be interrupted") { medium->current_order.MakeLoading(true); }
+	SECTION("an occupied alternative still leaves the upper lane free") { MakeActor(9,12,120); }
+	DistantExpress(fast); DistantExpress(following,3);
+
+	GameRandomSeedChecker random_checker;
+	REQUIRE(EvaluateAutoYield(slow,membership->index.base(),AutoYieldCondition::FreeSiding));
+	CHECK_FALSE(EvaluateAutoYield(medium,membership->index.base(),AutoYieldCondition::Evacuate));
+	CHECK(EvaluateAutoYield(slow,membership->index.base(),AutoYieldCondition::NeedsSiding));
+	CHECK((Execute(slow,10,10).flags&TRPRF_DENY)!=0);
+	CHECK(TraceRestrictSlot::ValidateVehicleIndex()); CHECK(random_checker.Check());
+}
+
+TEST_CASE_METHOD(AutomaticYieldFixture, "Automatic yield non-members - normal diversion uses the remaining physically free lane")
+{
+	UpperSiding(false);medium->vcache.cached_max_speed=80;
+	Train *outside=MakeActor(14,8,120);
+	Register(slow);Register(medium);Register(fast);
+	bool parking_free=true;
+	SECTION("a non-member standing in the siding consumes its place") { }
+	SECTION("a manually cancelled occupant still consumes its physical place") {
+		Register(outside);Execute(outside,10,8,TRPISP_ACQUIRE);membership->Vacate(outside);
+	}
+	SECTION("a reversing non-member still occupies the siding") { outside->flags.Set(VehicleRailFlag::Reversing); }
+	SECTION("a backwards moving non-member still occupies the siding") { outside->direction=Direction::NE;outside->cur_speed=32; }
+	SECTION("a reversed train may reserve a place before physically entering it") {
+		MakeRailNormal(TileXY(19,8),_current_company,TRACK_BIT_X,RAILTYPE_RAIL);
+		Place(outside,19,8);outside->direction=Direction::NE;
+		for(uint x=12;x<=19;x++)REQUIRE(TryReserveRailTrack(TileXY(x,8),TRACK_X));
+	}
+	SECTION("another company's parked train is protected") { outside->owner=CompanyID{2};outside->vehstatus.Set(VehState::Stopped); }
+	SECTION("an unknown reservation still blocks a physically empty siding") {
+		Place(outside,30,20);MakeRailNormal(outside->tile,_current_company,TRACK_BIT_X,RAILTYPE_RAIL);
+		REQUIRE(TryReserveRailTrack(TileXY(14,8),TRACK_X));
+	}
+	SECTION("the tail of a non-member also consumes the place") {
+		Place(outside,30,20);MakeRailNormal(outside->tile,_current_company,TRACK_BIT_X,RAILTYPE_RAIL);
+		Train *tail=MakeActor(14,8,120);tail->SetMultiheaded();outside->SetNext(tail);
+	}
+	SECTION("two genuinely free places preserve the original allocation") {
+		Place(outside,30,20);MakeRailNormal(outside->tile,_current_company,TRACK_BIT_X,RAILTYPE_RAIL);
+	}
+	SECTION("two physical occupants leave no free parking despite empty claims") { MakeActor(14,12,50);parking_free=false; }
+	const auto members=membership->occupants;GameRandomSeedChecker random_checker;
+	CHECK(EvaluateAutoYield(slow,membership->index.base(),AutoYieldCondition::NeedsSiding));
+	CHECK(EvaluateAutoYield(slow,membership->index.base(),AutoYieldCondition::FreeSiding)==parking_free);
+	CHECK(((Execute(slow,10,10).flags&TRPRF_DENY)!=0)==parking_free);
+	CHECK(EvaluateAutoYield(medium,membership->index.base(),AutoYieldCondition::NeedsSiding));
+	CHECK(membership->occupants==members);CHECK_FALSE(membership->IsOccupant(outside->index));
+	CHECK(Resource(MakeTraceRestrictRefId(TileXY(10,8),TRACK_X))->occupants.empty());
+	CHECK(TraceRestrictSlot::ValidateVehicleIndex());CHECK(random_checker.Check());
+}
+
+TEST_CASE_METHOD(AutomaticYieldFixture, "Automatic yield non-members - full-lane turnover requires every legal parking alternative unavailable")
+{
+	UpperSiding(false);
+	MakeRailNormal(TileXY(6,10),_current_company,TRACK_BIT_X|TRACK_BIT_UPPER,RAILTYPE_RAIL);
+	for(uint y=7;y<=9;y++)MakeRailNormal(TileXY(6,y),_current_company,TRACK_BIT_Y,RAILTYPE_RAIL);
+	MakeRailNormal(TileXY(6,6),_current_company,TRACK_BIT_LOWER,RAILTYPE_RAIL);
+	for(uint x=7;x<22;x++)MakeRailNormal(TileXY(x,6),_current_company,TRACK_BIT_X,RAILTYPE_RAIL);
+	MakeRailNormal(TileXY(22,6),_current_company,TRACK_BIT_RIGHT,RAILTYPE_RAIL);
+	for(uint y=7;y<=9;y++)MakeRailNormal(TileXY(22,y),_current_company,TRACK_BIT_Y,RAILTYPE_RAIL);
+	MakeRailNormal(TileXY(22,10),_current_company,TRACK_BIT_X|TRACK_BIT_LEFT,RAILTYPE_RAIL);
+	Marker(10,6,AutoYieldRole::Siding);Marker(18,6,AutoYieldRole::Exit);
+	medium->vcache.cached_max_speed=120;Place(medium,14,12);
+	Place(slow,5,10);Place(fast,3,10);
+	Train *arrival=MakeActor(4,10,140);Train *outside=MakeActor(14,6,120);
+	Register(slow);Register(medium);Register(arrival);Register(fast);Execute(medium,10,12,TRPISP_ACQUIRE);
+	slow->cur_speed=medium->cur_speed=fast->cur_speed=arrival->cur_speed=20;
+	bool evacuate=false;
+	SECTION("a non-member plus three demands cannot consume a still empty upper lane") { }
+	SECTION("a reversing outside occupant consumes the same capacity") { outside->flags.Set(VehicleRailFlag::Reversing); }
+	SECTION("an opposite-direction departure also consumes the place") { outside->direction=Direction::NE;outside->cur_speed=32; }
+	SECTION("foreign occupancy is equally physical") { outside->owner=CompanyID{2}; }
+	SECTION("manual cancellation does not make the lane physically empty") {
+		Register(outside);Execute(outside,10,6,TRPISP_ACQUIRE);membership->Vacate(outside);
+	}
+	SECTION("without the outside occupant no extra turnover is needed") {
+		Place(outside,30,20);MakeRailNormal(outside->tile,_current_company,TRACK_BIT_X,RAILTYPE_RAIL);evacuate=false;
+	}
+	SECTION("all remaining parking physically occupied requires actual turnover") { MakeActor(14,8,120);evacuate=true; }
+	const auto members=membership->occupants;GameRandomSeedChecker random_checker;
+	DistantExpress(fast); DistantExpress(arrival,3);
+	CHECK(EvaluateAutoYield(slow,membership->index.base(),AutoYieldCondition::FreeSiding)==!evacuate);
+	CHECK(EvaluateAutoYield(medium,membership->index.base(),AutoYieldCondition::Evacuate)==evacuate);
+	CHECK_FALSE(EvaluateAutoYield(outside,membership->index.base(),AutoYieldCondition::Evacuate));
+	CHECK(membership->occupants==members);CHECK_FALSE(membership->IsOccupant(outside->index));
+	CHECK(TraceRestrictSlot::ValidateVehicleIndex());CHECK(random_checker.Check());
+}
+
+TEST_CASE_METHOD(AutomaticYieldFixture, "Automatic yield selected departures - prefer a free main before the siding fork")
+{
+	UseExitOnly(); Place(medium,7,10); Place(slow,5,10);
+	medium->current_order.MakeGoToDepot(DepotID{0}, {});
+	Register(slow); Register(medium); Register(fast);
+	Execute(medium,18,12,TRPISP_ACQUIRE);
+	bool prefer_main = true;
+	SECTION("a selected depot bound departure can use the main") { }
+	SECTION("a blocked main retains the siding route") { MakeRailNormal(TileXY(11,10),_current_company,TRACK_BIT_Y,RAILTYPE_RAIL); prefer_main=false; }
+	SECTION("a mandatory waypoint retains its route") { medium->current_order.MakeGoToWaypoint(StationID{0}); prefer_main=false; }
+	SECTION("an unresolved station destination retains its route") { medium->current_order.MakeGoToStation(StationID{0}); prefer_main=false; }
+	SECTION("an equal speed train still required to wait does not bypass") { medium->vcache.cached_max_speed=100; medium->cur_speed=20; slow->cur_speed=20; fast->cur_speed=20; prefer_main=false; }
+	GameRandomSeedChecker random_checker;
+	CHECK(((Execute(medium,10,10).flags&TRPRF_DENY)==0)==prefer_main);
+	CHECK(Resource(MakeTraceRestrictRefId(TileXY(18,12),TRACK_X))->IsOccupant(medium->index));
+	CHECK(GetReservedTrackbits(TileXY(10,10))==TRACK_BIT_NONE);
+	CHECK(TraceRestrictSlot::ValidateVehicleIndex()); CHECK(random_checker.Check());
+}
+
+TEST_CASE_METHOD(AutomaticYieldFixture, "Automatic yield capacity pressure - clear the eligible slow train farthest from its follower")
+{
+	UpperSiding(false);
+	Train *upper = MakeActor(16,8,160);
+	Place(medium,14,12);
+	Register(slow); Register(medium); Register(upper); Register(fast);
+	Execute(medium,10,12,TRPISP_ACQUIRE); Execute(upper,10,8,TRPISP_ACQUIRE);
+	Train *expected = upper;
+	SECTION("the farther train clears before the nearer equal speed train") { }
+	SECTION("capacity pressure can clear an equal speed train before a queue stops") {
+		slow->vcache.cached_max_speed=160; medium->cur_speed=20; upper->cur_speed=20; slow->cur_speed=20;
+		DistantExpress(fast);
+	}
+	SECTION("blocked exits retain their protection") { MakeRailNormal(TileXY(19,8),_current_company,TRACK_BIT_Y,RAILTYPE_RAIL); expected=medium; }
+	SECTION("station work cannot be interrupted") { upper->current_order.MakeLoading(true); expected=medium; }
+	SECTION("manual membership cancellation remains authoritative") { membership->Vacate(upper); expected=medium; }
+	SECTION("a siding train slower than the arrival is ineligible") { upper->vcache.cached_max_speed=80; expected=medium; }
+	SECTION("an already passing fast train still prevents both departures") { Place(fast,12,10); expected=nullptr; }
+	GameRandomSeedChecker random_checker;
+	CHECK(EvaluateAutoYield(upper,membership->index.base(),AutoYieldCondition::Evacuate)==(expected==upper));
+	CHECK(EvaluateAutoYield(medium,membership->index.base(),AutoYieldCondition::Evacuate)==(expected==medium));
+	CHECK(TraceRestrictSlot::ValidateVehicleIndex()); CHECK(random_checker.Check());
 }
 
 TEST_CASE_METHOD(AutomaticYieldPlatformFixture, "Automatic yield turnover - equal speed clears platforms before ordinary sidings")
@@ -2851,6 +3462,8 @@ TEST_CASE_METHOD(AutomaticYieldPlatformFixture, "Automatic yield turnover - equa
 	Execute(medium, exit_only ? 18 : 10, 12, TRPISP_ACQUIRE);
 	Execute(upper, exit_only ? 18 : 10, 8, TRPISP_ACQUIRE);
 	fast->cur_speed = 20;
+	DistantExpress(fast);
+
 	GameRandomSeedChecker random_checker;
 	CHECK(EvaluateAutoYield(expected, membership->index.base(), AutoYieldCondition::Evacuate));
 	CHECK_FALSE(EvaluateAutoYield(expected == medium ? upper : medium, membership->index.base(), AutoYieldCondition::Evacuate));
@@ -2880,12 +3493,14 @@ TEST_CASE_METHOD(AutomaticYieldPlatformFixture, "Automatic yield turnover - foll
 	SECTION("loading platform freight cannot be forced out") {
 		scenario = "loading"; medium->current_order.MakeLoading(true); medium->last_station_visited = platform_station->index; expected = nullptr;
 	}
-	SECTION("a non-stopping passenger retains the previous different-speed preference") { scenario = "nonstop"; PassStation(fast); expected = upper; }
+	SECTION("a non-stopping passenger uses the highest safe design speed policy") { scenario = "nonstop"; PassStation(fast); expected = medium; }
 	Register(slow); Register(medium); Register(fast); Register(upper);
 	Place(medium, 14, 12);
 	Execute(medium, exit_only ? 18 : 10, 12, TRPISP_ACQUIRE);
 	Execute(upper, exit_only ? 18 : 10, 8, TRPISP_ACQUIRE);
 	fast->cur_speed = 20;
+	if (fast->current_order.GetNonStopType() == ONSF_NO_STOP_AT_ANY_STATION) DistantExpress(fast);
+
 	GameRandomSeedChecker random_checker;
 	CAPTURE(exit_only, scenario);
 	CHECK(EvaluateAutoYield(medium, membership->index.base(), AutoYieldCondition::Evacuate) == (expected == medium));
@@ -2949,8 +3564,47 @@ TEST_CASE_METHOD(AutomaticYieldPlatformFixture, "Automatic yield station access 
 	CAPTURE(exit_only, scenario);
 	CHECK_FALSE(EvaluateAutoYield(slow, membership->index.base(), AutoYieldCondition::NeedsSiding));
 	CHECK(EvaluateAutoYield(medium, membership->index.base(), AutoYieldCondition::Evacuate) == release);
-	CHECK(((Execute(medium, 18, 12).flags & TRPRF_WAIT_AT_PBS) == 0) == release);
+	const auto result = Execute(medium, 18, 12);
+	if (release) CHECK((result.flags & TRPRF_WAIT_AT_PBS) == 0);
+	CHECK((result.flags & TRPRF_DENY) == 0);
 	CHECK(TraceRestrictSlot::ValidateVehicleIndex()); CHECK(random_checker.Check());
+}
+
+TEST_CASE_METHOD(AutomaticYieldPlatformFixture, "Automatic yield platform turnover - an unconfirmed neighbouring route cannot veto station access")
+{
+	const bool exit_only = GENERATE(false, true);
+	SetupPlatform(exit_only);
+	slow->vcache.cached_max_speed=160; medium->vcache.cached_max_speed=120;
+	slow->current_order.MakeGoToStation(platform_station->index);
+	Register(slow); Register(medium); Place(medium,14,12);
+	Execute(medium,exit_only?18:10,12,TRPISP_ACQUIRE);
+	for(uint x=1;x<=40;x++)MakeRailNormal(TileXY(x,30),_current_company,TRACK_BIT_X,RAILTYPE_RAIL);
+	auto *neighbour=TraceRestrictSlot::Create(_current_company);neighbour->max_occupancy=16;
+	Marker(3,30,AutoYieldRole::Approach,neighbour->index.base());
+	Marker(10,30,AutoYieldRole::Main,neighbour->index.base());
+	Marker(18,32,AutoYieldRole::Exit,neighbour->index.base());
+	Marker(27,30,AutoYieldRole::Clear,neighbour->index.base());
+	auto *uncertain=Marker(6,30,AutoYieldRole::Approach,neighbour->index.base());
+	TraceRestrictInstructionItem deny{};deny.SetType(TRIT_PF_DENY);uncertain->items={deny.AsProgramItem()};
+	REQUIRE(uncertain->Validate().Succeeded());InvalidateAutoYieldAreas();UpdateAutoYieldAreas();
+	Place(fast,4,30);REQUIRE(neighbour->Occupy(fast));
+	bool release=true;
+	SECTION("no confirmed conflict leaves the native platform departure available") {}
+	SECTION("a saved valid dependency survives an incomplete forecast") {
+		/* A real possible merge is hidden by the temporary restriction.
+		 * A permanently disconnected corridor is a positive cancellation. */
+		auto *block=Marker(5,30,AutoYieldRole::Approach,neighbour->index.base());block->items={deny.AsProgramItem()};REQUIRE(block->Validate().Succeeded());
+		MakeRailNormal(TileXY(6,30),_current_company,TRACK_BIT_UPPER,RAILTYPE_RAIL);
+		for(uint y=11;y<30;y++)MakeRailNormal(TileXY(6,y),_current_company,TRACK_BIT_Y,RAILTYPE_RAIL);
+		MakeRailNormal(TileXY(6,10),_current_company,TRACK_BIT_X|TRACK_BIT_LOWER,RAILTYPE_RAIL);
+		for(auto *slot:TraceRestrictSlot::Iterate())if(slot->automatic_yield_area==membership->index.base()+1&&slot->automatic_yield_signal==MakeTraceRestrictRefId(TileXY(exit_only?18:10,12),TRACK_X)&&slot->flags.Test(TraceRestrictSlot::Flag::AutoYieldTargets))REQUIRE(slot->Occupy(fast));
+		release=false;
+	}
+	GameRandomSeedChecker random;
+	CHECK(EvaluateAutoYield(medium,membership->index.base(),AutoYieldCondition::Evacuate)==release);
+	CHECK_FALSE(membership->IsOccupant(fast->index));
+	CHECK(neighbour->IsOccupant(fast->index));
+	CHECK(TraceRestrictSlot::ValidateVehicleIndex());CHECK(random.Check());
 }
 
 TEST_CASE_METHOD(AutomaticYieldPlatformFixture, "Automatic yield station access - another passing express still blocks the platform turnover")
@@ -3002,15 +3656,15 @@ TEST_CASE_METHOD(AutomaticYieldPlatformFixture, "Automatic yield station access 
 	CHECK(TraceRestrictSlot::ValidateVehicleIndex()); CHECK(random_checker.Check());
 }
 
-TEST_CASE_METHOD(AutomaticYieldFixture, "Automatic yield allocation - slowest first and nearest follower gap breaks speed ties")
+TEST_CASE_METHOD(AutomaticYieldFixture, "Automatic yield allocation - catching ranks do not cancel available normal parking")
 {
 	medium->vcache.cached_max_speed=slow->vcache.cached_max_speed;
 	Place(medium,6,10);Register(slow);Register(medium);Register(fast);
-	CHECK_FALSE(EvaluateAutoYield(slow,membership->index.base(),AutoYieldCondition::NeedsSiding));
+	CHECK(EvaluateAutoYield(slow,membership->index.base(),AutoYieldCondition::NeedsSiding));
 	CHECK(EvaluateAutoYield(medium,membership->index.base(),AutoYieldCondition::NeedsSiding));
 	medium->vcache.cached_max_speed=120;
 	CHECK(EvaluateAutoYield(slow,membership->index.base(),AutoYieldCondition::NeedsSiding));
-	CHECK_FALSE(EvaluateAutoYield(medium,membership->index.base(),AutoYieldCondition::NeedsSiding));
+	CHECK(EvaluateAutoYield(medium,membership->index.base(),AutoYieldCondition::NeedsSiding));
 }
 
 TEST_CASE_METHOD(AutomaticYieldPlatformFixture, "Automatic yield turnover - equal stopped queues recover with platform only and mixed sidings")
@@ -3054,6 +3708,7 @@ TEST_CASE_METHOD(AutomaticYieldFixture, "Automatic yield - a departing tail reta
 
 TEST_CASE_METHOD(AutomaticYieldFixture, "Automatic yield - route proofs distinguish own junction reservations from foreign ones")
 {
+	medium->vcache.cached_max_speed = fast->vcache.cached_max_speed; // Isolate PBS ownership from scarcity ranking.
 	Register(slow); Register(medium); Register(fast);
 	REQUIRE(TryReserveRailTrack(TileXY(8,10),TRACK_X));
 	REQUIRE(TryReserveRailTrack(TileXY(9,10),TRACK_X));
@@ -3129,6 +3784,7 @@ TEST_CASE_METHOD(AutomaticYieldFixture, "Automatic yield - a proven opposing tra
 	}
 	SECTION("a passing fast train remains protected until its tail clears") {
 		Place(fast,30,10);
+	Train *tail = MakeActor(27,10,200); tail->SetWagon(); fast->SetNext(tail);
 		CHECK(EvaluateAutoYield(slow,membership->index.base(),AutoYieldCondition::MustWait));
 		Execute(fast,27,10,TRPISP_RELEASE_BACK);
 		CHECK_FALSE(EvaluateAutoYield(slow,membership->index.base(),AutoYieldCondition::MustWait));
@@ -3211,17 +3867,22 @@ TEST_CASE_METHOD(AutomaticYieldMultipleMainFixture, "Automatic yield multi-main 
 	CHECK(EvaluateAutoYield(slow,membership->index.base(),AutoYieldCondition::NeedsSiding));
 	CHECK((Execute(slow,10,10).flags&TRPRF_DENY)!=0);
 	Place(slow,12,10);
-	CHECK_FALSE(EvaluateAutoYield(slow,membership->index.base(),AutoYieldCondition::NeedsSiding));
+	/* The follower remains a conflict through the second serial control,
+	 * but a train already beyond the siding fork must not be held there. */
+	CHECK(EvaluateAutoYield(slow,membership->index.base(),AutoYieldCondition::NeedsSiding));
+	CHECK((Execute(slow,14,10).flags&(TRPRF_DENY|TRPRF_WAIT_AT_PBS))==0);
 }
 
 TEST_CASE_METHOD(AutomaticYieldMultipleMainFixture, "Automatic yield multi-main - a proven merging follower allows safe siding turnover")
 {
 	IndependentApproach();Place(fast,2,16);Register(slow);Register(fast);Register(medium);
 	Place(medium,14,12);Execute(medium,10,12,TRPISP_ACQUIRE);
+	CHECK_FALSE(EvaluateAutoYield(medium,membership->index.base(),AutoYieldCondition::Evacuate)); // Independent close approach has priority.
+	DistantExpress(fast,2,16);fast->cur_speed=20;
 	CHECK(EvaluateAutoYield(medium,membership->index.base(),AutoYieldCondition::Evacuate));
 	CHECK((Execute(slow,10,10).flags&TRPRF_WAIT_AT_PBS)!=0);
 	// A real faster follower on the same main can still trigger a safe turnover.
-	Place(fast,4,10);
+	Place(fast,4,10);fast->cur_speed=0;slow->cur_speed=0;
 	CHECK(EvaluateAutoYield(medium,membership->index.base(),AutoYieldCondition::Evacuate));
 	CHECK((Execute(slow,10,10).flags&TRPRF_WAIT_AT_PBS)!=0);
 }
@@ -3269,7 +3930,7 @@ TEST_CASE_METHOD(AutomaticYieldMultipleMainFixture, "Automatic yield merging mai
 
 TEST_CASE_METHOD(AutomaticYieldMultipleMainFixture, "Automatic yield merging mains - rail edits and disconnected feeders cannot retain merge proofs")
 {
-	IndependentApproach();Place(fast,2,16);Register(slow);Register(fast);
+	IndependentApproach();DistantExpress(fast,2,16);fast->cur_speed=20;Register(slow);Register(fast);
 	CHECK(EvaluateAutoYield(slow,membership->index.base(),AutoYieldCondition::NeedsSiding));
 	MakeRailNormal(TileXY(24,12),_current_company,TRACK_BIT_X,RAILTYPE_RAIL);
 	CHECK_FALSE(EvaluateAutoYield(slow,membership->index.base(),AutoYieldCondition::NeedsSiding));
@@ -3671,6 +4332,137 @@ TEST_CASE_METHOD(AutomaticYieldFixture, "Automatic yield reservation - an owned 
 	CHECK(membership->occupants.empty());CHECK(TraceRestrictSlot::ValidateVehicleIndex());
 }
 
+TEST_CASE_METHOD(AutomaticYieldFixture, "Automatic yield reservation - an awaited express keeps its pending entry during a temporary PBS gap")
+{
+	Place(fast,2,10);
+	Execute(fast,3,10,TRPISP_PBS_RES_END_ACQUIRE);
+	Register(slow);
+	Place(slow,14,12);
+	Execute(slow,10,12,TRPISP_ACQUIRE);
+	TraceRestrictSlot *targets=nullptr;
+	for (auto *slot : TraceRestrictSlot::Iterate()) if (slot->flags.Test(TraceRestrictSlot::Flag::AutoYieldTargets) && slot->IsOccupant(fast->index)) targets=slot;
+	REQUIRE(targets!=nullptr);
+	REQUIRE(Resource(AUTO_YIELD_PENDING_REF)->IsOccupant(fast->index));
+	bool retained=true;
+	SECTION("a train waiting for a new PBS route remains a contender") {}
+	SECTION("an express that reverses away releases its old entry") { fast->direction=Direction::NE; retained=false; }
+	SECTION("manual source cancellation is authoritative") { membership->Vacate(fast); retained=false; }
+	SECTION("a stopped express no longer keeps the slow train waiting") { fast->vehstatus.Set(VehState::Stopped); retained=false; }
+	GameRandomSeedChecker random_checker;
+	AutoRestoreBackup ticks(_state_ticks,StateTicks{0});AutoYieldGameTick();
+	CHECK(membership->IsOccupant(fast->index)==retained);
+	CHECK(Resource(AUTO_YIELD_PENDING_REF)->IsOccupant(fast->index)==retained);
+	CHECK(targets->IsOccupant(fast->index)==retained);
+	CHECK(TraceRestrictSlot::ValidateVehicleIndex());CHECK(random_checker.Check());
+}
+
+TEST_CASE_METHOD(AutomaticYieldFixture, "Automatic yield pre-fork refresh - protected reservations remain untouched")
+{
+	const uint last = GENERATE(9u,14u);
+	Register(slow); Register(medium);
+	slow->current_order.MakeGoToStation(StationID{0});
+	for (uint x = 7; x <= last; x++) REQUIRE(TryReserveRailTrack(TileXY(x,10), TRACK_X));
+	SECTION("the feature is disabled") { _settings_game.vehicle.automatic_yield = false; }
+	SECTION("manual slot cancellation is authoritative") { membership->Vacate(slow); }
+	SECTION("a manually stopped train keeps its route") { slow->vehstatus.Set(VehState::Stopped); }
+	SECTION("a reversing train keeps its route") { slow->flags.Set(VehicleRailFlag::Reversing); }
+	SECTION("a player forcing a signal retains control") { slow->force_proceed = TFP_SIGNAL; }
+	SECTION("a committed siding claim is not reconsidered") { REQUIRE(Resource(MakeTraceRestrictRefId(TileXY(10,12),TRACK_X))->Occupy(slow)); }
+	SECTION("coupling work is not reconsidered") { slow->current_order.MakeWaitCouple(); }
+	GameRandomSeedChecker random_checker;
+	AutoRestoreBackup ticks(_state_ticks, StateTicks{(8 - (slow->index.base() & 7)) & 7});
+	AutoYieldGameTick();
+	for (uint x = 7; x <= last; x++) CHECK(GetReservedTrackbits(TileXY(x,10)) == TRACK_BIT_X);
+	CHECK(GetReservedTrackbits(TileXY(10,12)) == TRACK_BIT_NONE);
+	CHECK(TraceRestrictSlot::ValidateVehicleIndex()); CHECK(random_checker.Check());
+}
+
+TEST_CASE_METHOD(AutomaticYieldPlatformFixture, "Automatic yield pre-fork refresh - a reservation beyond Main no longer commits the straight branch")
+{
+	Station *target=Station::Create(TileXY(40,10));target->owner=_current_company;
+	target->facilities={StationFacility::Train};target->train_station=TileArea(target->xy,1,1);
+	target->rect.BeforeAddTile(target->xy,StationRect::ADD_FORCE);
+	MakeRailStation(target->xy,_current_company,target->index,Axis::X,0,RAILTYPE_RAIL);
+	slow->current_order.MakeGoToStation(target->index);slow->dest_tile=target->xy;
+	Register(slow);Register(medium);
+	for(uint x=7;x<=14;x++)REQUIRE(TryReserveRailTrack(TileXY(x,10),TRACK_X));
+	REQUIRE(EvaluateAutoYield(slow,membership->index.base(),AutoYieldCondition::NeedsSiding));
+	REQUIRE(EvaluateAutoYield(slow,membership->index.base(),AutoYieldCondition::FreeSiding));
+	REQUIRE(TrainReservationPassesThroughTile(slow,TileXY(10,10),TRACK_X));
+	GameRandomSeedChecker random_checker;
+	AutoRestoreBackup ticks(_state_ticks,StateTicks{(8-(slow->index.base()&7))&7});
+	AutoYieldGameTick();
+	CHECK_FALSE(TrainReservationPassesThroughTile(slow,TileXY(10,10),TRACK_X));
+	/* This minimal actor may fail the normal PBS safe-end check. Either a
+	 * committed siding or its normal failed-reservation stop is safe; it must
+	 * never retain the now-invalid straight reservation past the fork. */
+	const bool siding_reserved=TrainReservationPassesThroughTile(slow,TileXY(10,12),TRACK_X);
+	const bool claimed=Resource(MakeTraceRestrictRefId(TileXY(10,12),TRACK_X))->IsOccupant(slow->index);
+	CHECK(siding_reserved==claimed);
+	CHECK((siding_reserved || slow->flags.Test(VehicleRailFlag::Stuck)));
+	CHECK(slow->tile==TileXY(7,10));
+	CHECK(slow->current_order.GetDestination()==target->index);
+	CHECK(TraceRestrictSlot::ValidateVehicleIndex());CHECK(random_checker.Check());
+}
+
+TEST_CASE_METHOD(AutomaticYieldFixture, "Automatic yield forward proofs - depot turnarounds are not a siding still ahead")
+{
+	MakeRailDepot(TileXY(1,10),_current_company,DepotID{0},DiagDirection::SW,RAILTYPE_RAIL);
+	MakeRailDepot(TileXY(40,10),_current_company,DepotID{1},DiagDirection::NE,RAILTYPE_RAIL);
+	for(uint x=20;x<=21;x++)MakeRailNormal(TileXY(x,20),_current_company,TRACK_BIT_X,RAILTYPE_RAIL);
+	Place(fast,20,20);Place(medium,21,20);Place(slow,25,10);
+	slow->current_order.MakeGoToDepot(DepotID{1},{});slow->dest_tile=TileXY(40,10);
+	Register(slow);
+	GameRandomSeedChecker random_checker;
+	CHECK_FALSE(EvaluateAutoYield(slow,membership->index.base(),AutoYieldCondition::FreeSiding));
+	CHECK(TraceRestrictSlot::ValidateVehicleIndex());CHECK(random_checker.Check());
+}
+
+TEST_CASE_METHOD(AutomaticYieldFixture, "Automatic yield depot - departing reservations register and temporary failures roll back")
+{
+	slow->track = TRACK_BIT_DEPOT;
+	bool allowed = true;
+	SECTION("a moving depot departure can register") { }
+	SECTION("a parked train does not register") { slow->vehstatus.Set(VehState::Stopped); allowed = false; }
+	SECTION("a crashed train does not register") { slow->vehstatus.Set(VehState::Crashed); allowed = false; }
+	GameRandomSeedChecker random_checker;
+	TraceRestrictSlot *pending = Resource(AUTO_YIELD_PENDING_REF); REQUIRE(pending != nullptr);
+	TraceRestrictSlotTemporaryState temporary; temporary.PushToChangeStack();
+	Execute(slow, 3, 10, TRPISP_ACQUIRE_TEMP_STATE);
+	CHECK(membership->IsOccupant(slow->index) == allowed);
+	temporary.PopFromChangeStackRevertTemporaryChanges(slow->index);
+	CHECK(membership->occupants.empty()); CHECK(pending->occupants.empty());
+	Execute(slow, 3, 10, TRPISP_PBS_RES_END_ACQUIRE);
+	CHECK(membership->IsOccupant(slow->index) == allowed);
+	CHECK(pending->IsOccupant(slow->index) == allowed);
+	CHECK_FALSE(EvaluateAutoYield(slow, membership->index.base(), AutoYieldCondition::MustWait));
+	CHECK(TraceRestrictSlot::ValidateVehicleIndex()); CHECK(random_checker.Check());
+}
+
+TEST_CASE_METHOD(AutomaticYieldFixture, "Automatic yield depot - reconciliation preserves only a live reserved departure")
+{
+	Place(slow, 1, 10); slow->track = TRACK_BIT_DEPOT;
+	Place(fast, 30, 20); Place(medium, 31, 20);
+	MakeRailDepot(TileXY(1, 10), _current_company, DepotID{0}, DiagDirection::SW, RAILTYPE_RAIL);
+	for (uint x = 1; x <= 4; x++) REQUIRE(TryReserveRailTrack(TileXY(x, 10), TRACK_X));
+	REQUIRE(TrainReservationPassesThroughTile(slow, TileXY(3, 10), TRACK_X));
+	CHECK_FALSE(TrainReservationPassesThroughTile(slow, TileXY(3, 10), TRACK_Y));
+	CHECK(TrainReservationPassesThroughTile(slow, TileXY(3, 10)));
+	CHECK(GetTrainForReservation(TileXY(3, 10), TRACK_X) == nullptr);
+	Execute(slow, 3, 10, TRPISP_PBS_RES_END_ACQUIRE);
+	TraceRestrictSlot *pending = Resource(AUTO_YIELD_PENDING_REF); REQUIRE(pending != nullptr);
+	REQUIRE(membership->IsOccupant(slow->index)); REQUIRE(pending->IsOccupant(slow->index));
+	bool retained = true;
+	SECTION("a valid departure survives the cleanup tick") { }
+	SECTION("a cancelled path releases its pending membership") { UnreserveRailTrack(TileXY(3, 10), TRACK_X); retained = false; }
+	SECTION("a stopped depot train releases its pending membership") { slow->vehstatus.Set(VehState::Stopped); retained = false; }
+	GameRandomSeedChecker random_checker;
+	AutoRestoreBackup ticks(_state_ticks, StateTicks{0}); AutoYieldGameTick();
+	CHECK(membership->IsOccupant(slow->index) == retained);
+	CHECK(pending->IsOccupant(slow->index) == retained);
+	CHECK(TraceRestrictSlot::ValidateVehicleIndex()); CHECK(random_checker.Check());
+}
+
 TEST_CASE_METHOD(AutomaticYieldFixture, "Automatic yield reservation - private automatic slots accept foreign trains without changing ordinary permissions")
 {
 	AutoRestoreBackup sharing(_settings_game.economy.infrastructure_sharing[0],true);
@@ -3722,3 +4514,927 @@ TEST_CASE_METHOD(AutomaticYieldPassengerFixture, "Automatic yield parallel exit 
 	CHECK((Execute(fast,18,12).flags&TRPRF_WAIT_AT_PBS)==0);
 	CHECK(random_checker.Check());CHECK(TraceRestrictSlot::ValidateVehicleIndex());
 }
+
+TEST_CASE_METHOD(AutomaticYieldPassengerFixture, "Automatic yield parallel exit - a waiting passenger cannot block diversion to a free siding")
+{
+ UseExitOnly();fast->vcache.cached_max_speed=100;Load(fast);
+ UpperSiding(true);
+ Register(slow);Register(fast);Register(medium);
+ Place(slow,7,10);Place(fast,17,12);Place(medium,5,10);
+ Execute(fast,18,12,TRPISP_PBS_RES_END_ACQUIRE);
+ REQUIRE(EvaluateAutoYield(fast,membership->index.base(),AutoYieldCondition::MustWait));
+ REQUIRE(EvaluateAutoYield(slow,membership->index.base(),AutoYieldCondition::FreeSiding));
+ GameRandomSeedChecker random_checker;
+ /* Deny Main to select the empty siding. A plain wait here would commit
+  * the freight to Main and hold the faster follower its passenger awaits. */
+ CHECK((Execute(slow,10,10).flags&TRPRF_DENY)!=0);
+ CHECK((Execute(fast,18,12).flags&TRPRF_WAIT_AT_PBS)!=0);
+ CHECK(random_checker.Check());CHECK(TraceRestrictSlot::ValidateVehicleIndex());
+}
+
+TEST_CASE_METHOD(AutomaticYieldMultipleMainFixture, "Automatic yield candidate Main - reject a slow detour onto a fast feeder before merging")
+{
+ UseExitOnly();ParallelBranch();
+ for(uint x=1;x<8;x++)MakeRailNormal(TileXY(x,8),_current_company,TRACK_BIT_X,RAILTYPE_RAIL);
+ MakeRailNormal(TileXY(8,8),_current_company,TRACK_BIT_X|TRACK_BIT_LOWER,RAILTYPE_RAIL);
+ Place(slow,7,10);Place(fast,2,8);Place(medium,35,10);
+ Register(slow);Register(fast);
+ /* Ambiguous exits prevent the older unique-common-clearance heuristic.
+  * The candidate Main itself still proves the attempted shared approach. */
+ Marker(29,10,AutoYieldRole::Clear);
+ bool full=false;
+ SECTION("a free siding allows diversion before the merge") {}
+ SECTION("a full siding cannot create an unreproducible turnover wait") {Place(medium,14,12);medium->vehstatus.Set(VehState::Stopped);full=true;}
+ GameRandomSeedChecker random_checker;
+ const auto main=Execute(slow,10,8);
+ CHECK(((main.flags&TRPRF_DENY)!=0)==!full);
+ if(full)CHECK((main.flags&TRPRF_PBS_RES_END_WAIT)==0);
+ else CHECK((Execute(slow,18,12).flags&TRPRF_DENY)==0);
+ CHECK(random_checker.Check());CHECK(TraceRestrictSlot::ValidateVehicleIndex());
+}
+
+TEST_CASE_METHOD(AutomaticYieldMultipleMainFixture, "Automatic yield destination merge - a second main cannot hide a shared forward destination outlet")
+{
+ UseExitOnly();IndependentApproach();
+ MakeRailNormal(TileXY(14,16),_current_company,TRACK_BIT_X|TRACK_BIT_RIGHT,RAILTYPE_RAIL);
+ MakeRailNormal(TileXY(14,17),_current_company,TRACK_BIT_Y,RAILTYPE_RAIL);
+ MakeRailNormal(TileXY(14,18),_current_company,TRACK_BIT_LEFT,RAILTYPE_RAIL);
+ for(uint x=15;x<20;x++)MakeRailNormal(TileXY(x,18),_current_company,TRACK_BIT_X,RAILTYPE_RAIL);
+ MakeRailDepot(TileXY(20,18),_current_company,DepotID{1},DiagDirection::NE,RAILTYPE_RAIL);
+ MakeRailDepot(TileXY(40,10),_current_company,DepotID{0},DiagDirection::NE,RAILTYPE_RAIL);
+ slow->current_order.MakeGoToDepot(DepotID{0},{});fast->current_order.MakeGoToDepot(DepotID{0},{});
+ Place(fast,2,16);Register(slow);Register(fast);
+ bool expected=true,full=false;
+ SECTION("the active forward destinations share a directed clearance") {}
+ SECTION("nearest depot is not an explicit target") {fast->current_order.MakeGoToDepot(DepotID{0},{},ONSF_NO_STOP_AT_INTERMEDIATE_STATIONS,ODATFB_NEAREST_DEPOT);expected=false;}
+ SECTION("another destination does not establish the same outlet") {fast->current_order.MakeGoToDepot(DepotID{1},{});expected=false;}
+ SECTION("different directed clearances do not establish a common outlet") {Marker(18,18,AutoYieldRole::Clear);fast->current_order.MakeGoToDepot(DepotID{1},{});expected=false;}
+ SECTION("ordinary restrictions still block the destination forecast") {
+  auto*p=Marker(18,16,AutoYieldRole::Approach,INVALID_TRACE_RESTRICT_SLOT_ID.base());TraceRestrictInstructionItem deny{};deny.SetType(TRIT_PF_DENY);p->items={deny.AsProgramItem()};REQUIRE(p->Validate().Succeeded());InvalidateAutoYieldAreas();UpdateAutoYieldAreas();expected=false;
+ }
+ SECTION("opposing traffic has no forward destination forecast") {fast->direction=Direction::NE;expected=false;}
+ SECTION("manual cancellation still opts out") {membership->Vacate(fast);expected=false;}
+ SECTION("equal speed trains gain no new priority") {fast->vcache.cached_max_speed=100;expected=false;}
+ SECTION("a disconnected merge cannot create a forecast") {MakeRailNormal(TileXY(24,12),_current_company,TRACK_BIT_X,RAILTYPE_RAIL);expected=false;}
+ SECTION("multiple forward outlets to the same target remain ambiguous") {UpperSiding(true);Marker(19,12,AutoYieldRole::Clear);expected=false;}
+ SECTION("a siding ending at another clearance cannot justify the diversion") {Marker(19,12,AutoYieldRole::Clear);expected=false;}
+ SECTION("a short siding cannot be forced to hold a long train") {slow->gcache.cached_total_length=20*TILE_SIZE;expected=false;}
+ SECTION("a full siding cannot be forced open") {Place(medium,14,12);medium->vehstatus.Set(VehState::Stopped);full=true;expected=false;}
+ GameRandomSeedChecker random_checker;
+ CHECK(EvaluateAutoYield(slow,membership->index.base(),AutoYieldCondition::NeedsSiding)==expected);
+ const auto main=Execute(slow,10,10);
+ CHECK(((main.flags&TRPRF_DENY)!=0)==(expected&&!full));
+ if(full)CHECK((main.flags&TRPRF_PBS_RES_END_WAIT)==0);
+ CHECK(random_checker.Check());CHECK(TraceRestrictSlot::ValidateVehicleIndex());
+ if(expected&&!full){
+  fast->current_order.MakeGoToDepot(DepotID{1},{});
+  CHECK_FALSE(EvaluateAutoYield(slow,membership->index.base(),AutoYieldCondition::NeedsSiding));
+  fast->current_order.MakeGoToDepot(DepotID{0},{});
+  CHECK(EvaluateAutoYield(slow,membership->index.base(),AutoYieldCondition::NeedsSiding));
+ }
+}
+
+
+TEST_CASE_METHOD(AutomaticYieldFixture, "Automatic yield registration - simulated bridge detectors retain timing and rollback")
+{
+	const auto mode = GENERATE(AutoYieldRegistration::Reservation, AutoYieldRegistration::Front, AutoYieldRegistration::Tail);
+	const bool entrance = GENERATE(false, true);
+	AutoRestoreBackup braking(_settings_game.vehicle.train_braking_model, uint8_t(GENERATE(TBM_ORIGINAL, TBM_REALISTIC)));
+	Marker(3,10,AutoYieldRole::Approach,membership->index.base(),AUTO_YIELD_DEFAULT_CONFIG | (uint32_t(to_underlying(mode)) << 26));
+	MakeRailBridgeRamp(TileXY(3,10), _current_company, 0, entrance ? DiagDirection::SW : DiagDirection::NE, RAILTYPE_RAIL, false);
+	if (entrance) SetTunnelBridgeSignalSimulationEntrance(TileXY(3,10));
+	else SetTunnelBridgeSignalSimulationExit(TileXY(3,10));
+	MakeRailBridgeRamp(TileXY(entrance ? 5 : 1,10), _current_company, 0, entrance ? DiagDirection::NE : DiagDirection::SW, RAILTYPE_RAIL, false);
+	SetBridgeMiddle(TileXY(entrance ? 4 : 2,10), Axis::X);
+	if (entrance) SetTunnelBridgeSignalSimulationExit(TileXY(5,10));
+	else SetTunnelBridgeSignalSimulationEntrance(TileXY(1,10));
+	SetTunnelBridgeRestrictedSignal(TileXY(3,10), true);
+	InvalidateAutoYieldAreas(); UpdateAutoYieldAreas();
+	REQUIRE(Resource(AUTO_YIELD_PENDING_REF) != nullptr);
+	GameRandomSeedChecker random_checker;
+	{
+		TraceRestrictProgramInput input(TileXY(3,10), TRACKDIR_X_NE, nullptr, nullptr);
+		input.permitted_slot_operations = TRPISP_RELEASE_FRONT | TRPISP_RELEASE_BACK;
+		TraceRestrictProgramResult out;
+		GetExistingTraceRestrictProgram(input.tile,TRACK_X)->Execute(slow,input,out);
+		CHECK_FALSE(membership->IsOccupant(slow->index));
+	}
+	{
+		TraceRestrictSlotTemporaryState temporary; temporary.PushToChangeStack();
+		Execute(slow,3,10,TRPISP_ACQUIRE_TEMP_STATE);
+		CHECK(membership->IsOccupant(slow->index) == (mode == AutoYieldRegistration::Reservation));
+		temporary.PopFromChangeStackRevertTemporaryChanges(slow->index);
+		CHECK_FALSE(membership->IsOccupant(slow->index));
+	}
+	Execute(slow,3,10,TRPISP_PBS_RES_END_ACQUIRE);
+	CHECK(membership->IsOccupant(slow->index) == (mode == AutoYieldRegistration::Reservation));
+	Execute(slow,3,10,TRPISP_RELEASE_FRONT);
+	CHECK(membership->IsOccupant(slow->index) == (mode != AutoYieldRegistration::Tail));
+	Execute(slow,3,10,TRPISP_RELEASE_BACK);
+	REQUIRE(membership->IsOccupant(slow->index));
+	CHECK_FALSE(Resource(AUTO_YIELD_PENDING_REF)->IsOccupant(slow->index));
+	Register(medium);
+	Execute(medium,3,10,TRPISP_RELEASE_BACK);
+	CHECK(EvaluateAutoYield(slow,membership->index.base(),AutoYieldCondition::NeedsSiding));
+	Execute(slow,27,10,TRPISP_RELEASE_BACK);
+	CHECK_FALSE(membership->IsOccupant(slow->index));
+	CHECK(TraceRestrictSlot::ValidateVehicleIndex());
+	if (mode == AutoYieldRegistration::Reservation) {
+		membership->Vacate(slow);
+		Execute(slow,3,10,TRPISP_RELEASE_FRONT);
+		CHECK(membership->IsOccupant(slow->index) == (_settings_game.vehicle.train_braking_model != TBM_REALISTIC));
+		membership->Vacate(slow);
+	}
+	CHECK(random_checker.Check());
+}
+
+
+TEST_CASE_METHOD(AutomaticYieldPlatformFixture, "Automatic yield independent exits - a forbidden depot return cannot block a separate departure")
+{
+	for (uint x = 1; x <= 40; x++) MakeRailNormal(TileXY(x,20),_current_company,TRACK_BIT_X,RAILTYPE_RAIL);
+	Marker(3,20,AutoYieldRole::Approach); Marker(10,20,AutoYieldRole::Main); Marker(27,20,AutoYieldRole::Clear);
+	MakeRailNormal(TileXY(15,20),_current_company,TRACK_BIT_X | TRACK_BIT_RIGHT,RAILTYPE_RAIL);
+	MakeRailNormal(TileXY(15,21),_current_company,TRACK_BIT_Y,RAILTYPE_RAIL);
+	MakeRailDepot(TileXY(15,22),_current_company,DepotID{1},DiagDirection::NW,RAILTYPE_RAIL);
+	const TileIndex gate = TileXY(15,21);
+	SB(_m[gate].m5,6,2,to_underlying(RailTileType::Signals));
+	SetPresentSignals(gate,SignalAlongTrackdir(TRACKDIR_Y_SE));
+	SetSignalType(gate,TRACK_Y,SignalType::PathOneWay);
+	const bool station_target = GENERATE(false,true);
+	if (station_target) {
+		Station *target = Station::Create(TileXY(40,20)); target->owner = _current_company;
+		target->facilities = {StationFacility::Train}; target->train_station = TileArea(target->xy,1,1);
+		target->rect.BeforeAddTile(target->xy,StationRect::ADD_FORCE);
+		MakeRailStation(target->xy,_current_company,target->index,Axis::X,0,RAILTYPE_RAIL);
+		slow->current_order.MakeGoToStation(target->index);
+	} else {
+		MakeRailDepot(TileXY(40,20),_current_company,DepotID{0},DiagDirection::NE,RAILTYPE_RAIL);
+		slow->current_order.MakeGoToDepot(DepotID{0},{});
+	}
+	Place(slow,7,20); Place(fast,9,10); Register(slow); Register(fast);
+	[[maybe_unused]] bool independent = true;
+	bool confirmed_conflict = false;
+	SECTION("one-way return blocked: different exits can move together") { }
+	SECTION("a passable reverse signal retains ambiguity") { SetSignalType(gate,TRACK_Y,SignalType::Path); independent = false; }
+	SECTION("a missing return signal retains ambiguity") { MakeRailNormal(gate,_current_company,TRACK_BIT_Y,RAILTYPE_RAIL); independent = false; }
+	SECTION("changing the target to this depot invalidates independence") { slow->current_order.MakeGoToDepot(DepotID{1},{}); independent = false; }
+	SECTION("the passing train still has a conflicting tail") {
+		confirmed_conflict = true;
+		Train *tail = MakeActor(12,20,200); tail->SetMultiheaded(); fast->SetNext(tail); independent = false;
+	}
+	SECTION("a route merging before the clearance remains protected") {
+		MakeRailNormal(TileXY(20,10),_current_company,TRACK_BIT_X | TRACK_BIT_RIGHT,RAILTYPE_RAIL);
+		for (uint y = 11; y < 20; y++) MakeRailNormal(TileXY(20,y),_current_company,TRACK_BIT_Y,RAILTYPE_RAIL);
+		MakeRailNormal(TileXY(20,20),_current_company,TRACK_BIT_X | TRACK_BIT_LEFT,RAILTYPE_RAIL);
+		independent = false;
+	}
+	GameRandomSeedChecker random_checker;
+	const auto order = slow->current_order;
+	const auto flags = slow->flags;
+	const auto members = membership->occupants;
+	CHECK(EvaluateAutoYield(slow,membership->index.base(),AutoYieldCondition::MustWait) == confirmed_conflict);
+	CHECK(slow->current_order.GetType() == order.GetType());
+	CHECK(slow->current_order.GetDestination() == order.GetDestination());
+	CHECK(slow->flags == flags); CHECK(membership->occupants == members);
+	CHECK(TraceRestrictSlot::ValidateVehicleIndex()); CHECK(random_checker.Check());
+}
+
+
+TEST_CASE_METHOD(AutomaticYieldPlatformFixture, "Automatic yield station access - a free platform does not require a free departure to avoid eviction")
+{
+	const bool exit_only = GENERATE(false,true);
+	SetupPlatform(exit_only);
+	for (uint x = 11; x <= 15; x++) MakeRailStation(TileXY(x,8),_current_company,platform_station->index,Axis::X,0,RAILTYPE_RAIL);
+	platform_station->rect.BeforeAddTile(TileXY(11,8),StationRect::ADD_FORCE);
+	platform_station->train_station = TileArea(TileXY(11,8),5,5);
+	Marker(18,8,AutoYieldRole::Exit,membership->index.base(),TEST_YIELD_CONFIG | AUTO_YIELD_PLATFORM);
+	slow->current_order.MakeGoToStation(platform_station->index);
+	medium->current_order.MakeGoToDepot(DepotID{0},{});
+	Place(medium,14,8); Register(slow); Register(medium); Register(fast);
+	Execute(medium,exit_only ? 18 : 10,8,TRPISP_PBS_RES_END_ACQUIRE);
+	for (uint x = 14; x < 20; x++) REQUIRE(TryReserveRailTrack(TileXY(x,8),TRACK_X));
+	REQUIRE(TryReserveRailTrack(TileXY(20,8),TRACK_RIGHT));
+	REQUIRE(TryReserveRailTrack(TileXY(20,9),TRACK_Y));
+	REQUIRE(TryReserveRailTrack(TileXY(20,10),TRACK_LEFT));
+	for (uint x = 21; x <= 27; x++) REQUIRE(TryReserveRailTrack(TileXY(x,10),TRACK_X));
+	REQUIRE(GetTrainForReservation(TileXY(24,10),TRACK_X) == medium);
+	bool must_evict = false;
+	SECTION("safe free platform remains usable while its departure is reserved") { }
+	SECTION("a nonmember physically occupies the otherwise free platform") {
+		Train *blocker = MakeActor(14,12,80); blocker->vehstatus.Set(VehState::Stopped); must_evict = true;
+	}
+	SECTION("an unattributed reservation still occupies the platform") {
+		SetRailStationReservation(TileXY(14,12),true); must_evict = true;
+	}
+	SECTION("a committed platform claim is not an empty place") {
+		REQUIRE(Resource(MakeTraceRestrictRefId(TileXY(exit_only ? 18 : 10,12),TRACK_X))->Occupy(fast)); must_evict = true;
+	}
+	SECTION("a permanently disconnected platform exit cannot count as available") {
+		MakeRailNormal(TileXY(20,12),_current_company,TRACK_BIT_Y,RAILTYPE_RAIL); must_evict = true;
+	}
+	SECTION("a forbidden onward route cannot masquerade as usable parking") {
+		auto *program = Marker(19,12,AutoYieldRole::Approach,INVALID_TRACE_RESTRICT_SLOT_ID.base());
+		TraceRestrictInstructionItem deny{}; deny.SetType(TRIT_PF_DENY);
+		program->items = {deny.AsProgramItem()}; REQUIRE(program->Validate().Succeeded());
+		InvalidateAutoYieldAreas(); UpdateAutoYieldAreas(); must_evict = true;
+	}
+	GameRandomSeedChecker random_checker;
+	CHECK(EvaluateAutoYield(medium,membership->index.base(),AutoYieldCondition::MustWait));
+	CHECK(EvaluateAutoYield(medium,membership->index.base(),AutoYieldCondition::Evacuate) == must_evict);
+	if (!must_evict) {
+		const auto main = Execute(slow,10,10);
+		/* Rejection of Main is a diversion, not a demand to evict the other
+		 * platform: a free parking route is legal with a busy shared exit. */
+		CHECK(((main.flags & (TRPRF_WAIT_AT_PBS | TRPRF_PBS_RES_END_WAIT)) == 0 || (main.flags & TRPRF_DENY) != 0));
+		CHECK((Execute(slow,exit_only ? 18 : 10,12).flags & TRPRF_DENY) == 0);
+		CHECK((Execute(medium,18,8).flags & TRPRF_WAIT_AT_PBS) != 0);
+	}
+	CHECK(GetTrainForReservation(TileXY(24,10),TRACK_X) == medium);
+	CHECK(Resource(MakeTraceRestrictRefId(TileXY(exit_only ? 18 : 10,8),TRACK_X))->IsOccupant(medium->index));
+	CHECK(TraceRestrictSlot::ValidateVehicleIndex()); CHECK(random_checker.Check());
+}
+
+
+TEST_CASE_METHOD(AutomaticYieldFixture, "Automatic yield compound inlets - bypass curves do not erase exclusive parking")
+{
+	UseExitOnly();
+	MakeRailNormal(TileXY(14,10),_current_company,TRACK_BIT_X | TRACK_BIT_RIGHT,RAILTYPE_RAIL);
+	MakeRailNormal(TileXY(14,11),_current_company,TRACK_BIT_Y,RAILTYPE_RAIL);
+	MakeRailNormal(TileXY(14,12),_current_company,TRACK_BIT_X | TRACK_BIT_UPPER | TRACK_BIT_LEFT,RAILTYPE_RAIL);
+	Register(slow); Register(fast);
+	bool free = true;
+	SECTION("an empty exclusive segment beyond the compound merge is usable") { }
+	SECTION("physical nonmember occupancy is still counted") { Place(medium,16,12); free = false; }
+	SECTION("a reversing foreign train still occupies the lane") { Place(medium,16,12); medium->direction = Direction::NE; medium->owner = CompanyID{1}; free = false; }
+	SECTION("an unattributed reservation is still counted") { REQUIRE(TryReserveRailTrack(TileXY(16,12),TRACK_X)); free = false; }
+	SECTION("the excluded junction cannot supply missing parking length") { slow->gcache.cached_total_length = 48; free = false; }
+	SECTION("another train's lane claim remains authoritative") {
+		REQUIRE(Resource(MakeTraceRestrictRefId(TileXY(18,12),TRACK_X))->Occupy(medium)); free = false;
+	}
+	SECTION("an excluded crossing cannot supply missing parking length") {
+		MakeRailNormal(TileXY(14,12),_current_company,TRACK_BIT_X | TRACK_BIT_Y,RAILTYPE_RAIL); slow->gcache.cached_total_length = 48; free = false;
+	}
+	SECTION("an occupied excluded junction still blocks admission") { Place(medium,14,12); medium->track = TRACK_BIT_LEFT; free = false; }
+	SECTION("a crossing junction reservation still blocks admission") { REQUIRE(TryReserveRailTrack(TileXY(14,12),TRACK_LEFT)); free = false; }
+	GameRandomSeedChecker random_checker;
+	CHECK(EvaluateAutoYield(slow,membership->index.base(),AutoYieldCondition::FreeSiding) == free);
+	CHECK(((Execute(slow,10,10).flags & TRPRF_DENY) != 0) == free);
+	CHECK(membership->IsOccupant(slow->index));
+	CHECK_FALSE(Resource(MakeTraceRestrictRefId(TileXY(18,12),TRACK_X))->IsOccupant(slow->index));
+	CHECK(TraceRestrictSlot::ValidateVehicleIndex()); CHECK(random_checker.Check());
+}
+
+TEST_CASE_METHOD(AutomaticYieldFixture, "Automatic yield parking segments - all compound boundaries use exclusive space")
+{
+	const bool exit_only = GENERATE(false, true);
+	const uint extra = GENERATE(Catch::Generators::range(1u,32u));
+	if (exit_only) UseExitOnly();
+	const TrackBits tracks = static_cast<TrackBits>(TRACK_BIT_X | (extra << 1));
+	MakeRailNormal(TileXY(14,12),_current_company,tracks,RAILTYPE_RAIL);
+	Register(slow); Register(fast);
+	bool free = true;
+	SECTION("an empty segment after any junction or crossing is usable") { }
+	SECTION("the boundary cannot lengthen a short segment") { slow->gcache.cached_total_length=48; free=false; }
+	SECTION("physical occupancy on the boundary still prevents admission") { Place(medium,14,12); free=false; }
+	SECTION("another reservation on the boundary still prevents admission") { REQUIRE(TryReserveRailTrack(TileXY(14,12),TRACK_X)); free=false; }
+	SECTION("a main marker at the boundary cannot become parking") { Marker(14,12,AutoYieldRole::Main); SetTrackBits(TileXY(14,12),tracks); free=false; }
+	GameRandomSeedChecker random_checker;
+	CHECK(EvaluateAutoYield(slow,membership->index.base(),AutoYieldCondition::FreeSiding)==free);
+	CHECK(((Execute(slow,10,10).flags & TRPRF_DENY)!=0)==free);
+	CHECK(Resource(MakeTraceRestrictRefId(TileXY(exit_only ? 18 : 10,12),TRACK_X))->occupants.empty());
+	CHECK(membership->IsOccupant(slow->index));
+	CHECK(TraceRestrictSlot::ValidateVehicleIndex()); CHECK(random_checker.Check());
+}
+
+TEST_CASE_METHOD(AutomaticYieldFixture, "Automatic yield parking segments - bends use actual full and half tile lengths")
+{
+	const bool exit_only = GENERATE(false,true);
+	if (exit_only) UseExitOnly();
+	MakeRailNormal(TileXY(12,12),_current_company,TRACK_BIT_RIGHT,RAILTYPE_RAIL);
+	MakeRailNormal(TileXY(12,13),_current_company,TRACK_BIT_Y,RAILTYPE_RAIL);
+	MakeRailNormal(TileXY(12,14),_current_company,TRACK_BIT_LEFT,RAILTYPE_RAIL);
+	for (uint x=13;x<16;x++) MakeRailNormal(TileXY(x,14),_current_company,TRACK_BIT_X,RAILTYPE_RAIL);
+	MakeRailNormal(TileXY(16,14),_current_company,TRACK_BIT_UPPER,RAILTYPE_RAIL);
+	MakeRailNormal(TileXY(16,13),_current_company,TRACK_BIT_Y,RAILTYPE_RAIL);
+	MakeRailNormal(TileXY(16,12),_current_company,TRACK_BIT_LOWER,RAILTYPE_RAIL);
+	Register(slow); Register(fast);
+	const uint space = exit_only ? 200 : 160;
+	bool free=true;
+	SECTION("a train and its margin fit exactly") { slow->gcache.cached_total_length=space-TILE_SIZE; }
+	SECTION("one pixel too long does not fit") { slow->gcache.cached_total_length=space-TILE_SIZE+1; free=false; }
+	SECTION("a foreign train on a bend still blocks entry") { Place(medium,12,12);medium->track=TRACK_BIT_RIGHT;free=false; }
+	SECTION("a bend reservation still blocks entry") { REQUIRE(TryReserveRailTrack(TileXY(12,12),TRACK_RIGHT));free=false; }
+	GameRandomSeedChecker random_checker;
+	CHECK(EvaluateAutoYield(slow,membership->index.base(),AutoYieldCondition::FreeSiding)==free);
+	CHECK(((Execute(slow,10,10).flags & TRPRF_DENY)!=0)==free);
+	CHECK(TraceRestrictSlot::ValidateVehicleIndex());CHECK(random_checker.Check());
+}
+
+
+TEST_CASE_METHOD(AutomaticYieldFixture, "Automatic yield lifecycle - missed clearance and reversed entry release only after the entire body leaves")
+{
+	Register(slow);
+	const bool reversed = GENERATE(false, true);
+	const bool tail_inside = GENERATE(false, true);
+	Place(slow, reversed ? 1 : 30, 10);
+	if (reversed) slow->direction = Direction::NE;
+	if (tail_inside) {
+		Train *tail = MakeActor(reversed ? 4 : 26, 10, 100);
+		tail->SetWagon(); tail->direction = slow->direction; slow->SetNext(tail);
+	}
+	AutoRestoreBackup tick(_state_ticks, StateTicks{64});
+	AutoYieldGameTick();
+	CHECK(membership->IsOccupant(slow->index) == tail_inside);
+	CHECK(TraceRestrictSlot::ValidateVehicleIndex());
+}
+
+TEST_CASE_METHOD(AutomaticYieldWideFixture, "Automatic yield conflict - a remote express on the same outlet does not hold a ready departure indefinitely")
+{
+	for (uint x=41; x<200; x++) MakeRailNormal(TileXY(x,10),_current_company,TRACK_BIT_X,RAILTYPE_RAIL);
+	GetTraceRestrictProgram(MakeTraceRestrictRefId(TileXY(27,10),TRACK_X),false)->items.clear();
+	Marker(190,10,AutoYieldRole::Clear);
+	Place(slow,180,10); Place(fast,30,10); Register(slow); Register(fast);
+	CHECK_FALSE(EvaluateAutoYield(slow,membership->index.base(),AutoYieldCondition::MustWait));
+	Place(fast,177,10);
+	CHECK(EvaluateAutoYield(slow,membership->index.base(),AutoYieldCondition::MustWait));
+}
+
+class AutomaticYieldTransformFixture : public AutomaticYieldFixture {
+protected:
+	uint transform = 0;
+	TileIndex Mapped(uint x, uint y) const
+	{
+		if (transform & 1) x = 63-x;
+		if (transform & 2) y = 63-y;
+		if (transform & 4) std::swap(x,y);
+		return TileXY(x,y);
+	}
+	DiagDirection MapDir(DiagDirection dir) const
+	{
+		int x=0,y=0;
+		switch(dir) { case DiagDirection::NE:x=-1;break;case DiagDirection::SW:x=1;break;case DiagDirection::SE:y=1;break;default:y=-1;break; }
+		if(transform&1)x=-x;if(transform&2)y=-y;if(transform&4)std::swap(x,y);
+		return x<0?DiagDirection::NE:x>0?DiagDirection::SW:y>0?DiagDirection::SE:DiagDirection::NW;
+	}
+	Trackdir MapTrackdir(Trackdir td) const
+	{
+		for (Trackdir out=TRACKDIR_BEGIN;out<TRACKDIR_END;out++) if(IsValidTrackdir(out) &&
+			TrackdirToExitdir(out)==MapDir(TrackdirToExitdir(td)) &&
+			TrackdirToExitdir(ReverseTrackdir(out))==MapDir(TrackdirToExitdir(ReverseTrackdir(td)))) return out;
+		return INVALID_TRACKDIR;
+	}
+	void Transform(uint value)
+	{
+		transform=value;
+		struct Rail { uint x,y; TrackBits bits; decltype(TraceRestrictProgram::items) program; };
+		std::vector<Rail> rails;
+		for(uint y=1;y<63;y++)for(uint x=1;x<63;x++) {
+			const auto tile=TileXY(x,y);if(!IsPlainRailTile(tile))continue;
+			Rail item{x,y,GetTrackBits(tile),{}};
+			if(auto *p=GetExistingTraceRestrictProgram(tile,TRACK_X))item.program=p->items;
+			rails.push_back(item);
+		}
+		ClearTraceRestrictMapping();
+		for(const auto &rail:rails)MakeClear(TileXY(rail.x,rail.y),ClearGround::Grass,0);
+		for(const auto &rail:rails) {
+			TrackBits bits=TRACK_BIT_NONE;
+			for(Track tr=TRACK_X;tr<TRACK_END;tr++)if(rail.bits&TrackToTrackBits(tr))bits|=TrackToTrackBits(TrackdirToTrack(MapTrackdir(TrackToTrackdir(tr))));
+			const auto tile=Mapped(rail.x,rail.y);MakeRailNormal(tile,_current_company,bits,RAILTYPE_RAIL);
+			if(rail.program.empty())continue;
+			const auto td=MapTrackdir(TRACKDIR_X_SW);const auto track=TrackdirToTrack(td);
+			SB(_m[tile].m5,6,2,to_underlying(RailTileType::Signals));SetPresentSignals(tile,SignalAlongTrackdir(td));SetSignalType(tile,track,SignalType::Path);
+			auto*p=GetTraceRestrictProgram(MakeTraceRestrictRefId(tile,track),true);p->items=rail.program;REQUIRE(p->Validate().Succeeded());
+		}
+		for(Train*v:{slow,medium,fast}) {
+			const auto tile=Mapped(TileX(v->tile),TileY(v->tile));
+			const auto td=MapTrackdir(TRACKDIR_X_SW);v->track=TrackToTrackBits(TrackdirToTrack(td));v->direction=DiagDirToDir(TrackdirToExitdir(td));
+			Place(v,TileX(tile),TileY(tile));
+		}
+		InvalidateAutoYieldAreas();UpdateAutoYieldAreas();
+	}
+};
+
+TEST_CASE_METHOD(AutomaticYieldTransformFixture, "Automatic yield generated topology - mirrored and rotated parking preserves safety and deterministic decisions")
+{
+	const uint seed=GENERATE(range(1u,33u));
+	const uint orientation=GENERATE(range(0u,8u));
+	const bool exit_only=GENERATE(false,true);
+	const bool second_lane=(seed&4)!=0;
+	if(second_lane)UpperSiding(exit_only);
+	if(seed&8){
+		for(uint x=1;x<=40;x++)MakeRailNormal(TileXY(x,24),_current_company,TRACK_BIT_X,RAILTYPE_RAIL);
+		Marker(3,24,AutoYieldRole::Approach);Marker(10,24,AutoYieldRole::Main);Marker(27,24,AutoYieldRole::Clear);
+	}
+	slow->vcache.cached_max_speed=80+(seed%5)*20;fast->vcache.cached_max_speed=slow->vcache.cached_max_speed+100;
+	slow->gcache.cached_total_length=8+(seed%4)*16;
+	if(exit_only)UseExitOnly();
+	Transform(orientation);
+	// Local reproducible generation never consumes the simulation RNG.
+	const uint scenario=(seed*1664525u+1013904223u)%4;
+	CAPTURE(seed,orientation,scenario,exit_only);
+	GameRandomSeedChecker random_checker;
+	const auto blocked=Mapped(14,12);
+	if(scenario==1)slow->gcache.cached_total_length=1024;
+	if(scenario==2){Place(medium,TileX(blocked),TileY(blocked));medium->vehstatus.Set(VehState::Stopped);}
+	if(scenario==3)REQUIRE(TryReserveRailTrack(blocked,TrackdirToTrack(MapTrackdir(TRACKDIR_X_SW))));
+	membership->Occupy(slow);membership->Occupy(fast);
+	const auto before=membership->occupants;
+	for(uint repeat=0;repeat<3;repeat++) {
+		CHECK(EvaluateAutoYield(slow,membership->index.base(),AutoYieldCondition::FreeSiding)==(scenario!=1 && (scenario==0 || second_lane)));
+		CHECK(EvaluateAutoYield(slow,membership->index.base(),AutoYieldCondition::NeedsSiding));
+	}
+	CHECK(membership->occupants==before);
+	CHECK(TraceRestrictSlot::ValidateVehicleIndex());CHECK(random_checker.Check());
+}
+
+TEST_CASE_METHOD(AutomaticYieldPlatformFixture, "Automatic yield topology - incomparable clearance distances cannot create a merging threat")
+{
+	for(uint x=1;x<=40;x++)MakeRailNormal(TileXY(x,20),_current_company,TRACK_BIT_X,RAILTYPE_RAIL);
+	Marker(3,20,AutoYieldRole::Approach);Marker(10,20,AutoYieldRole::Main);Marker(27,20,AutoYieldRole::Clear);
+	Station *station=Station::Create(TileXY(21,20));station->owner=_current_company;
+	station->facilities={StationFacility::Train};station->train_station=TileArea(station->xy,4,1);
+	for(uint x=21;x<=24;x++)MakeRailStation(TileXY(x,20),_current_company,station->index,Axis::X,0,RAILTYPE_RAIL);
+	Place(fast,4,20);Register(slow);Register(fast);
+	CHECK_FALSE(EvaluateAutoYield(slow,membership->index.base(),AutoYieldCondition::NeedsSiding));
+	CHECK_FALSE(EvaluateAutoYield(slow,membership->index.base(),AutoYieldCondition::MustWait));
+	CHECK((Execute(slow,10,10).flags&(TRPRF_DENY|TRPRF_WAIT_AT_PBS))==0);
+}
+
+TEST_CASE_METHOD(AutomaticYieldTransformFixture, "Automatic yield lifecycle - outward boundary cleanup is invariant under eight map transforms")
+{
+	const uint orientation=GENERATE(range(0u,8u));
+	const bool reversing=GENERATE(false,true);
+	Transform(orientation);
+	membership->Occupy(slow);
+	const auto tile=Mapped(reversing?1:30,10);
+	Place(slow,TileX(tile),TileY(tile));
+	const auto td=MapTrackdir(reversing?TRACKDIR_X_NE:TRACKDIR_X_SW);
+	slow->direction=DiagDirToDir(TrackdirToExitdir(td));
+	AutoRestoreBackup tick(_state_ticks,StateTicks{64});
+	AutoYieldGameTick();
+	CHECK_FALSE(membership->IsOccupant(slow->index));
+	CHECK(TraceRestrictSlot::ValidateVehicleIndex());
+}
+
+TEST_CASE_METHOD(AutomaticYieldFixture, "Automatic yield diagnostics - enabling logs cannot change admission or saved state")
+{
+	Register(slow); Register(fast);
+	const auto members=membership->occupants;
+	GameRandomSeedChecker random_checker;
+	const auto before=Execute(slow,10,10);
+	AutoRestoreBackup<int8_t> debug(_debug_levels[size_t(DebugLevelID::yapf)],int8_t{7});
+	const auto after=Execute(slow,10,10);
+	CHECK(before.flags==after.flags);CHECK(before.penalty==after.penalty);
+	CHECK(membership->occupants==members);CHECK(random_checker.Check());
+}
+
+TEST_CASE_METHOD(AutomaticYieldPlatformFixture, "Automatic yield conflict - an unfinished station target before Main cannot invent a following route")
+{
+	Station *station=Station::Create(TileXY(5,10));station->owner=_current_company;
+	station->facilities={StationFacility::Train};station->train_station=TileArea(station->xy,2,1);
+	for(uint x=5;x<=6;x++)MakeRailStation(TileXY(x,10),_current_company,station->index,Axis::X,0,RAILTYPE_RAIL);
+	fast->current_order.MakeGoToStation(station->index);
+	Register(slow);Register(fast);
+	CHECK_FALSE(EvaluateAutoYield(slow,membership->index.base(),AutoYieldCondition::NeedsSiding));
+	CHECK((Execute(slow,10,10).flags&(TRPRF_DENY|TRPRF_WAIT_AT_PBS))==0);
+}
+
+TEST_CASE_METHOD(AutomaticYieldPlatformFixture, "Automatic yield conflict - alternative station platforms cannot invent a bypass Main approach")
+{
+	SetupPlatform(true);
+	for(uint x=11;x<=15;x++)MakeRailStation(TileXY(x,8),_current_company,platform_station->index,Axis::X,0,RAILTYPE_RAIL);
+	fast->current_order.MakeGoToStation(platform_station->index);
+	Place(slow,9,10); // Its whole body is past the station's inbound split.
+	Register(slow);Register(fast);
+	GameRandomSeedChecker random_checker;
+	CHECK_FALSE(EvaluateAutoYield(slow,membership->index.base(),AutoYieldCondition::NeedsSiding));
+	CHECK((Execute(slow,10,10).flags&(TRPRF_DENY|TRPRF_WAIT_AT_PBS))==0);
+	CHECK(TraceRestrictSlot::ValidateVehicleIndex());CHECK(random_checker.Check());
+}
+
+TEST_CASE_METHOD(AutomaticYieldFixture, "Automatic yield turnover - the next PBS stopping point must fit the whole departing tail beyond Clear")
+{
+	medium->gcache.cached_total_length=8*TILE_SIZE;
+	Place(medium,14,12);DistantExpress(fast);fast->cur_speed=40;
+	Register(slow);Register(medium);Register(fast);Execute(medium,10,12,TRPISP_ACQUIRE);
+	bool safe=false;
+	SECTION("a nearby signal does not fit the whole tail") {}
+	SECTION("a proved additional block fits the whole tail") {
+		SB(_m[TileXY(39,10)].m5,6,2,to_underlying(RailTileType::Signals));
+		SetPresentSignals(TileXY(39,10),SignalAlongTrackdir(TRACKDIR_X_SW));
+		SetSignalType(TileXY(39,10),TRACK_X,SignalType::Path);safe=true;
+	}
+	GameRandomSeedChecker random_checker;
+	CHECK(EvaluateAutoYield(medium,membership->index.base(),AutoYieldCondition::Evacuate)==safe);
+	CHECK(TraceRestrictSlot::ValidateVehicleIndex());CHECK(random_checker.Check());
+}
+
+
+TEST_CASE_METHOD(AutomaticYieldFixture, "Automatic yield regression - committed targets survive temporary route uncertainty")
+{
+ const bool exit_only = GENERATE(false,true);
+ if(exit_only) UseExitOnly();
+ Register(slow);Register(fast);
+ const uint x=exit_only?18:10;
+ Place(slow,14,12);
+ Execute(slow,x,12,TRPISP_PBS_RES_END_ACQUIRE);
+ TraceRestrictSlot *targets=nullptr;
+ for(auto *slot:TraceRestrictSlot::Iterate())if(slot->flags.Test(TraceRestrictSlot::Flag::AutoYieldTargets))targets=slot;
+ REQUIRE(targets!=nullptr);REQUIRE(targets->IsOccupant(fast->index));
+ CHECK_FALSE(targets->IsOccupant(slow->index));
+ CHECK(TraceRestrictSlot::ValidateVehicleIndex());
+ // A temporary restriction beyond the merge prevents proving either outlet.
+ auto *program=Marker(23,10,AutoYieldRole::Main);
+ TraceRestrictInstructionItem deny{};deny.SetType(TRIT_PF_DENY);
+ program->items={deny.AsProgramItem()};REQUIRE(program->Validate().Succeeded());
+ InvalidateAutoYieldAreas();UpdateAutoYieldAreas();
+ REQUIRE(targets->IsOccupant(fast->index));
+ CHECK((Execute(slow,18,12).flags&TRPRF_WAIT_AT_PBS)!=0);
+ SECTION("fast tail clears") { Execute(fast,27,10,TRPISP_RELEASE_BACK); }
+ SECTION("fast membership cancelled") { membership->Vacate(fast); }
+ SECTION("fast deleted") { TraceRestrictRemoveVehicleFromAllSlots(fast->index); }
+ SECTION("slow membership cancelled") { membership->Vacate(slow); }
+ CHECK(targets->occupants.empty());
+ CHECK((Execute(slow,18,12).flags&TRPRF_WAIT_AT_PBS)==0);
+ CHECK(TraceRestrictSlot::ValidateVehicleIndex());
+}
+
+TEST_CASE_METHOD(AutomaticYieldFixture, "Automatic yield regression - speculative lane search cannot record another vehicle")
+{
+ UseExitOnly();Register(slow);Register(fast);
+ TraceRestrictSlot *targets=nullptr;
+ for(auto *slot:TraceRestrictSlot::Iterate())if(slot->flags.Test(TraceRestrictSlot::Flag::AutoYieldTargets))targets=slot;
+ REQUIRE(targets!=nullptr);
+ TraceRestrictSlotTemporaryState temporary;
+ temporary.PushToChangeStack();
+ Execute(slow,18,12,TRPISP_ACQUIRE_TEMP_STATE);
+ CHECK(targets->occupants.empty());
+ temporary.PopFromChangeStackRevertTemporaryChanges(slow->index);
+ CHECK(targets->occupants.empty());
+ CHECK(TraceRestrictSlot::ValidateVehicleIndex());
+}
+
+TEST_CASE_METHOD(AutomaticYieldFixture, "Automatic yield conflict resources - a foreign detector can request the common route without joining our slot")
+{
+ for(uint x=1;x<6;x++)MakeRailNormal(TileXY(x,8),_current_company,TRACK_BIT_X,RAILTYPE_RAIL);
+ MakeRailNormal(TileXY(6,8),_current_company,TRACK_BIT_RIGHT,RAILTYPE_RAIL);
+ MakeRailNormal(TileXY(6,9),_current_company,TRACK_BIT_Y,RAILTYPE_RAIL);
+ MakeRailNormal(TileXY(6,10),_current_company,TRACK_BIT_X|TRACK_BIT_LEFT,RAILTYPE_RAIL);
+ auto *foreign=TraceRestrictSlot::Create(_current_company);foreign->max_occupancy=16;
+ Marker(3,8,AutoYieldRole::Approach,foreign->index.base());
+ Marker(4,8,AutoYieldRole::Main,foreign->index.base());
+ Marker(4,6,AutoYieldRole::Exit,foreign->index.base());
+ auto *clear=GetTraceRestrictProgram(MakeTraceRestrictRefId(TileXY(27,10),TRACK_X),false);
+ TraceRestrictInstructionItem extra{};extra.SetType(TRIT_AUTO_YIELD_CLEAR);extra.SetValue(foreign->index);
+ clear->items.push_back(extra.AsProgramItem());REQUIRE(clear->Validate().Succeeded());
+ InvalidateAutoYieldAreas();UpdateAutoYieldAreas();
+ Place(fast,4,8);Register(slow);REQUIRE(foreign->Occupy(fast));
+ CHECK_FALSE(membership->IsOccupant(fast->index));
+ CHECK(EvaluateAutoYield(slow,membership->index.base(),AutoYieldCondition::NeedsSiding));
+ CHECK((Execute(slow,10,10).flags&TRPRF_DENY)!=0);
+ Place(slow,14,12);Execute(slow,10,12,TRPISP_PBS_RES_END_ACQUIRE);
+ CHECK(EvaluateAutoYield(slow,membership->index.base(),AutoYieldCondition::MustWait));
+ foreign->Vacate(fast);
+ CHECK_FALSE(EvaluateAutoYield(slow,membership->index.base(),AutoYieldCondition::MustWait));
+ for(auto*s:TraceRestrictSlot::Iterate())if(s->flags.Test(TraceRestrictSlot::Flag::AutoYieldTargets))CHECK_FALSE(s->IsOccupant(fast->index));
+ CHECK(TraceRestrictSlot::ValidateVehicleIndex());
+}
+
+TEST_CASE_METHOD(AutomaticYieldFixture, "Automatic yield parking - a reserved shared exit cannot turn an empty siding into an occupied lane")
+{
+ Register(slow);Register(fast);
+ REQUIRE(TryReserveRailTrack(TileXY(24,10),TRACK_X));
+ const auto reserved=GetReservedTrackbits(TileXY(24,10));
+ CHECK((Execute(slow,10,10).flags&TRPRF_DENY)!=0);
+ CHECK(GetReservedTrackbits(TileXY(24,10))==reserved);
+ CHECK(Resource(MakeTraceRestrictRefId(TileXY(10,12),TRACK_X))->occupants.empty());
+ CHECK(TraceRestrictSlot::ValidateVehicleIndex());
+}
+
+TEST_CASE_METHOD(AutomaticYieldFixture, "Automatic yield saved dependency cycle - only a safe deterministic departure falls back to PBS")
+{
+ UpperSiding(false);
+ AutoRestoreBackup<uint16_t> rail_cap(const_cast<RailTypeInfo*>(GetRailTypeInfo(RAILTYPE_RAIL))->max_speed,uint16_t{0});
+ auto *second=TraceRestrictSlot::Create(_current_company);second->max_occupancy=16;
+ auto *approach=GetTraceRestrictProgram(MakeTraceRestrictRefId(TileXY(3,10),TRACK_X),false);
+ approach->items[1]=TraceRestrictProgramItem{TEST_YIELD_CONFIG|100};REQUIRE(approach->Validate().Succeeded());
+ for(auto *program:TraceRestrictProgram::Iterate()) {
+  auto copies=program->items;
+  for(auto iter:program->IterateInstructions()) {
+   auto item=iter.Instruction();item.SetValue(second->index);copies.push_back(item.AsProgramItem());
+   if(item.GetType()!=TRIT_AUTO_YIELD_CLEAR)copies.emplace_back(iter.Secondary()&0xffff0000u);
+  }
+  program->items=std::move(copies);REQUIRE(program->Validate().Succeeded());
+ }
+ InvalidateAutoYieldAreas();UpdateAutoYieldAreas();
+ AutoRestoreBackup passenger_class(CargoSpec::Get(0)->classes,CargoClasses{CargoClass::Passengers});
+ medium->vcache.cached_max_speed=160;fast->vcache.cached_max_speed=120;
+ fast->cargo_type=CargoType{0};fast->cargo_cap=10;
+ fast->cargo.Append(CargoPacket::Create(uint16_t{1},uint16_t{0},StationID::Invalid(),TileIndex{0},Money{0}));
+ Place(medium,14,12);Place(fast,14,8);
+ REQUIRE(membership->Occupy(medium));REQUIRE(membership->Occupy(fast));REQUIRE(second->Occupy(medium));REQUIRE(second->Occupy(fast));
+ auto lane_ref=MakeTraceRestrictRefId(TileXY(10,12),TRACK_X),upper_ref=MakeTraceRestrictRefId(TileXY(10,8),TRACK_X);
+ for(auto*s:TraceRestrictSlot::Iterate()) {
+  if(s->automatic_yield_area==membership->index.base()+1&&s->automatic_yield_signal==lane_ref)REQUIRE(s->Occupy(s->flags.Test(TraceRestrictSlot::Flag::AutoYieldTargets)?fast:medium));
+  if(s->automatic_yield_area==second->index.base()+1&&s->automatic_yield_signal==upper_ref)REQUIRE(s->Occupy(s->flags.Test(TraceRestrictSlot::Flag::AutoYieldTargets)?medium:fast));
+ }
+ bool safe=true;
+ SECTION("a proved free departure breaks the logical cycle"){}
+ SECTION("a conflicting reservation must retain native protection"){REQUIRE(TryReserveRailTrack(TileXY(24,10),TRACK_X));safe=false;}
+ CHECK(EvaluateAutoYield(medium,membership->index.base(),AutoYieldCondition::MustWait));
+ CHECK(EvaluateAutoYield(fast,second->index.base(),AutoYieldCondition::MustWait)==!safe);
+ CHECK(TraceRestrictSlot::ValidateVehicleIndex());
+}
+
+TEST_CASE_METHOD(AutomaticYieldWideFixture, "Automatic yield long approach - a confirmed follower beyond 256 nodes still diverts into free parking")
+{
+	const uint gap = GENERATE(255u, 257u, 300u);
+	for (auto *program : TraceRestrictProgram::Iterate()) {
+		program->items.clear(); REQUIRE(program->Validate().Succeeded());
+	}
+	MakeRailNormal(TileXY(8,10),_current_company,TRACK_BIT_X,RAILTYPE_RAIL);
+	MakeRailNormal(TileXY(20,10),_current_company,TRACK_BIT_X,RAILTYPE_RAIL);
+	for(uint x=41;x<=380;x++)MakeRailNormal(TileXY(x,10),_current_company,TRACK_BIT_X,RAILTYPE_RAIL);
+	for(uint x=328;x<=340;x++)MakeRailNormal(TileXY(x,12),_current_company,TRACK_BIT_X,RAILTYPE_RAIL);
+	MakeRailNormal(TileXY(328,10),_current_company,TRACK_BIT_X|TRACK_BIT_RIGHT,RAILTYPE_RAIL);
+	MakeRailNormal(TileXY(328,11),_current_company,TRACK_BIT_Y,RAILTYPE_RAIL);
+	MakeRailNormal(TileXY(328,12),_current_company,TRACK_BIT_LEFT,RAILTYPE_RAIL);
+	MakeRailNormal(TileXY(340,12),_current_company,TRACK_BIT_UPPER,RAILTYPE_RAIL);
+	MakeRailNormal(TileXY(340,11),_current_company,TRACK_BIT_Y,RAILTYPE_RAIL);
+	MakeRailNormal(TileXY(340,10),_current_company,TRACK_BIT_X|TRACK_BIT_LOWER,RAILTYPE_RAIL);
+	Marker(3,10,AutoYieldRole::Approach);Marker(330,10,AutoYieldRole::Main);
+	Marker(330,12,AutoYieldRole::Siding);Marker(338,12,AutoYieldRole::Exit);Marker(347,10,AutoYieldRole::Clear);
+	Place(slow,326,10);Place(fast,330-gap,10);
+	Register(slow);Register(fast);
+	bool divert=true;
+	SECTION("free parking is used"){}
+	SECTION("another train's reservation still prevents admission") { REQUIRE(TryReserveRailTrack(TileXY(334,12),TRACK_X));divert=false; }
+	SECTION("an actually disconnected follower does not impose a wait") { MakeRailNormal(TileXY(100,20),_current_company,TRACK_BIT_X,RAILTYPE_RAIL);Place(fast,100,20);divert=false; }
+	GameRandomSeedChecker random;
+	CHECK(((Execute(slow,330,10).flags&TRPRF_DENY)!=0)==divert);
+	CHECK(TraceRestrictSlot::ValidateVehicleIndex());CHECK(random.Check());
+}
+
+TEST_CASE_METHOD(AutomaticYieldPlatformFixture, "Automatic yield pre-fork refresh - a reachable siding is not an already reserved siding")
+{
+	Station *target=Station::Create(TileXY(40,10));target->owner=_current_company;
+	target->facilities={StationFacility::Train};target->train_station=TileArea(target->xy,1,1);
+	target->rect.BeforeAddTile(target->xy,StationRect::ADD_FORCE);
+	MakeRailStation(target->xy,_current_company,target->index,Axis::X,0,RAILTYPE_RAIL);
+	Place(slow,5,10);Place(medium,2,10);
+	slow->current_order.MakeGoToStation(target->index);slow->dest_tile=target->xy;
+	Register(slow);Register(medium);
+	for(uint x=5;x<=6;x++)REQUIRE(TryReserveRailTrack(TileXY(x,10),TRACK_X));
+	REQUIRE(FollowTrainReservation(slow,nullptr,FollowTrainReservationFlag::OkayUnused).tile==TileXY(6,10));
+	REQUIRE(EvaluateAutoYield(slow,membership->index.base(),AutoYieldCondition::NeedsSiding));
+	REQUIRE_FALSE(slow->flags.Test(VehicleRailFlag::Stuck));
+	GameRandomSeedChecker random;
+	AutoRestoreBackup ticks(_state_ticks,StateTicks{(8-(slow->index.base()&7))&7});
+	AutoYieldGameTick();
+	/* Either the native safe-end reservation succeeds into the siding, or
+	 * native PBS reports its ordinary failed-reservation stop. It must not
+	 * retain the old branch decision simply because both exits are reachable. */
+	const bool siding=TrainReservationPassesThroughTile(slow,TileXY(10,12),TRACK_X);
+	CHECK(siding==Resource(MakeTraceRestrictRefId(TileXY(10,12),TRACK_X))->IsOccupant(slow->index));
+	CHECK((siding||slow->flags.Test(VehicleRailFlag::Stuck)));
+	CHECK(slow->tile==TileXY(5,10));CHECK(slow->current_order.GetDestination()==target->index);
+	CHECK(TraceRestrictSlot::ValidateVehicleIndex());CHECK(random.Check());
+}
+
+TEST_CASE_METHOD(AutomaticYieldFixture, "Automatic yield continuous waiting - a later express is retained after the first tail clears")
+{
+	Register(slow);Register(fast);
+	Place(slow,14,12);slow->cur_speed=0;
+	Execute(slow,10,12,TRPISP_PBS_RES_END_ACQUIRE);
+	REQUIRE(EvaluateAutoYield(slow,membership->index.base(),AutoYieldCondition::MustWait));
+	DistantExpress(medium);medium->cur_speed=20;Register(medium);
+	AutoRestoreBackup tick(_state_ticks,StateTicks{(8-(slow->index.base()&7))&7});
+	AutoYieldGameTick();
+	TraceRestrictSlot*targets=nullptr;
+	for(auto*s:TraceRestrictSlot::Iterate())if(s->flags.Test(TraceRestrictSlot::Flag::AutoYieldTargets))targets=s;
+	REQUIRE(targets!=nullptr);
+	CHECK(targets->IsOccupant(fast->index));
+	CHECK(targets->IsOccupant(medium->index));
+	membership->Vacate(fast);
+	CHECK_FALSE(targets->IsOccupant(fast->index));
+	CHECK(targets->IsOccupant(medium->index));
+	CHECK(EvaluateAutoYield(slow,membership->index.base(),AutoYieldCondition::MustWait));
+	membership->Vacate(medium);
+	CHECK(targets->occupants.empty());
+	CHECK_FALSE(EvaluateAutoYield(slow,membership->index.base(),AutoYieldCondition::MustWait));
+	CHECK(TraceRestrictSlot::ValidateVehicleIndex());
+}
+
+TEST_CASE_METHOD(AutomaticYieldWideFixture, "Automatic yield split admission - prove the candidate destination after bypassing an irrelevant head branch")
+{
+	const bool exit_only=GENERATE(false,true);
+	if(exit_only)UseExitOnly();
+	for(uint x=41;x<=280;x++)MakeRailNormal(TileXY(x,10),_current_company,TRACK_BIT_X,RAILTYPE_RAIL);
+	MakeRailNormal(TileXY(15,10),_current_company,TRACK_BIT_X|TRACK_BIT_UPPER,RAILTYPE_RAIL);
+	MakeRailNormal(TileXY(15,9),_current_company,TRACK_BIT_Y,RAILTYPE_RAIL);
+	MakeRailNormal(TileXY(15,8),_current_company,TRACK_BIT_LOWER,RAILTYPE_RAIL);
+	for(uint x=16;x<=280;x++)MakeRailNormal(TileXY(x,8),_current_company,TRACK_BIT_X,RAILTYPE_RAIL);
+	Marker(27,8,AutoYieldRole::Clear);
+	for(auto [train,row]:{std::pair{slow,10u},std::pair{fast,8u}}){
+		Station*station=Station::Create(TileXY(260,row));station->owner=_current_company;
+		station->facilities={StationFacility::Train};station->train_station=TileArea(station->xy,1,1);
+		station->rect.BeforeAddTile(station->xy,StationRect::ADD_FORCE);
+		MakeRailStation(station->xy,_current_company,station->index,Axis::X,0,RAILTYPE_RAIL);
+		train->current_order.MakeGoToStation(station->index);train->dest_tile=station->xy;
+	}
+	Register(slow);Register(fast);
+	GameRandomSeedChecker random;
+	CHECK((Execute(slow,10,10).flags&TRPRF_DENY)!=0);
+	/* After their actual paths split, the siding rejoins only the slow
+	 * train's own continuation. The express's separate exit must not hold it. */
+	Place(slow,14,12);Place(fast,16,8);
+	CHECK((Execute(slow,18,12).flags&TRPRF_WAIT_AT_PBS)==0);
+	CHECK(TraceRestrictSlot::ValidateVehicleIndex());CHECK(random.Check());
+}
+
+class AutomaticYieldStationRouteFixture : public AutomaticYieldFixture {
+protected:
+	AutoRestoreBackup<bool> forbid_turns{_settings_game.pf.forbid_90_deg,true};
+	Station *stop, *common_goal, *separate_goal;
+	AutomaticYieldStationRouteFixture()
+	{
+		REQUIRE(OrderList::GetNumItems()==0);
+		for (uint x=1;x<=40;x++) MakeRailNormal(TileXY(x,6),_current_company,TRACK_BIT_X,RAILTYPE_RAIL);
+		MakeRailNormal(TileXY(20,6),_current_company,TRACK_BIT_X|TRACK_BIT_RIGHT,RAILTYPE_RAIL);
+		for(uint y=7;y<10;y++)MakeRailNormal(TileXY(20,y),_current_company,TRACK_BIT_Y,RAILTYPE_RAIL);
+		MakeRailNormal(TileXY(20,10),_current_company,TRACK_BIT_X|TRACK_BIT_LEFT|TRACK_BIT_LOWER,RAILTYPE_RAIL);
+		Marker(3,6,AutoYieldRole::Approach);Marker(10,6,AutoYieldRole::Main);Marker(27,6,AutoYieldRole::Clear);
+		stop=StationAt(12,6);common_goal=StationAt(35,10);separate_goal=StationAt(35,6);
+		slow->current_order.MakeGoToStation(common_goal->index);slow->dest_tile=common_goal->xy;
+		Place(fast,4,6);
+		Order first;first.MakeGoToStation(stop->index);
+		fast->orders=OrderList::Create(Order(first),fast);fast->primary_order=fast->orders->index;
+		Order next;next.MakeGoToStation(common_goal->index);fast->orders->InsertOrderAt(std::move(next),1);
+		fast->current_order=first;fast->dest_tile=stop->xy;fast->cur_real_order_index=0;fast->cur_implicit_order_index=0;
+		Register(slow);Register(fast);
+	}
+	~AutomaticYieldStationRouteFixture()
+	{
+		fast->orders=nullptr;fast->primary_order=OrderListID::Invalid();slow->orders=nullptr;slow->primary_order=OrderListID::Invalid();_orderlist_pool.CleanPool();
+	}
+	Station *StationAt(uint x,uint y)
+	{
+		Station*s=Station::Create(TileXY(x,y));s->owner=_current_company;s->facilities={StationFacility::Train};
+		s->train_station=TileArea(s->xy,1,1);s->rect.BeforeAddTile(s->xy,StationRect::ADD_FORCE);
+		MakeRailStation(s->xy,_current_company,s->index,Axis::X,0,RAILTYPE_RAIL);return s;
+	}
+};
+
+TEST_CASE_METHOD(AutomaticYieldStationRouteFixture,"Automatic yield station continuation - next destination determines the shared exit without changing orders")
+{
+	bool yield=true;
+	SECTION("station stop followed by the shared exit"){}
+	SECTION("a different destination beyond the stop uses the independent exit"){
+		fast->GetOrder(1)->MakeGoToStation(separate_goal->index);yield=false;
+	}
+	SECTION("an unresolved conditional after the stop is not a route prediction"){
+		fast->GetOrder(1)->MakeConditional(0);fast->GetOrder(1)->SetConditionVariable(OrderConditionVariable::LoadPercentage);yield=false;
+	}
+	SECTION("coupling after the stop must not be skipped"){
+		fast->GetOrder(1)->MakeWaitCouple();yield=false;
+	}
+	SECTION("the end of an executed schedule cannot loop to its first station"){
+		Order home_order;home_order.MakeGoToStation(separate_goal->index);
+		fast->primary_order=OrderList::Create(std::move(home_order),fast)->index;
+		fast->GetOrder(0)->MakeGoToStation(common_goal->index);fast->GetOrder(1)->MakeGoToStation(stop->index);
+		fast->cur_real_order_index=1;fast->cur_implicit_order_index=1;yield=false;
+	}
+	const auto old_current=fast->current_order;const auto old_tile=fast->dest_tile;
+	const auto old_real=fast->cur_real_order_index,old_implicit=fast->cur_implicit_order_index;
+	GameRandomSeedChecker random;
+	CHECK(EvaluateAutoYield(slow,membership->index.base(),AutoYieldCondition::NeedsSiding)==yield);
+	CHECK(((Execute(slow,10,10).flags&TRPRF_DENY)!=0)==yield);
+	CHECK(fast->current_order.GetType()==old_current.GetType());CHECK(fast->current_order.GetDestination()==old_current.GetDestination());
+	CHECK(fast->dest_tile==old_tile);CHECK(fast->cur_real_order_index==old_real);CHECK(fast->cur_implicit_order_index==old_implicit);
+	CHECK(TraceRestrictSlot::ValidateVehicleIndex());CHECK(random.Check());
+}
+
+TEST_CASE_METHOD(AutomaticYieldStationRouteFixture,"Automatic yield station continuation - a candidate platform serves the stop before forecasting its exit")
+{
+	const bool exit_only=GENERATE(false,true);
+	if(exit_only)UseExitOnly();
+	Station*station=StationAt(14,12);
+	Marker(18,12,AutoYieldRole::Exit,membership->index.base(),TEST_YIELD_CONFIG|AUTO_YIELD_PLATFORM);
+	Order first;first.MakeGoToStation(station->index);
+	slow->orders=OrderList::Create(Order(first),slow);slow->primary_order=slow->orders->index;
+	Order next;next.MakeGoToStation(common_goal->index);slow->orders->InsertOrderAt(std::move(next),1);
+	slow->current_order=first;slow->dest_tile=station->xy;
+	GameRandomSeedChecker random;
+	CHECK(EvaluateAutoYield(slow,membership->index.base(),AutoYieldCondition::FreeSiding));
+	CHECK(slow->current_order.GetDestination()==station->index);CHECK(slow->cur_real_order_index==0);
+	CHECK(TraceRestrictSlot::ValidateVehicleIndex());CHECK(random.Check());
+}
+
+TEST_CASE_METHOD(AutomaticYieldStationRouteFixture,"Automatic yield station continuation - a conditional departure during loading does not clear a saved wait")
+{
+	Marker(11,6,AutoYieldRole::Siding);
+	Marker(18,6,AutoYieldRole::Exit,membership->index.base(),TEST_YIELD_CONFIG|AUTO_YIELD_PLATFORM);
+	Place(fast,12,6);fast->last_station_visited=stop->index;fast->current_order.MakeLoading(true);
+	Place(slow,14,12);slow->cur_speed=0;
+	Execute(slow,10,12,TRPISP_ACQUIRE);
+	REQUIRE(EvaluateAutoYield(slow,membership->index.base(),AutoYieldCondition::MustWait));
+	fast->GetOrder(1)->MakeConditional(0);fast->GetOrder(1)->SetConditionVariable(OrderConditionVariable::LoadPercentage);
+	GameRandomSeedChecker random;
+	CHECK(EvaluateAutoYield(slow,membership->index.base(),AutoYieldCondition::MustWait));
+	CHECK(fast->current_order.IsType(OT_LOADING));CHECK(fast->cur_real_order_index==0);
+	CHECK(TraceRestrictSlot::ValidateVehicleIndex());CHECK(random.Check());
+}
+
+class AutomaticYieldLongDestinationFixture : public AutomaticYieldWideFixture {
+protected:
+	AutoRestoreBackup<bool> forbid_turns{_settings_game.pf.forbid_90_deg,true};
+	AutomaticYieldLongDestinationFixture()
+	{
+		REQUIRE(OrderList::GetNumItems()==0);
+		for(uint x=41;x<=420;x++)MakeRailNormal(TileXY(x,10),_current_company,TRACK_BIT_X,RAILTYPE_RAIL);
+		std::array<StationID,2> stations{};
+		for(uint i=0;i<stations.size();i++){
+			Station*s=Station::Create(TileXY(380+i*20,10));s->owner=_current_company;s->facilities={StationFacility::Train};
+			s->train_station=TileArea(s->xy,1,1);s->rect.BeforeAddTile(s->xy,StationRect::ADD_FORCE);
+			MakeRailStation(s->xy,_current_company,s->index,Axis::X,0,RAILTYPE_RAIL);stations[i]=s->index;
+		}
+		Order first;first.MakeGoToStation(stations[0]);slow->orders=OrderList::Create(Order(first),slow);slow->primary_order=slow->orders->index;
+		Order next;next.MakeGoToStation(stations[1]);slow->orders->InsertOrderAt(std::move(next),1);
+		slow->current_order=first;slow->dest_tile=TileXY(380,10);fast->current_order=first;fast->dest_tile=slow->dest_tile;
+	}
+	~AutomaticYieldLongDestinationFixture(){slow->orders=nullptr;slow->primary_order=OrderListID::Invalid();_orderlist_pool.CleanPool();}
+};
+
+TEST_CASE_METHOD(AutomaticYieldLongDestinationFixture,"Automatic yield distant destinations - committing a diversion retains the confirmed follower")
+{
+	const bool exit_only=GENERATE(false,true);
+	if(exit_only)UseExitOnly();
+	DistantExpress(fast);fast->cur_speed=40;slow->cur_speed=40;
+	Register(slow);Register(fast);
+	REQUIRE(EvaluateAutoYield(slow,membership->index.base(),AutoYieldCondition::NeedsSiding));
+	GameRandomSeedChecker random;
+	Execute(slow,exit_only?18:10,12,TRPISP_PBS_RES_END_ACQUIRE);
+	bool saved=false;
+	for(const auto*s:TraceRestrictSlot::Iterate())if(s->flags.Test(TraceRestrictSlot::Flag::AutoYieldTargets)&&s->IsOccupant(fast->index))saved=true;
+	CHECK(saved);
+	Place(slow,14,12);slow->cur_speed=0;
+	CHECK(EvaluateAutoYield(slow,membership->index.base(),AutoYieldCondition::MustWait));
+	CHECK((Execute(slow,18,12).flags&TRPRF_WAIT_AT_PBS)!=0);
+	CHECK(TraceRestrictSlot::ValidateVehicleIndex());CHECK(random.Check());
+}
+
+TEST_CASE_METHOD(AutomaticYieldLongDestinationFixture,"Automatic yield distant destinations - late confirmed main arrivals survive the first express")
+{
+	const bool exit_only=GENERATE(false,true);if(exit_only)UseExitOnly();
+	Register(slow);Register(fast);Execute(slow,exit_only?18:10,12,TRPISP_PBS_RES_END_ACQUIRE);
+	Place(slow,14,12);slow->cur_speed=0;
+	REQUIRE(EvaluateAutoYield(slow,membership->index.base(),AutoYieldCondition::MustWait));
+	for(uint x=1;x<=200;x++){MakeRailNormal(TileXY(x,22),_current_company,TRACK_BIT_X,RAILTYPE_RAIL);MakeRailNormal(TileXY(x,4),_current_company,TRACK_BIT_X,RAILTYPE_RAIL);}
+	for(uint y=5;y<22;y++)MakeRailNormal(TileXY(200,y),_current_company,y==10?TRACK_BIT_X|TRACK_BIT_Y:TRACK_BIT_Y,RAILTYPE_RAIL);
+	MakeRailNormal(TileXY(200,22),_current_company,TRACK_BIT_UPPER,RAILTYPE_RAIL);MakeRailNormal(TileXY(200,4),_current_company,TRACK_BIT_RIGHT,RAILTYPE_RAIL);
+	MakeRailNormal(TileXY(1,4),_current_company,TRACK_BIT_LOWER,RAILTYPE_RAIL);for(uint y=5;y<10;y++)MakeRailNormal(TileXY(1,y),_current_company,TRACK_BIT_Y,RAILTYPE_RAIL);
+	MakeRailNormal(TileXY(1,10),_current_company,TRACK_BIT_X|TRACK_BIT_LEFT,RAILTYPE_RAIL);
+	Place(medium,170,22);medium->cur_speed=40;medium->current_order=slow->current_order;medium->dest_tile=slow->dest_tile;
+	bool conflict=true;
+	SECTION("a positively reachable common main retains the later express"){}
+	SECTION("a disconnected feeder creates no new waiting relation"){MakeClear(TileXY(200,21),ClearGround::Grass,0);conflict=false;}
+	SECTION("a mandatory stop before Main remains unresolved"){
+		Station*s=Station::Create(TileXY(190,22));s->owner=_current_company;s->facilities={StationFacility::Train};s->train_station=TileArea(s->xy,1,1);s->rect.BeforeAddTile(s->xy,StationRect::ADD_FORCE);MakeRailStation(s->xy,_current_company,s->index,Axis::X,0,RAILTYPE_RAIL);medium->current_order.MakeGoToStation(s->index);medium->dest_tile=s->xy;conflict=false;
+	}
+	Register(medium);GameRandomSeedChecker random;
+	AutoRestoreBackup tick(_state_ticks,StateTicks{(8-(slow->index.base()&7))&7});AutoYieldGameTick();
+	bool saved=false;for(const auto*s:TraceRestrictSlot::Iterate())if(s->flags.Test(TraceRestrictSlot::Flag::AutoYieldTargets)&&s->IsOccupant(medium->index))saved=true;
+	CHECK(saved==conflict);
+	membership->Vacate(fast);
+	CHECK(EvaluateAutoYield(slow,membership->index.base(),AutoYieldCondition::MustWait)==conflict);
+	CHECK(TraceRestrictSlot::ValidateVehicleIndex());CHECK(random.Check());
+}
+
+TEST_CASE_METHOD(AutomaticYieldStationRouteFixture,"Automatic yield station continuation - short loading protects the matching exit but not an independent route")
+{
+	Marker(11,6,AutoYieldRole::Siding);
+	Marker(18,6,AutoYieldRole::Exit,membership->index.base(),TEST_YIELD_CONFIG|AUTO_YIELD_PLATFORM);
+	Place(fast,12,6);fast->last_station_visited=stop->index;fast->current_order.MakeLoading(true);fast->current_order_time=0;
+	Place(slow,14,12);slow->cur_speed=0;
+	bool wait=true;
+	SECTION("normal short loading preserves priority at its next shared resource"){}
+	SECTION("the next destination is independent"){
+		fast->GetOrder(1)->MakeGoToStation(separate_goal->index);wait=false;
+	}
+	SECTION("full load does not hold other traffic indefinitely"){
+		fast->current_order.SetLoadType(OrderLoadType::FullLoad);wait=false;
+	}
+	SECTION("long station work keeps its existing timeout protection"){
+		fast->current_order_time=300;wait=false;
+	}
+	GameRandomSeedChecker random;
+	Execute(slow,10,12,TRPISP_ACQUIRE);
+	CAPTURE(wait,fast->current_order.GetLoadType(),fast->current_order_time);
+	CHECK(EvaluateAutoYield(slow,membership->index.base(),AutoYieldCondition::MustWait)==wait);
+	CHECK(((Execute(slow,18,12).flags&TRPRF_WAIT_AT_PBS)!=0)==wait);
+	CHECK(fast->current_order.IsType(OT_LOADING));CHECK(fast->cur_real_order_index==0);CHECK(fast->cur_implicit_order_index==0);
+	CHECK(TraceRestrictSlot::ValidateVehicleIndex());CHECK(random.Check());
+}
+
+#include "auto_yield_topology_proof.inc"
+#include "auto_yield_outlet_candidates.inc"

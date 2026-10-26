@@ -1479,6 +1479,7 @@ struct TraceRestrictSlot : TraceRestrictSlotPool::PoolItem<&_tracerestrictslot_p
 
 	enum class Flag : uint8_t {
 		Public, ///< Public slot.
+		AutoYieldTargets, ///< Internal saved wait obligations; occupants are the trains being yielded to, not lane occupants.
 	};
 	using Flags = EnumBitSet<Flag, uint8_t>;
 

@@ -1052,14 +1052,20 @@ struct CYapfReachStationRail     : CYapfRailBase<CYapfRail_TypesT<CYapfReachStat
 struct CYapfReachStationRailNo90 : CYapfRailBase<CYapfRail_TypesT<CYapfReachStationRailNo90, CFollowTrackRailNo90, CYapfDestinationTileOrStationRailT, CYapfFollowRailT>> {};
 
 template <class Tpf_>
-static bool YapfCanReachStation(const Train *v, TileIndex tile, Trackdir td, StationID station)
+static bool YapfCanReachStation(const Train *v, TileIndex tile, Trackdir td, StationID station,
+		uint max_nodes = RVTRANSPORT_YAPF_PROBE_MAX_NODES, bool admission_probe = false, uint *nodes_used = nullptr)
 {
 	Tpf_ pf;
 	pf.SetOrigin(tile, td, INVALID_TILE, INVALID_TRACKDIR, 1);
-	pf.SetTreatFirstRedTwoWaySignalAsEOL(true);
+	/* A temporary red block cannot disprove a parking lane's continuation.
+	 * Actual departure still requires the normal PBS reservation checks. */
+	pf.SetTreatFirstRedTwoWaySignalAsEOL(!admission_probe);
 	pf.SetDestinationStation(v, station, tile);
-	pf.SetMaxSearchNodes(RVTRANSPORT_YAPF_PROBE_MAX_NODES);
-	return pf.FindPath(v);
+	pf.SetMaxSearchNodes(max_nodes);
+	pf.DisableCache(admission_probe);
+	const bool found = pf.FindPath(v);
+	if (nodes_used != nullptr) *nodes_used = std::min(max_nodes, std::max(1u, uint(pf.num_steps)));
+	return found;
 }
 
 bool YapfTrainCanReachStation(const Train *v, TileIndex tile, Trackdir td, StationID station)
@@ -1067,6 +1073,18 @@ bool YapfTrainCanReachStation(const Train *v, TileIndex tile, Trackdir td, Stati
 	return _settings_game.pf.forbid_90_deg
 		? YapfCanReachStation<CYapfReachStationRailNo90>(v, tile, td, station)
 		: YapfCanReachStation<CYapfReachStationRail>(v, tile, td, station);
+}
+
+bool YapfTrainCanReachStationBounded(const Train *v, TileIndex tile, Trackdir td, StationID station, uint max_nodes, uint &nodes_used)
+{
+	nodes_used = 0;
+	if (max_nodes == 0 || !IsValidTile(tile) || !IsValidTrackdir(td) || !Station::IsValidID(station)) return false;
+	/* The success of a capped search cannot depend on a client's local cache
+	 * history. Use the ordinary destination/follower/cost rules, without a
+	 * reservation transaction or speculative modification of the vehicle. */
+	return _settings_game.pf.forbid_90_deg
+		? YapfCanReachStation<CYapfReachStationRailNo90>(v, tile, td, station, max_nodes, true, &nodes_used)
+		: YapfCanReachStation<CYapfReachStationRail>(v, tile, td, station, max_nodes, true, &nodes_used);
 }
 
 

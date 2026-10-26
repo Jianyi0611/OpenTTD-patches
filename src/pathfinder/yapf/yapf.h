@@ -125,6 +125,10 @@ bool YapfTrainFindNearestSafeTile(const Train *v, TileIndex tile, Trackdir td, b
 /** Vehicle transport: can a train leaving the given tile/trackdir reach the given rail station? */
 bool YapfTrainCanReachStation(const Train *v, TileIndex tile, Trackdir td, StationID station);
 
+/** Read-only, cache-independent station reachability with a strict node cap.
+ * Does not reserve track, update the train, or return a guessed route. */
+bool YapfTrainCanReachStationBounded(const Train *v, TileIndex tile, Trackdir td, StationID station, uint max_nodes, uint &nodes_used);
+
 #endif /* YAPF_H */
 
 struct Aircraft;
