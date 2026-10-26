@@ -25,7 +25,7 @@
 #include "company_type.h"
 #include "date_type.h"
 #include "gfx_type.h"
-#include "sl/saveload_common.h"
+#include "sl/saveload_common_type.h"
 
 #include <memory>
 #include <vector>
@@ -160,6 +160,8 @@ private:
 	uint16_t couple_speed_value2{}; ///< Second coupling speed threshold in its recorded display units.
 	uint8_t couple_speed_unit1{1}; ///< First threshold unit code (metric by default).
 	uint8_t couple_speed_unit2{1}; ///< Second threshold unit code (metric by default).
+	uint8_t couple_speed_comparator1{}; ///< First threshold comparator (0 = disabled).
+	uint8_t couple_speed_comparator2{}; ///< Second threshold comparator (0 = disabled).
 	uint16_t max_speed{};          ///< How fast the vehicle may go on the way to the destination.
 
 	void AllocExtraInfo();
@@ -395,8 +397,8 @@ public:
 		return *this;
 	}
 
-	static constexpr auto GetCmdRefFields() { return std::make_tuple(&Order::type, &Order::flags, &Order::dest, &Order::couple_speed_value1, &Order::couple_speed_value2, &Order::couple_speed_unit1, &Order::couple_speed_unit2); }
-	static constexpr char CMD_TUPLE_FMT[] = "t: {:X}, f: {:X}, d: {}, coupling speeds: {}, {}, units: {}, {}";
+	static constexpr auto GetCmdRefFields() { return std::make_tuple(&Order::type, &Order::flags, &Order::dest, &Order::couple_speed_value1, &Order::couple_speed_value2, &Order::couple_speed_unit1, &Order::couple_speed_unit2, &Order::couple_speed_comparator1, &Order::couple_speed_comparator2); }
+	static constexpr char CMD_TUPLE_FMT[] = "t: {:X}, f: {:X}, d: {}, coupling speeds: {}, {}, units: {}, {}, comparators: {}, {}";
 
 	/**
 	 * Check whether this order is of the given type.
@@ -795,8 +797,8 @@ public:
 	inline bool GetCoupleRejectFaster() const { return HasBit(this->flags, 5); }
 	inline void SetCoupleRejectFaster(bool on) { SB(this->flags, 5, 1, on ? 1 : 0); }
 	/** Optional speed criteria: 0 disables the row, 1..6 map to numeric OrderConditionComparator values + 1. */
-	inline uint8_t GetCoupleSpeedComparator(uint row) const { assert(row < 2); return GB(this->flags, 6 + 3 * row, 3); }
-	inline void SetCoupleSpeedComparator(uint row, uint8_t value) { assert(row < 2 && value <= 6); SB(this->flags, 6 + 3 * row, 3, value); }
+	inline uint8_t GetCoupleSpeedComparator(uint row) const { assert(row < 2); return row == 0 ? this->couple_speed_comparator1 : this->couple_speed_comparator2; }
+	inline void SetCoupleSpeedComparator(uint row, uint8_t value) { assert(row < 2 && value <= 6); (row == 0 ? this->couple_speed_comparator1 : this->couple_speed_comparator2) = value; }
 	inline uint16_t GetCoupleSpeedValue(uint row) const { assert(row < 2); return row == 0 ? this->couple_speed_value1 : this->couple_speed_value2; }
 	inline void SetCoupleSpeedValue(uint row, uint16_t value) { assert(row < 2); (row == 0 ? this->couple_speed_value1 : this->couple_speed_value2) = value; }
 	inline uint8_t GetCoupleSpeedUnit(uint row) const { assert(row < 2); return row == 0 ? this->couple_speed_unit1 : this->couple_speed_unit2; }
@@ -1050,6 +1052,9 @@ public:
 	inline void SetWaitTimetabled(bool timetabled)
 	{
 		if (this->HasNoTimetableTimes()) return;
+		/* Coupling orders have no wait time of their own; flags bit 3 stores the
+		 * "use the waiting consist's schedule" option for them. */
+		if (this->IsType(OT_GOTO_COUPLE)) return;
 		if (this->IsType(OT_CONDITIONAL) || this->IsType(OT_GOTO_DEPOT)) {
 			if (this->extra == nullptr && !timetabled) return;
 			AssignBit(this->GetXFlagsRef(), 0, timetabled);

@@ -87,6 +87,22 @@ LinkRefresher::LinkRefresher(Vehicle *vehicle, HopSet *seen_hops, bool allow_mer
 	vehicle(vehicle), seen_hops(seen_hops), cargo(INVALID_CARGO), allow_merge(allow_merge),
 	is_full_loading(is_full_loading), cargo_mask(cargo_mask), walk_orders(vehicle->orders)
 {
+	/* While the vehicle is executing a schedule its own list is suspended:
+	 * walking the executed list must return to the primary list at the
+	 * remembered resume order when the executed list wraps, so seed the
+	 * bottom return frame. Without it the junction links (last stop of the
+	 * schedule to the resumed stop of the primary list) would never be
+	 * refreshed for as long as the vehicle stays on the schedule. */
+	OrderList *home = vehicle->IsExecutingSchedule() ? OrderList::GetIfValid(vehicle->primary_order) : nullptr;
+	if (home != nullptr && home != vehicle->orders && home->GetNumOrders() > 0) {
+		this->home_list = home;
+		const Order *resume = home->GetOrderAt(vehicle->primary_order_index);
+		if (resume == nullptr) resume = home->GetFirstOrder();
+		this->resume_stack.emplace_back(home, resume);
+	} else {
+		this->home_list = vehicle->orders;
+	}
+
 	/* Assemble list of capacities and set last loading stations to 0.
 	 * The primary may sit mid-chain or at the physical tail (decoupled parts
 	 * driving away reversed), so start at the physical head to cover the
@@ -296,16 +312,26 @@ std::pair<const Order *, LinkRefresher::TimetableTravelTime> LinkRefresher::Pred
 		const Order *current = next;
 		const Order *following = this->walk_orders->GetNext(current);
 		bool list_changed = false;
-		if (!this->resume_stack.empty() && this->walk_orders != this->vehicle->orders
+		if (!this->resume_stack.empty() && this->walk_orders != this->home_list
 				&& this->walk_orders->GetIndexOfOrder(following) == 0) {
 			/* One full pass of the executed schedule is finished: the vehicle
 			 * returns to its primary order list (ReturnFromExecuteSchedule uses
 			 * the outermost home, not the immediately suspended list), so
-			 * unwind the whole stack and resume at the bottom entry. */
+			 * unwind the whole stack and resume at the bottom entry. This also
+			 * applies when the run started in the middle of an executed
+			 * schedule, whose return frame was seeded in the constructor. */
 			this->walk_orders = this->resume_stack.front().first;
 			following = this->resume_stack.front().second;
 			this->resume_stack.clear();
 			list_changed = true;
+		}
+		if (following->IsType(OT_CONDITIONAL) && following->GetConditionVariable() == OrderConditionVariable::Unconditionally) {
+			/* An unconditional jump straight back to an execute-schedule order
+			 * (the repeat loop of a decouple schedule wrapper) restarts the
+			 * executed schedule. Follow it to the execute order so the jump
+			 * below is taken; GetNextDecisionNode cannot cross lists. */
+			const Order *skip_to = this->walk_orders->GetOrderAt(following->GetConditionSkipToOrder());
+			if (skip_to != nullptr && skip_to->IsExecuteScheduleOrder() && skip_to != following) following = skip_to;
 		}
 		if (following->IsExecuteScheduleOrder() && this->resume_stack.size() < 8) {
 			/* The vehicle will jump into the target schedule: continue the

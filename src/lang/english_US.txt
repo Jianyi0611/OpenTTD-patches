@@ -538,6 +538,7 @@ STR_NEWS_MENU_DELETE_ALL_MESSAGES                               :Delete all mess
 # About menu
 STR_ABOUT_MENU_LAND_BLOCK_INFO                                  :Land area information
 STR_ABOUT_MENU_HELP                                             :Help & manuals
+STR_ABOUT_MENU_ENTER_SCREENSAVER_MODE                           :Toggle screensaver mode
 STR_ABOUT_MENU_TOGGLE_CONSOLE                                   :Toggle console
 STR_ABOUT_MENU_AI_DEBUG                                         :AI/Game script debug
 STR_ABOUT_MENU_SCREENSHOT                                       :Screenshot
@@ -631,7 +632,6 @@ STR_GRAPH_LAST_24_MONTHS                                        :{TINY_FONT}{BLA
 STR_GRAPH_LAST_24_QUARTERS                                      :{TINY_FONT}{BLACK}6 years (quarterly)
 STR_GRAPH_LAST_24_YEARS                                         :{TINY_FONT}{BLACK}24 years (yearly)
 
-STR_GRAPH_TOGGLE_RANGE                                          :Toggle graph for this data range
 STR_GRAPH_SELECT_SCALE                                          :Change horizontal scale of graph
 
 STR_GRAPH_CARGO_PAYMENT_RATES_CAPTION                           :{WHITE}Cargo Payment Rates
@@ -647,14 +647,21 @@ STR_GRAPH_CARGO_PAYMENT_CARGO                                   :{TINY_FONT}{BLA
 
 STR_GRAPH_INDUSTRY_CAPTION                                      :{WHITE}{INDUSTRY} - Cargo History
 STR_GRAPH_INDUSTRY_RANGE_PRODUCED                               :Produced
+STR_GRAPH_INDUSTRY_RANGE_PRODUCED_TOOLTIP                       :Toggle graph of cargo produced by this industry
 STR_GRAPH_INDUSTRY_RANGE_TRANSPORTED                            :Transported
+STR_GRAPH_INDUSTRY_RANGE_TRANSPORTED_TOOLTIP                    :Toggle graph of cargo transported from this industry
 STR_GRAPH_INDUSTRY_RANGE_DELIVERED                              :Delivered
+STR_GRAPH_INDUSTRY_RANGE_DELIVERED_TOOLTIP                      :Toggle graph of cargo delivered to this industry
 STR_GRAPH_INDUSTRY_RANGE_WAITING                                :Waiting
+STR_GRAPH_INDUSTRY_RANGE_WAITING_TOOLTIP                        :Toggle graph of cargo waiting at this industry
 
 STR_GRAPH_TOWN_CARGO_CAPTION                                    :{WHITE}{TOWN} - Cargo History
 STR_GRAPH_TOWN_RANGE_PRODUCED                                   :Produced
+STR_GRAPH_TOWN_RANGE_PRODUCED_TOOLTIP                           :Toggle graph of cargo produced by this town
 STR_GRAPH_TOWN_RANGE_TRANSPORTED                                :Transported
+STR_GRAPH_TOWN_RANGE_TRANSPORTED_TOOLTIP                        :Toggle graph of cargo transported from this town
 STR_GRAPH_TOWN_RANGE_DELIVERED                                  :Delivered
+STR_GRAPH_TOWN_RANGE_DELIVERED_TOOLTIP                          :Toggle graph of cargo delivered to this town
 
 STR_GRAPH_PERFORMANCE_DETAIL_TOOLTIP                            :{BLACK}Show detailed performance ratings
 
@@ -1210,9 +1217,9 @@ STR_RIVERS_MODERATE                                             :Medium
 STR_RIVERS_LOT                                                  :Many
 
 ###length 3
-STR_DISASTER_NONE                                               :None
-STR_DISASTER_REDUCED                                            :Reduced
-STR_DISASTER_NORMAL                                             :Normal
+STR_BREAKDOWNS_NONE                                             :None
+STR_BREAKDOWNS_REDUCED                                          :Reduced
+STR_BREAKDOWNS_NORMAL                                           :Normal
 
 ###length 4
 STR_SUBSIDY_X1_5                                                :x1.5
@@ -1659,12 +1666,12 @@ STR_CONFIG_SETTING_TREE_PLACER_NONE                             :None
 STR_CONFIG_SETTING_TREE_PLACER_ORIGINAL                         :Original
 STR_CONFIG_SETTING_TREE_PLACER_IMPROVED                         :Improved
 
-STR_CONFIG_SETTING_ROAD_SIDE                                    :Road vehicles: {STRING}
-STR_CONFIG_SETTING_ROAD_SIDE_HELPTEXT                           :Choose the driving side
+STR_CONFIG_SETTING_ROAD_SIDE                                    :Road vehicle driving side: {STRING}
+STR_CONFIG_SETTING_ROAD_SIDE_HELPTEXT                           :Choose the road vehicle driving side.{}This can also affect signal side and semaphore graphics.{}It may require reloading the game for a change to take full effect
 
 ###length 2
-STR_CONFIG_SETTING_ROAD_SIDE_LEFT                               :Drive on left
-STR_CONFIG_SETTING_ROAD_SIDE_RIGHT                              :Drive on right
+STR_CONFIG_SETTING_ROAD_SIDE_LEFT                               :Left
+STR_CONFIG_SETTING_ROAD_SIDE_RIGHT                              :Right
 
 STR_CONFIG_SETTING_HEIGHTMAP_ROTATION                           :Heightmap rotation: {STRING}
 STR_CONFIG_SETTING_HEIGHTMAP_ROTATION_TOOLTIP                   :Choose which way the heightmap image is rotated to fit into the game world
@@ -2887,22 +2894,22 @@ STR_PICKER_COLLECTION_DELETE_QUERY                              :Delete collecti
 STR_PICKER_COLLECTION_DELETE_QUERY_TEXT                         :{YELLOW}Are you sure you want to delete this collection?
 STR_PICKER_COLLECTION_DELETE_QUERY_DISABLED_TEXT                :{YELLOW}Are you sure you want to delete this collection? There are items from disabled NewGRFs in it!
 
-STR_PICKER_STATION_CLASS_TOOLTIP                                :Select a station class to display
+STR_PICKER_STATION_CLASS_TOOLTIP                                :Select a station class to display. Ctrl+Click to add or remove in saved items
 STR_PICKER_STATION_TYPE_TOOLTIP                                 :Select a station type to build. Ctrl+Click to add or remove in saved items
 STR_PICKER_STATION_COLLECTION_TOOLTIP                           :Select a collection of stations to display
-STR_PICKER_WAYPOINT_CLASS_TOOLTIP                               :Select a waypoint class to display
+STR_PICKER_WAYPOINT_CLASS_TOOLTIP                               :Select a waypoint class to display. Ctrl+Click to add or remove in saved items
 STR_PICKER_WAYPOINT_TYPE_TOOLTIP                                :Select a waypoint to build. Ctrl+Click to add or remove in saved items
 STR_PICKER_WAYPOINT_COLLECTION_TOOLTIP                          :Select a collection of waypoints to display
-STR_PICKER_ROADSTOP_BUS_CLASS_TOOLTIP                           :Select a bus station class to display
+STR_PICKER_ROADSTOP_BUS_CLASS_TOOLTIP                           :Select a bus station class to display. Ctrl+Click to add or remove in saved items
 STR_PICKER_ROADSTOP_BUS_TYPE_TOOLTIP                            :Select a bus station type to build. Ctrl+Click to add or remove in saved items
 STR_PICKER_ROADSTOP_BUS_COLLECTION_TOOLTIP                      :Select a collection of bus stations to display
-STR_PICKER_ROADSTOP_TRUCK_CLASS_TOOLTIP                         :Select a truck station class to display
+STR_PICKER_ROADSTOP_TRUCK_CLASS_TOOLTIP                         :Select a truck station class to display. Ctrl+Click to add or remove in saved items
 STR_PICKER_ROADSTOP_TRUCK_TYPE_TOOLTIP                          :Select a truck station type to build. Ctrl+Click to add or remove in saved items
 STR_PICKER_ROADSTOP_TRUCK_COLLECTION_TOOLTIP                    :Select a collection of truck stations to display
-STR_PICKER_OBJECT_CLASS_TOOLTIP                                 :Select an object class to display
+STR_PICKER_OBJECT_CLASS_TOOLTIP                                 :Select an object class to display. Ctrl+Click to add or remove in saved items
 STR_PICKER_OBJECT_TYPE_TOOLTIP                                  :Select an object type to build. Ctrl+Click to add or remove in saved items. Ctrl+Click+Drag to select the area diagonally. Also press Shift to show cost estimate only
 STR_PICKER_OBJECT_COLLECTION_TOOLTIP                            :Select a collection of objects to display
-STR_PICKER_HOUSE_CLASS_TOOLTIP                                  :Select a town zone to display
+STR_PICKER_HOUSE_CLASS_TOOLTIP                                  :Select a town zone to display. Ctrl+Click to add or remove in saved items
 STR_PICKER_HOUSE_TYPE_TOOLTIP                                   :Select a house type to build. Ctrl+Click to add or remove in saved items
 STR_PICKER_HOUSE_COLLECTION_TOOLTIP                             :Select a collection of houses to display
 
@@ -3094,6 +3101,7 @@ STR_TREES_MODE_FOREST_LG_TOOLTIP                                :{BLACK}Plant la
 # Land generation window (SE)
 STR_TERRAFORM_TOOLBAR_LAND_GENERATION_CAPTION                   :{WHITE}Land Generation
 STR_TERRAFORM_TOOLTIP_PLACE_ROCKY_AREAS_ON_LANDSCAPE            :{BLACK}Place rocky areas on landscape.{}Ctrl+Click to remove rocky areas
+STR_TERRAFORM_TOOLTIP_PLACE_ROUGH_AREAS_ON_LANDSCAPE            :{BLACK}Place rough areas on landscape.{}Ctrl+Click to remove rough areas
 STR_TERRAFORM_TOOLTIP_DEFINE_DESERT_AREA                        :{BLACK}Define desert area.{}Ctrl+Click to remove desert area
 STR_TERRAFORM_TOOLTIP_INCREASE_SIZE_OF_LAND_AREA                :{BLACK}Increase area of land to lower/raise
 STR_TERRAFORM_TOOLTIP_DECREASE_SIZE_OF_LAND_AREA                :{BLACK}Decrease area of land to lower/raise
@@ -3279,6 +3287,8 @@ STR_LAI_WATER_DESCRIPTION_LOCK                                  :Lock
 STR_LAI_WATER_DESCRIPTION_RIVER                                 :River
 STR_LAI_WATER_DESCRIPTION_COAST_OR_RIVERBANK                    :Coast or riverbank
 STR_LAI_WATER_DESCRIPTION_SHIP_DEPOT                            :Ship depot
+STR_LAI_WATER_DESCRIPTION_WATER_ROCKS                           :Rocks
+STR_LAI_WATER_DESCRIPTION_COAST_ROCKS                           :Coast or riverbank with rocks
 
 # Industries come directly from their industry names
 
@@ -3392,6 +3402,9 @@ STR_SAVELOAD_LOAD_BUTTON                                        :{BLACK}Load
 STR_SAVELOAD_LOAD_TOOLTIP                                       :{BLACK}Load the selected game
 STR_SAVELOAD_LOAD_HEIGHTMAP_TOOLTIP                             :{BLACK}Load the selected heightmap
 STR_SAVELOAD_LOAD_TOWN_DATA_TOOLTIP                             :{BLACK}Load the selected town data
+STR_SAVELOAD_NEW_DIRECTORY_BUTTON                               :{BLACK}New Folder
+STR_SAVELOAD_NEW_DIRECTORY_TOOLTIP                              :{BLACK}Create a new folder in the current location
+STR_SAVELOAD_NEW_DIRECTORY_QUERY_CAPTION                        :{WHITE}Enter a name for the new folder
 STR_SAVELOAD_DETAIL_CAPTION                                     :{BLACK}Game Details
 STR_SAVELOAD_DETAIL_NOT_AVAILABLE                               :{BLACK}No information available
 STR_SAVELOAD_DETAIL_COMPANY_INDEX                               :{SILVER}{COMMA}: {WHITE}{STRING}
@@ -3835,6 +3848,7 @@ STR_GOALS_PROGRESS_COMPLETE                                     :{GREEN}{STRING}
 STR_GOALS_TOOLTIP_CLICK_ON_SERVICE_TO_CENTER                    :{BLACK}Click on goal to center main view on industry/town/tile. Ctrl+Click to open a new viewport on industry/town/tile location
 
 # Goal question window
+###length 4
 STR_GOAL_QUESTION_CAPTION_QUESTION                              :{BLACK}Question
 STR_GOAL_QUESTION_CAPTION_INFORMATION                           :{BLACK}Information
 STR_GOAL_QUESTION_CAPTION_WARNING                               :{BLACK}Warning
@@ -4716,9 +4730,9 @@ STR_ORDER_DROP_FULL_LOAD_ANY                                    :Full load any c
 STR_ORDER_DROP_NO_LOADING                                       :No loading
 STR_ORDER_TOOLTIP_FULL_LOAD                                     :{BLACK}Change the loading behavior of the highlighted order
 
-STR_ORDER_TOGGLE_UNLOAD                                         :{BLACK}Unload all
+STR_ORDER_TOGGLE_UNLOAD                                         :{BLACK}Force unload all
 STR_ORDER_DROP_UNLOAD_IF_ACCEPTED                               :Unload if accepted
-STR_ORDER_DROP_UNLOAD                                           :Unload all
+STR_ORDER_DROP_UNLOAD                                           :Force unload even if not accepted
 STR_ORDER_DROP_TRANSFER                                         :Transfer
 STR_ORDER_DROP_NO_UNLOADING                                     :No unloading
 STR_ORDER_TOOLTIP_UNLOAD                                        :{BLACK}Change the unloading behavior of the highlighted order
@@ -4821,10 +4835,10 @@ STR_ORDER_IMPLICIT                                              :{SPACE}(Implici
 STR_ORDER_FULL_LOAD                                             :{SPACE}(Full load)
 STR_ORDER_FULL_LOAD_ANY                                         :{SPACE}(Full load any cargo)
 STR_ORDER_NO_LOAD                                               :{SPACE}(No loading)
-STR_ORDER_UNLOAD                                                :{SPACE}(Unload and take cargo)
-STR_ORDER_UNLOAD_FULL_LOAD                                      :{SPACE}(Unload and wait for full load)
-STR_ORDER_UNLOAD_FULL_LOAD_ANY                                  :{SPACE}(Unload and wait for any full load)
-STR_ORDER_UNLOAD_NO_LOAD                                        :{SPACE}(Unload and leave empty)
+STR_ORDER_UNLOAD                                                :{SPACE}(Force unload and take cargo)
+STR_ORDER_UNLOAD_FULL_LOAD                                      :{SPACE}(Force unload and wait for full load)
+STR_ORDER_UNLOAD_FULL_LOAD_ANY                                  :{SPACE}(Force unload and wait for any full load)
+STR_ORDER_UNLOAD_NO_LOAD                                        :{SPACE}(Force unload and leave empty)
 STR_ORDER_TRANSFER                                              :{SPACE}(Transfer and take cargo)
 STR_ORDER_TRANSFER_FULL_LOAD                                    :{SPACE}(Transfer and wait for full load)
 STR_ORDER_TRANSFER_FULL_LOAD_ANY                                :{SPACE}(Transfer and wait for any full load)
@@ -4837,9 +4851,9 @@ STR_ORDER_NO_UNLOAD_NO_LOAD                                     :{SPACE}(No unlo
 STR_ORDER_AUTO_REFIT                                            :{SPACE}(Refit to {STRING})
 STR_ORDER_FULL_LOAD_REFIT                                       :{SPACE}(Full load with refit to {STRING})
 STR_ORDER_FULL_LOAD_ANY_REFIT                                   :{SPACE}(Full load any cargo with refit to {STRING})
-STR_ORDER_UNLOAD_REFIT                                          :{SPACE}(Unload and take cargo with refit to {STRING})
-STR_ORDER_UNLOAD_FULL_LOAD_REFIT                                :{SPACE}(Unload and wait for full load with refit to {STRING})
-STR_ORDER_UNLOAD_FULL_LOAD_ANY_REFIT                            :{SPACE}(Unload and wait for any full load with refit to {STRING})
+STR_ORDER_UNLOAD_REFIT                                          :{SPACE}(Force unload and take cargo with refit to {STRING})
+STR_ORDER_UNLOAD_FULL_LOAD_REFIT                                :{SPACE}(Force unload and wait for full load with refit to {STRING})
+STR_ORDER_UNLOAD_FULL_LOAD_ANY_REFIT                            :{SPACE}(Force unload and wait for any full load with refit to {STRING})
 STR_ORDER_TRANSFER_REFIT                                        :{SPACE}(Transfer and take cargo with refit to {STRING})
 STR_ORDER_TRANSFER_FULL_LOAD_REFIT                              :{SPACE}(Transfer and wait for full load with refit to {STRING})
 STR_ORDER_TRANSFER_FULL_LOAD_ANY_REFIT                          :{SPACE}(Transfer and wait for any full load with refit to {STRING})
@@ -5058,6 +5072,11 @@ STR_ERROR_AUTOSAVE_FAILED                                       :Autosave failed
 STR_ERROR_UNABLE_TO_READ_DRIVE                                  :{BLACK}Unable to read drive
 STR_ERROR_GAME_SAVE_FAILED                                      :Game save failed...
 STR_ERROR_UNABLE_TO_DELETE_FILE                                 :Unable to delete file
+STR_ERROR_CANNOT_CREATE_DIRECTORY                               :Cannot create folder...
+STR_ERROR_DIRECTORY_NAME_IN_USE                                 :A file or folder with that name already exists
+STR_ERROR_DIRECTORY_ILLEGAL_NAME                                :Folder name cannot contain special characters
+STR_ERROR_DIRECTORY_LEADING_DOT                                 :Folder name cannot start with a period
+STR_ERROR_DIRECTORY_PERMISSION_DENIED                           :You do not have permission to create a folder here
 STR_ERROR_GAME_LOAD_FAILED                                      :Game load failed...
 STR_GAME_SAVELOAD_ERROR_BROKEN_INTERNAL_ERROR                   :Internal error: {STRING}
 STR_GAME_SAVELOAD_ERROR_BROKEN_SAVEGAME                         :Broken savegame - {STRING}
@@ -5360,6 +5379,10 @@ STR_ERROR_BRIDGE_TOO_LOW_FOR_BUOY                               :bridge is {HEIG
 STR_ERROR_BRIDGE_TOO_LOW_FOR_RAIL_WAYPOINT                      :bridge is {HEIGHT} too low for rail waypoint
 STR_ERROR_BRIDGE_TOO_LOW_FOR_ROAD_WAYPOINT                      :bridge is {HEIGHT} too low for road waypoint
 STR_ERROR_BRIDGE_TOO_LOW_FOR_LOCK                               :bridge is {HEIGHT} too low for lock
+STR_ERROR_BRIDGE_TOO_LOW_FOR_TRAIN_DEPOT                        :bridge is {HEIGHT} too low for train depot
+STR_ERROR_BRIDGE_TOO_LOW_FOR_ROADVEH_DEPOT                      :bridge is {HEIGHT} too low for road vehicle depot
+STR_ERROR_BRIDGE_TOO_LOW_FOR_SHIP_DEPOT                         :bridge is {HEIGHT} too low for ship depot
+STR_ERROR_BRIDGE_TOO_LOW_FOR_OBJECT                             :bridge is {HEIGHT} too low for object
 
 # Tunnel related errors
 STR_ERROR_CAN_T_BUILD_TUNNEL_HERE                               :Can't build tunnel here...

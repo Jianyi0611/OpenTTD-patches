@@ -38,111 +38,111 @@ static std::vector<SaveLoad> GetSettingsDesc(bool is_loading)
 		if (is_loading && !SlXvIsFeaturePresent(XSLFI_TABLE_PATS) && sd->flags.Test(SettingFlag::Patch)) continue;
 		if (!sd->save.ext_feature_test.IsFeaturePresent(_sl_version, sd->save.version_from, sd->save.version_to)) continue;
 
-		VarType new_type = 0;
-		switch (sd->save.conv & 0x0F) {
+		VarType new_type{};
+		switch (sd->save.conv.file) {
 			case ::SLE_FILE_I8:
-				new_type |= SLE_FILE_I8;
+				new_type.file = VarFileType::I8;
 				break;
 			case ::SLE_FILE_U8:
-				new_type |= SLE_FILE_U8;
+				new_type.file = VarFileType::U8;
 				break;
 			case ::SLE_FILE_I16:
-				new_type |= SLE_FILE_I16;
+				new_type.file = VarFileType::I16;
 				break;
 			case ::SLE_FILE_U16:
-				new_type |= SLE_FILE_U16;
+				new_type.file = VarFileType::U16;
 				break;
 			case ::SLE_FILE_I32:
-				new_type |= SLE_FILE_I32;
+				new_type.file = VarFileType::I32;
 				break;
 			case ::SLE_FILE_U32:
-				new_type |= SLE_FILE_U32;
+				new_type.file = VarFileType::U32;
 				break;
 			case ::SLE_FILE_I64:
-				new_type |= SLE_FILE_I64;
+				new_type.file = VarFileType::I64;
 				break;
 			case ::SLE_FILE_U64:
-				new_type |= SLE_FILE_U64;
+				new_type.file = VarFileType::U64;
 				break;
 			case ::SLE_FILE_STRINGID:
-				new_type |= SLE_FILE_STRINGID;
+				new_type.file = VarFileType::StringID;
 				break;
 			case ::SLE_FILE_STRING:
-				new_type |= SLE_FILE_STRING;
+				new_type.file = VarFileType::String;
 				break;
 			default:
-				FatalError("Unexpected save conv for {}: 0x{:02X}", sd->name, sd->save.conv);
+				FatalError("Unexpected save conv for {}: file: 0x{:02X}", sd->name, sd->save.conv.file);
 		}
-		switch (sd->save.conv & 0xF0) {
+		switch (sd->save.conv.mem) {
 			case ::SLE_VAR_BL:
-				new_type |= SLE_VAR_BL;
+				new_type.mem = VarMemType::Bool;
 				break;
 			case ::SLE_VAR_I8:
-				new_type |= SLE_VAR_I8;
+				new_type.mem = VarMemType::I8;
 				break;
 			case ::SLE_VAR_U8:
-				new_type |= SLE_VAR_U8;
+				new_type.mem = VarMemType::U8;
 				break;
 			case ::SLE_VAR_I16:
-				new_type |= SLE_VAR_I16;
+				new_type.mem = VarMemType::I16;
 				break;
 			case ::SLE_VAR_U16:
-				new_type |= SLE_VAR_U16;
+				new_type.mem = VarMemType::U16;
 				break;
 			case ::SLE_VAR_I32:
-				new_type |= SLE_VAR_I32;
+				new_type.mem = VarMemType::I32;
 				break;
 			case ::SLE_VAR_U32:
-				new_type |= SLE_VAR_U32;
+				new_type.mem = VarMemType::U32;
 				break;
 			case ::SLE_VAR_I64:
-				new_type |= SLE_VAR_I64;
+				new_type.mem = VarMemType::I64;
 				break;
 			case ::SLE_VAR_U64:
-				new_type |= SLE_VAR_U64;
+				new_type.mem = VarMemType::U64;
 				break;
 			case ::SLE_VAR_NULL:
-				new_type |= SLE_VAR_NULL;
+				new_type.mem = VarMemType::Null;
 				break;
 			case ::SLE_VAR_STR:
-				new_type |= SLE_VAR_STR;
+				new_type.mem = VarMemType::Str;
 				break;
 			case ::SLE_VAR_STRQ:
-				new_type |= SLE_VAR_STRQ;
+				new_type.mem = VarMemType::StrQ;
 				break;
 			default:
-				FatalError("Unexpected save conv for {}: 0x{:02X}", sd->name, sd->save.conv);
+				FatalError("Unexpected save conv for {}: mem: 0x{:02X}", sd->name, sd->save.conv.mem);
 		}
 
 		/* economy.town_growth_rate is int8_t here, but uint8_t in upstream saves */
 		if (is_loading && !SlXvIsFeaturePresent(XSLFI_TABLE_PATS) && strcmp(sd->name, "economy.town_growth_rate") == 0) {
-			SB(new_type, 0, 4, SLE_FILE_U8);
+			new_type.file = VarFileType::U8;
 		}
 
 		SaveLoadType new_cmd;
 		switch (sd->save.cmd) {
 			case ::SL_VAR:
-				new_cmd = SL_VAR;
+				new_cmd = SaveLoadType::Variable;
 				break;
 			case ::SL_STR:
-				new_cmd = SL_STR;
+				new_cmd = SaveLoadType::StringPtr;
 				break;
 			case ::SL_STDSTR:
-				new_cmd = SL_STDSTR;
+				new_cmd = SaveLoadType::StdString;
 				break;
 			default:
 				FatalError("Unexpected save cmd for {}: {}", sd->name, sd->save.cmd);
 		}
 
 		if (is_loading && sd->flags.Test(SettingFlag::NoNetworkSync) && _networking && !_network_server) {
-			if (IsSavegameVersionBefore(SLV_TABLE_CHUNKS)) {
+			if (IsSavegameVersionBefore(SaveLoadVersion::TableChunks)) {
 				/* We don't want to read this setting, so we do need to skip over it. */
-				saveloads.push_back({sd->name, new_cmd, static_cast<VarType>(GetVarFileType(new_type) | SLE_VAR_NULL), sd->save.length, SL_MIN_VERSION, SL_MAX_VERSION, { .address = nullptr }, nullptr});
+				saveloads.push_back({sd->name, new_cmd, SaveLoadFlags{}, new_type.file | VarMemType::Null, sd->save.length, SaveLoadVersion::MinVersion, SaveLoadVersion::MaxVersion, { .address = nullptr }, nullptr});
 			}
 			continue;
 		}
 
-		saveloads.push_back({sd->name, new_cmd, new_type, sd->save.length, SL_MIN_VERSION, SL_MAX_VERSION, { .offset = sd->save.offset }, nullptr});
+		saveloads.push_back({sd->name, new_cmd, SaveLoadFlags{}, new_type, sd->save.length, SaveLoadVersion::MinVersion, SaveLoadVersion::MaxVersion, { .offset = sd->save.offset }, nullptr});
 	}
 
 	return saveloads;
@@ -159,9 +159,9 @@ static void LoadSettings(void *object, const SaveLoadCompatTable &slct)
 {
 	const std::vector<SaveLoad> slt = SlCompatTableHeader(GetSettingsDesc(true), slct);
 
-	if (!IsSavegameVersionBefore(SLV_RIFF_TO_ARRAY) && SlIterateArray() == -1) return;
+	if (!IsSavegameVersionBefore(SaveLoadVersion::RiffToArray) && SlIterateArray() == -1) return;
 	SlObject(object, slt);
-	if (!IsSavegameVersionBefore(SLV_RIFF_TO_ARRAY) && SlIterateArray() != -1) SlErrorCorrupt("Too many settings entries");
+	if (!IsSavegameVersionBefore(SaveLoadVersion::RiffToArray) && SlIterateArray() != -1) SlErrorCorrupt("Too many settings entries");
 
 	/* Ensure all IntSettings are valid (min/max could have changed between versions etc). */
 	for (const SettingDesc *sd : IterateSettingTables(GetSaveLoadSettingsTables())) {
@@ -193,7 +193,7 @@ static void SaveSettings(void *object)
 }
 
 struct PATSChunkHandler : ChunkHandler {
-	PATSChunkHandler() : ChunkHandler('PATS', CH_TABLE) {}
+	PATSChunkHandler() : ChunkHandler("PATS", ChunkType::Table) {}
 
 	void Load() const override
 	{

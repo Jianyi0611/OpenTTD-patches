@@ -382,6 +382,7 @@ add_files(
     newgrf_town.h
     newgrf_townname.cpp
     newgrf_townname.h
+    newgrf_type.h
     news_cmd.h
     news_func.h
     news_gui.cpp
@@ -472,6 +473,8 @@ add_files(
     schdispatch.h
     schdispatch_cmd.cpp
     schdispatch_gui.cpp
+    screensaver.cpp
+    screensaver.h
     screenshot_bmp.cpp
     screenshot_gui.cpp
     screenshot_gui.h
@@ -511,6 +514,7 @@ add_files(
     signs_type.h
     slider.cpp
     slider_func.h
+    slope_constants.h
     slope_func.h
     slope_type.h
     smallmap_colours.h
@@ -531,6 +535,7 @@ add_files(
     source_type.h
     sprite.cpp
     sprite.h
+    sprite_id_type.h
     spritecache.cpp
     spritecache.h
     station.cpp

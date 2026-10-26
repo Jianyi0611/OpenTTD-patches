@@ -24,6 +24,7 @@
 #include "sound/sound_driver.hpp"
 #include "video/video_driver.hpp"
 #include "sl/saveload.h"
+#include "sl/saveload_func.h"
 #include "screenshot.h"
 #include "screenshot_type.h"
 #include "gfx_func.h"
@@ -97,6 +98,17 @@
 #endif
 
 #include "safeguards.h"
+
+/**
+ * Did loading the savegame cause a crash? If so,
+ * were NewGRFs missing?
+ * @return when the saveload crashed due to missing NewGRFs.
+ */
+inline bool SaveloadCrashWithMissingNewGRFs()
+{
+	extern bool _saveload_crash_with_missing_newgrfs;
+	return _saveload_crash_with_missing_newgrfs;
+}
 
 /* static */ const char *CrashLog::message = nullptr;
 /* static */ bool CrashLog::have_crashed = false;
@@ -321,7 +333,7 @@ void CrashLog::LogConfiguration(format_target_ctrl &buffer) const
 	if (!_grfconfig_static.empty()) {
 		buffer.append("Static NewGRFs present:\n");
 		for (const auto &c : _grfconfig_static) {
-			buffer.format(" GRF ID: {:08X}, checksum {}, {}", std::byteswap(c->ident.grfid), c->ident.md5sum, c->GetDisplayPath());
+			buffer.format(" GRF ID: {}, checksum {}, {}", c->ident.grfid, c->ident.md5sum, c->GetDisplayPath());
 			const char *name = GetDefaultLangGRFStringFromGRFText(c->name);
 			if (name != nullptr) buffer.format(", '{}'", name);
 			buffer.push_back('\n');
@@ -412,7 +424,7 @@ void CrashLog::LogLibraries(format_target_ctrl &buffer) const
 #endif
 #if !(defined(_WIN32) || defined(__APPLE__))
 	const char *sdl_im_module = getenv("SDL_IM_MODULE");
-	if (sdl_im_module != nullptr) buffer.append(" (SDL_IM_MODULE={})", sdl_im_module);
+	if (sdl_im_module != nullptr) buffer.format(" (SDL_IM_MODULE={})", sdl_im_module);
 	const char *xmod = getenv("XMODIFIERS");
 	if (xmod != nullptr && strstr(xmod, "@im=fcitx") != nullptr) buffer.append(" (XMODIFIERS has @im=fcitx)");
 #endif

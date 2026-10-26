@@ -139,7 +139,12 @@ char *stredup(const char *s, const char *last)
 std::string FormatArrayAsHex(std::span<const uint8_t> data, bool upper_case)
 {
 	format_buffer buf;
+	FormatArrayAsHex(buf, data, upper_case);
+	return buf.to_string();
+}
 
+void FormatArrayAsHex(format_target &buf, std::span<const uint8_t> data, bool upper_case)
+{
 	for (uint i = 0; i < data.size(); ++i) {
 		if (upper_case) {
 			buf.format("{:02X}", data[i]);
@@ -147,8 +152,6 @@ std::string FormatArrayAsHex(std::span<const uint8_t> data, bool upper_case)
 			buf.format("{:02x}", data[i]);
 		}
 	}
-
-	return buf.to_string();
 }
 
 /**

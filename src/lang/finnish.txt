@@ -538,6 +538,7 @@ STR_NEWS_MENU_DELETE_ALL_MESSAGES                               :Poista kaikki v
 # About menu
 STR_ABOUT_MENU_LAND_BLOCK_INFO                                  :Maa-alueen tiedot
 STR_ABOUT_MENU_HELP                                             :Ohjeet ja oppaat
+STR_ABOUT_MENU_ENTER_SCREENSAVER_MODE                           :Näytönsäästäjätila päälle/pois
 STR_ABOUT_MENU_TOGGLE_CONSOLE                                   :Konsoli
 STR_ABOUT_MENU_AI_DEBUG                                         :Tekoälyn/peliskriptin virheenjäljitys
 STR_ABOUT_MENU_SCREENSHOT                                       :Kuvakaappaus
@@ -631,7 +632,6 @@ STR_GRAPH_LAST_24_MONTHS                                        :{TINY_FONT}{BLA
 STR_GRAPH_LAST_24_QUARTERS                                      :{TINY_FONT}{BLACK}6 vuotta (neljännesvuosittain)
 STR_GRAPH_LAST_24_YEARS                                         :{TINY_FONT}{BLACK}24 vuotta (vuosittain)
 
-STR_GRAPH_TOGGLE_RANGE                                          :Valitse, näytetäänkö tämän osion kuvaaja
 STR_GRAPH_SELECT_SCALE                                          :Muuta kuvaajan vaaka-asteikkoa
 
 STR_GRAPH_CARGO_PAYMENT_RATES_CAPTION                           :{WHITE}Rahtitaksat
@@ -647,14 +647,21 @@ STR_GRAPH_CARGO_PAYMENT_CARGO                                   :{TINY_FONT}{BLA
 
 STR_GRAPH_INDUSTRY_CAPTION                                      :{WHITE}{INDUSTRY} – rahtihistoria
 STR_GRAPH_INDUSTRY_RANGE_PRODUCED                               :Tuotettu
+STR_GRAPH_INDUSTRY_RANGE_PRODUCED_TOOLTIP                       :Valitse, näytetäänkö tämän laitoksen tuottaman rahdin kuvaaja
 STR_GRAPH_INDUSTRY_RANGE_TRANSPORTED                            :Kuljetettu
+STR_GRAPH_INDUSTRY_RANGE_TRANSPORTED_TOOLTIP                    :Valitse, näytetäänkö tältä laitokselta kuljetetun rahdin kuvaaja
 STR_GRAPH_INDUSTRY_RANGE_DELIVERED                              :Toimitettu
+STR_GRAPH_INDUSTRY_RANGE_DELIVERED_TOOLTIP                      :Valitse, näytetäänkö tälle laitokselle toimitetun rahdin kuvaaja
 STR_GRAPH_INDUSTRY_RANGE_WAITING                                :Odottava
+STR_GRAPH_INDUSTRY_RANGE_WAITING_TOOLTIP                        :Valitse, näytetäänkö tällä laitoksella odottavan rahdin kuvaaja
 
 STR_GRAPH_TOWN_CARGO_CAPTION                                    :{WHITE}{TOWN} – rahtihistoria
 STR_GRAPH_TOWN_RANGE_PRODUCED                                   :Tuotettu
+STR_GRAPH_TOWN_RANGE_PRODUCED_TOOLTIP                           :Valitse, näytetäänkö tämän kunnan tuottaman rahdin kuvaaja
 STR_GRAPH_TOWN_RANGE_TRANSPORTED                                :Kuljetettu
+STR_GRAPH_TOWN_RANGE_TRANSPORTED_TOOLTIP                        :Valitse, näytetäänkö tästä kunnasta kuljetetun rahdin kuvaaja
 STR_GRAPH_TOWN_RANGE_DELIVERED                                  :Toimitettu
+STR_GRAPH_TOWN_RANGE_DELIVERED_TOOLTIP                          :Valitse, näytetäänkö tähän kuntaan toimitetun rahdin kuvaaja
 
 STR_GRAPH_PERFORMANCE_DETAIL_TOOLTIP                            :{BLACK}Näytä tarkat suorituskykyarviot
 
@@ -1210,9 +1217,9 @@ STR_RIVERS_MODERATE                                             :Keskisuuri
 STR_RIVERS_LOT                                                  :Monia
 
 ###length 3
-STR_DISASTER_NONE                                               :Ei mitään
-STR_DISASTER_REDUCED                                            :Vähennetty
-STR_DISASTER_NORMAL                                             :Tavallinen
+STR_BREAKDOWNS_NONE                                             :Ei mitään
+STR_BREAKDOWNS_REDUCED                                          :Vähennetty
+STR_BREAKDOWNS_NORMAL                                           :Tavallinen
 
 ###length 4
 STR_SUBSIDY_X1_5                                                :× 1,5
@@ -1659,12 +1666,12 @@ STR_CONFIG_SETTING_TREE_PLACER_NONE                             :Ei mitään
 STR_CONFIG_SETTING_TREE_PLACER_ORIGINAL                         :Alkuperäinen
 STR_CONFIG_SETTING_TREE_PLACER_IMPROVED                         :Parannettu
 
-STR_CONFIG_SETTING_ROAD_SIDE                                    :Ajoneuvot: {STRING}
-STR_CONFIG_SETTING_ROAD_SIDE_HELPTEXT                           :Valitse ajokaista
+STR_CONFIG_SETTING_ROAD_SIDE                                    :Ajoneuvoliikenteen ajopuoli: {STRING}
+STR_CONFIG_SETTING_ROAD_SIDE_HELPTEXT                           :Valitse, kummalla puolella tietä ajoneuvot kulkevat.{}Tämä voi myös vaikuttaa siihen, kummalle puolelle rataa opastimet sijoittuvat, sekä siipiopastimien grafiikkaan.{}Saatat joutua lataamaan pelin uudestaan, jotta muutos toteutuisi kokonaan
 
 ###length 2
-STR_CONFIG_SETTING_ROAD_SIDE_LEFT                               :Vasemmanpuolinen liikenne
-STR_CONFIG_SETTING_ROAD_SIDE_RIGHT                              :Oikeanpuolinen liikenne
+STR_CONFIG_SETTING_ROAD_SIDE_LEFT                               :Vasemmalla
+STR_CONFIG_SETTING_ROAD_SIDE_RIGHT                              :Oikealla
 
 STR_CONFIG_SETTING_HEIGHTMAP_ROTATION                           :Korkeuskartan pyöritys:{STRING}
 STR_CONFIG_SETTING_HEIGHTMAP_ROTATION_TOOLTIP                   :Valitse, mihin suuntaan korkeuskartan kuvaa kierretään pelimaailmaan sopiakseen
@@ -2887,22 +2894,22 @@ STR_PICKER_COLLECTION_DELETE_QUERY                              :Poista kokoelma
 STR_PICKER_COLLECTION_DELETE_QUERY_TEXT                         :{YELLOW}Haluatko varmasti poistaa tämän kokoelman?
 STR_PICKER_COLLECTION_DELETE_QUERY_DISABLED_TEXT                :{YELLOW}Haluatko varmasti poistaa tämän kokoelman? Se sisältää kohteita käytöstä poistetuista NewGRF:istä!
 
-STR_PICKER_STATION_CLASS_TOOLTIP                                :Valitse näytettävä asemien luokka
+STR_PICKER_STATION_CLASS_TOOLTIP                                :Valitse näytettävä asemien luokka. Ctrl+napsautus lisää tallennettuihin tai poistaa tallennetuista
 STR_PICKER_STATION_TYPE_TOOLTIP                                 :Valitse rakennettavan aseman tyyppi. Ctrl+napsautus lisää tallennettuihin tai poistaa tallennetuista
 STR_PICKER_STATION_COLLECTION_TOOLTIP                           :Valitse näytettävä asemakokoelma
-STR_PICKER_WAYPOINT_CLASS_TOOLTIP                               :Valitse näytettävä reittipisteiden luokka
+STR_PICKER_WAYPOINT_CLASS_TOOLTIP                               :Valitse näytettävä reittipisteiden luokka. Ctrl+napsautus lisää tallennettuihin tai poistaa tallennetuista
 STR_PICKER_WAYPOINT_TYPE_TOOLTIP                                :Valitse rakennettava reittipiste. Ctrl+napsautus lisää tallennettuihin tai poistaa tallennetuista
 STR_PICKER_WAYPOINT_COLLECTION_TOOLTIP                          :Valitse näytettävä reittipistekokoelma
-STR_PICKER_ROADSTOP_BUS_CLASS_TOOLTIP                           :Valitse näytettävä linja-autopysäkkien luokka
+STR_PICKER_ROADSTOP_BUS_CLASS_TOOLTIP                           :Valitse näytettävä linja-autopysäkkien luokka. Ctrl+napsautus lisää tallennettuihin tai poistaa tallennetuista
 STR_PICKER_ROADSTOP_BUS_TYPE_TOOLTIP                            :Valitse rakennettavan linja-autopysäkin tyyppi. Ctrl+napsautus lisää tallennettuihin tai poistaa tallennetuista
 STR_PICKER_ROADSTOP_BUS_COLLECTION_TOOLTIP                      :Valitse näytettävä linja-autoasemakokoelma
-STR_PICKER_ROADSTOP_TRUCK_CLASS_TOOLTIP                         :Valitse näytettävä lastauslaitureiden luokka
+STR_PICKER_ROADSTOP_TRUCK_CLASS_TOOLTIP                         :Valitse näytettävä lastauslaitureiden luokka. Ctrl+napsautus lisää tallennettuihin tai poistaa tallennetuista
 STR_PICKER_ROADSTOP_TRUCK_TYPE_TOOLTIP                          :Valitse rakennettavan lastauslaiturin tyyppi. Ctrl+napsautus lisää tallennettuihin tai poistaa tallennetuista
 STR_PICKER_ROADSTOP_TRUCK_COLLECTION_TOOLTIP                    :Valitse näytettävä lastauslaiturikokoelma
-STR_PICKER_OBJECT_CLASS_TOOLTIP                                 :Valitse näytettävä objektien luokka
+STR_PICKER_OBJECT_CLASS_TOOLTIP                                 :Valitse näytettävä objektien luokka. Ctrl+napsautus lisää tallennettuihin tai poistaa tallennetuista
 STR_PICKER_OBJECT_TYPE_TOOLTIP                                  :Valitse rakennettavan objektin tyyppi. Ctrl+napsautus lisää tallennettuihin tai poistaa tallennetuista. Ctrl+napsautus+veto valitsee alueen vinottain. Paina lisäksi vaihtonäppäintä nähdäksesi vain kustannusarvion
 STR_PICKER_OBJECT_COLLECTION_TOOLTIP                            :Valitse näytettävä objektikokoelma
-STR_PICKER_HOUSE_CLASS_TOOLTIP                                  :Valitse näytettävä kunnan vyöhyke
+STR_PICKER_HOUSE_CLASS_TOOLTIP                                  :Valitse näytettävä kunnan vyöhyke. Ctrl+napsautus lisää tallennettuihin tai poistaa tallennetuista
 STR_PICKER_HOUSE_TYPE_TOOLTIP                                   :Valitse rakennettavan talon tyyppi. Ctrl+napsautus lisää tallennettuihin tai poistaa tallennetuista
 STR_PICKER_HOUSE_COLLECTION_TOOLTIP                             :Valitse näytettävä talokokoelma
 
@@ -3002,7 +3009,7 @@ STR_ROAD_NAME_TRAM                                              :Raitiotie
 
 # Road depot construction window
 STR_BUILD_DEPOT_ROAD_ORIENTATION_CAPTION                        :{WHITE}Autovarikon suunta
-STR_BUILD_DEPOT_ROAD_ORIENTATION_SELECT_TOOLTIP                 :{BLACK}Valitse autovarikon suunta
+STR_BUILD_DEPOT_ROAD_ORIENTATION_SELECT_TOOLTIP                 :{BLACK}Valitse ajoneuvovarikon suunta
 STR_BUILD_DEPOT_TRAM_ORIENTATION_CAPTION                        :{WHITE}Raitiotievarikon suunta
 STR_BUILD_DEPOT_TRAM_ORIENTATION_SELECT_TOOLTIP                 :{BLACK}Valitse raitiotievarikon suunta
 
@@ -3094,6 +3101,7 @@ STR_TREES_MODE_FOREST_LG_TOOLTIP                                :{BLACK}Istuta i
 # Land generation window (SE)
 STR_TERRAFORM_TOOLBAR_LAND_GENERATION_CAPTION                   :{WHITE}Maanrakennus
 STR_TERRAFORM_TOOLTIP_PLACE_ROCKY_AREAS_ON_LANDSCAPE            :{BLACK}Sijoita kallioisia alueita maastoon.{}Ctrl+napsautus poistaa kallioisia alueita
+STR_TERRAFORM_TOOLTIP_PLACE_ROUGH_AREAS_ON_LANDSCAPE            :{BLACK}Sijoita epätasaisia alueita maastoon.{}Ctrl+napsautus poistaa epätasaisia alueita
 STR_TERRAFORM_TOOLTIP_DEFINE_DESERT_AREA                        :{BLACK}Määrittele aavikkoalue.{}Ctrl+napsautus poistaa aavikkoalueen.
 STR_TERRAFORM_TOOLTIP_INCREASE_SIZE_OF_LAND_AREA                :{BLACK}Suurenna madallettavan/korotettavan maa-alueen kokoa
 STR_TERRAFORM_TOOLTIP_DECREASE_SIZE_OF_LAND_AREA                :{BLACK}Pienennä madallettavan/korotettavan maa-alueen kokoa
@@ -3279,6 +3287,8 @@ STR_LAI_WATER_DESCRIPTION_LOCK                                  :Sulku
 STR_LAI_WATER_DESCRIPTION_RIVER                                 :Joki
 STR_LAI_WATER_DESCRIPTION_COAST_OR_RIVERBANK                    :Rannikko tai joentörmä
 STR_LAI_WATER_DESCRIPTION_SHIP_DEPOT                            :Telakka
+STR_LAI_WATER_DESCRIPTION_WATER_ROCKS                           :Kivikkoa
+STR_LAI_WATER_DESCRIPTION_COAST_ROCKS                           :Kivinen rannikko tai törmä
 
 # Industries come directly from their industry names
 
@@ -3380,7 +3390,7 @@ STR_SAVELOAD_LOAD_SCENARIO                                      :{WHITE}Lataa sk
 STR_SAVELOAD_LOAD_HEIGHTMAP                                     :{WHITE}Lataa korkeuskartta
 STR_SAVELOAD_SAVE_HEIGHTMAP                                     :{WHITE}Tallenna korkeuskartta
 STR_SAVELOAD_LOAD_TOWN_DATA                                     :{WHITE}Lataa kuntatietoja
-STR_SAVELOAD_HOME_BUTTON_TOOLTIP                                :{BLACK}Siirry tallennusten oletuskansioon napsauttamalla tätä
+STR_SAVELOAD_HOME_BUTTON_TOOLTIP                                :{BLACK}Siirry tallennusten oletushakemistoon napsauttamalla tätä
 STR_SAVELOAD_BYTES_FREE                                         :{BLACK}{BYTES} vapaana
 STR_SAVELOAD_LIST_TOOLTIP                                       :{BLACK}Lista asemista, hakemistoista ja tallennetuista peleistä
 STR_SAVELOAD_EDITBOX_TOOLTIP                                    :{BLACK}Valittu nimi pelitallenteelle
@@ -3392,6 +3402,9 @@ STR_SAVELOAD_LOAD_BUTTON                                        :{BLACK}Lataa
 STR_SAVELOAD_LOAD_TOOLTIP                                       :{BLACK}Lataa valittu peli
 STR_SAVELOAD_LOAD_HEIGHTMAP_TOOLTIP                             :{BLACK}Lataa valittu korkeuskartta
 STR_SAVELOAD_LOAD_TOWN_DATA_TOOLTIP                             :{BLACK}Lataa valitut kuntatiedot
+STR_SAVELOAD_NEW_DIRECTORY_BUTTON                               :{BLACK}Uusi hakemisto
+STR_SAVELOAD_NEW_DIRECTORY_TOOLTIP                              :{BLACK}Luo uusi hakemisto nykyiseen sijaintiin
+STR_SAVELOAD_NEW_DIRECTORY_QUERY_CAPTION                        :{WHITE}Anna nimi uudelle hakemistolle
 STR_SAVELOAD_DETAIL_CAPTION                                     :{BLACK}Tietoja pelistä
 STR_SAVELOAD_DETAIL_NOT_AVAILABLE                               :{BLACK}Tietoja ei ole saatavilla
 STR_SAVELOAD_DETAIL_COMPANY_INDEX                               :{SILVER}{COMMA}: {WHITE}{STRING}
@@ -3835,6 +3848,7 @@ STR_GOALS_PROGRESS_COMPLETE                                     :{GREEN}{STRING}
 STR_GOALS_TOOLTIP_CLICK_ON_SERVICE_TO_CENTER                    :{BLACK}Keskitä päänäkymä laitokseen/kuntaan/ruutuun napsauttamalla tavoitetta. Ctrl+napsautus avaa uuden näkymäikkunan laitoksen/kunnan/ruudun sijaintiin
 
 # Goal question window
+###length 4
 STR_GOAL_QUESTION_CAPTION_QUESTION                              :{BLACK}Kysymys
 STR_GOAL_QUESTION_CAPTION_INFORMATION                           :{BLACK}Tietoa
 STR_GOAL_QUESTION_CAPTION_WARNING                               :{BLACK}Varoitus
@@ -4716,9 +4730,9 @@ STR_ORDER_DROP_FULL_LOAD_ANY                                    :Lastaa täyteen
 STR_ORDER_DROP_NO_LOADING                                       :Älä lastaa rahtia
 STR_ORDER_TOOLTIP_FULL_LOAD                                     :{BLACK}Muuta korostetun käskyn lastauskäyttäytymistä
 
-STR_ORDER_TOGGLE_UNLOAD                                         :{BLACK}Pura koko lasti
+STR_ORDER_TOGGLE_UNLOAD                                         :{BLACK}Pakota koko lastin purku
 STR_ORDER_DROP_UNLOAD_IF_ACCEPTED                               :Pura lasti, jos asema hyväksyy sitä
-STR_ORDER_DROP_UNLOAD                                           :Pura kaikki
+STR_ORDER_DROP_UNLOAD                                           :Pakota lastin purku, vaikka sitä ei hyväksyttäisi
 STR_ORDER_DROP_TRANSFER                                         :Siirrä
 STR_ORDER_DROP_NO_UNLOADING                                     :Ei rahdinpurkua
 STR_ORDER_TOOLTIP_UNLOAD                                        :{BLACK}Muuta korostetun käskyn purkamiskäyttäytymistä
@@ -4821,15 +4835,15 @@ STR_ORDER_IMPLICIT                                              :{SPACE}(Implisi
 STR_ORDER_FULL_LOAD                                             :{SPACE}(Lastaa täyteen)
 STR_ORDER_FULL_LOAD_ANY                                         :{SPACE}(Lastaa täyteen mitä tahansa rahtia)
 STR_ORDER_NO_LOAD                                               :{SPACE}(Ei lastausta)
-STR_ORDER_UNLOAD                                                :{SPACE}(Pura lasti ja lastaa uusi rahti)
-STR_ORDER_UNLOAD_FULL_LOAD                                      :{SPACE}(Pura lasti ja odota uuden lastin täyttymistä)
-STR_ORDER_UNLOAD_FULL_LOAD_ANY                                  :{SPACE}(Pura ja odota minkä tahansa rahdin täyttymistä)
-STR_ORDER_UNLOAD_NO_LOAD                                        :{SPACE}(Pura ja lähde tyhjänä)
+STR_ORDER_UNLOAD                                                :{SPACE}(Pakota lastin purku ja lastaa uusi rahti)
+STR_ORDER_UNLOAD_FULL_LOAD                                      :{SPACE}(Pakota lastin purku ja odota täyttä lastia)
+STR_ORDER_UNLOAD_FULL_LOAD_ANY                                  :{SPACE}(Pakota lastin purku ja odota mitä tahansa täyttä lastia)
+STR_ORDER_UNLOAD_NO_LOAD                                        :{SPACE}(Pakota lastin purku ja lähde tyhjänä)
 STR_ORDER_TRANSFER                                              :{SPACE}(Siirrä ja lastaa rahti)
 STR_ORDER_TRANSFER_FULL_LOAD                                    :{SPACE}(Siirrä ja odota uuden lastin täyttymistä)
 STR_ORDER_TRANSFER_FULL_LOAD_ANY                                :{SPACE}(Siirrä ja odota minkä tahansa lastin täyttymistä)
 STR_ORDER_TRANSFER_NO_LOAD                                      :{SPACE}(Siirrä rahti ja jätä tyhjäksi)
-STR_ORDER_NO_UNLOAD                                             :{SPACE}(Ei purkua mutta lastaa rahti)
+STR_ORDER_NO_UNLOAD                                             :{SPACE}(Ei purkua, ota lasti)
 STR_ORDER_NO_UNLOAD_FULL_LOAD                                   :{SPACE}(Ei lastin purkua, odota uuden lastin täyttymistä)
 STR_ORDER_NO_UNLOAD_FULL_LOAD_ANY                               :{SPACE}(Ei lastin purkua, odota minkä tahansa lastin täyttymistä)
 STR_ORDER_NO_UNLOAD_NO_LOAD                                     :{SPACE}(Ei purkua eikä lastausta)
@@ -4840,10 +4854,10 @@ STR_ORDER_FULL_LOAD_ANY_REFIT                                   :{SPACE}(Sovita 
 STR_ORDER_UNLOAD_REFIT                                          :{SPACE}(Pura lasti, sovita rahdille {STRING}, ota rahti)
 STR_ORDER_UNLOAD_FULL_LOAD_REFIT                                :{SPACE}(Pura lasti, sovita rahdille {STRING}, odota täyttä lastia)
 STR_ORDER_UNLOAD_FULL_LOAD_ANY_REFIT                            :{SPACE}(Pura lasti, sovita rahdille {STRING}, odota mitä tahansa täyttä lastia)
-STR_ORDER_TRANSFER_REFIT                                        :{SPACE}(Siirrä, sovita rahdille {STRING}, ota rahti)
+STR_ORDER_TRANSFER_REFIT                                        :{SPACE}(Siirrä, sovita rahdille {STRING}, ota lasti)
 STR_ORDER_TRANSFER_FULL_LOAD_REFIT                              :{SPACE}(Siirrä, sovita rahdille {STRING}, odota täyttä lastia)
 STR_ORDER_TRANSFER_FULL_LOAD_ANY_REFIT                          :{SPACE}(Siirrä, sovita rahdille {STRING}, odota mitä tahansa täyttä lastia)
-STR_ORDER_NO_UNLOAD_REFIT                                       :{SPACE}(Ei purkua, sovita rahdille {STRING}, ota rahti)
+STR_ORDER_NO_UNLOAD_REFIT                                       :{SPACE}(Ei purkua, sovita rahdille {STRING}, ota lasti)
 STR_ORDER_NO_UNLOAD_FULL_LOAD_REFIT                             :{SPACE}(Ei purkua, sovita rahdille {STRING}, odota täyttä lastia)
 STR_ORDER_NO_UNLOAD_FULL_LOAD_ANY_REFIT                         :{SPACE}(Ei purkua, sovita rahdille {STRING}, odota mitä tahansa täyttä lastia)
 
@@ -5058,6 +5072,11 @@ STR_ERROR_AUTOSAVE_FAILED                                       :Automaattitalle
 STR_ERROR_UNABLE_TO_READ_DRIVE                                  :{BLACK}Asemaa ei voi lukea.
 STR_ERROR_GAME_SAVE_FAILED                                      :Pelin tallennus epäonnistui…
 STR_ERROR_UNABLE_TO_DELETE_FILE                                 :Tiedostoa ei voi poistaa
+STR_ERROR_CANNOT_CREATE_DIRECTORY                               :Hakemistoa ei voi luoda…
+STR_ERROR_DIRECTORY_NAME_IN_USE                                 :Tämänniminen tiedosto tai hakemisto on jo olemassa
+STR_ERROR_DIRECTORY_ILLEGAL_NAME                                :Hakemiston nimi ei saa sisältää erikoismerkkejä
+STR_ERROR_DIRECTORY_LEADING_DOT                                 :Hakemiston nimi ei voi alkaa pisteellä
+STR_ERROR_DIRECTORY_PERMISSION_DENIED                           :Sinulla ei ole oikeutta luoda hakemistoa tähän
 STR_ERROR_GAME_LOAD_FAILED                                      :Pelin lataus epäonnistui…
 STR_GAME_SAVELOAD_ERROR_BROKEN_INTERNAL_ERROR                   :Sisäinen virhe: {STRING}
 STR_GAME_SAVELOAD_ERROR_BROKEN_SAVEGAME                         :Viallinen tallennus – {STRING}
@@ -5360,6 +5379,10 @@ STR_ERROR_BRIDGE_TOO_LOW_FOR_BUOY                               :silta on {HEIGH
 STR_ERROR_BRIDGE_TOO_LOW_FOR_RAIL_WAYPOINT                      :silta on {HEIGHT} liian matala rautatien reittipisteen ylle
 STR_ERROR_BRIDGE_TOO_LOW_FOR_ROAD_WAYPOINT                      :silta on {HEIGHT} liian matala tien reittipisteen ylle
 STR_ERROR_BRIDGE_TOO_LOW_FOR_LOCK                               :silta on {HEIGHT} liian matala sulun ylle
+STR_ERROR_BRIDGE_TOO_LOW_FOR_TRAIN_DEPOT                        :silta on {HEIGHT} liian matala junavarikon ylle
+STR_ERROR_BRIDGE_TOO_LOW_FOR_ROADVEH_DEPOT                      :silta on {HEIGHT} liian matala ajoneuvovarikon ylle
+STR_ERROR_BRIDGE_TOO_LOW_FOR_SHIP_DEPOT                         :silta on {HEIGHT} liian matala telakan ylle
+STR_ERROR_BRIDGE_TOO_LOW_FOR_OBJECT                             :silta on {HEIGHT} liian matala objektin ylle
 
 # Tunnel related errors
 STR_ERROR_CAN_T_BUILD_TUNNEL_HERE                               :Tähän ei voi rakentaa tunnelia…

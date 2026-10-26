@@ -13,8 +13,6 @@
 #include "newgrf_commons.h"
 #include "newgrf_spritegroup.h"
 #include "rail.h"
-#include "tunnel_map.h"
-#include "gfx_type.h"
 
 #include <vector>
 #include <array>
@@ -54,10 +52,10 @@ extern std::array<NewSignalStyle, MAX_NEW_SIGNAL_STYLES> _new_signal_styles;
 extern uint8_t _default_signal_style_lookahead_extra_aspects;
 
 struct NewSignalStyleMapping {
-	uint32_t grfid = 0;
+	GrfID grfid{};
 	uint8_t grf_local_id = 0;
 
-	inline bool operator==(const NewSignalStyleMapping& o) const { return grfid == o.grfid && grf_local_id == o.grf_local_id; }
+	inline bool operator==(const NewSignalStyleMapping &) const = default;
 };
 extern std::array<NewSignalStyleMapping, MAX_NEW_SIGNAL_STYLES> _new_signal_style_mapping;
 extern uint8_t _num_new_signal_styles;
@@ -95,10 +93,10 @@ struct NewSignalsResolverObject : public ResolverObject {
 	NewSignalsResolverObject(const GRFFile *grffile, TileIndex tile, TileContext context, uint32_t param1, uint32_t param2,
 			CustomSignalSpriteContext signal_context, uint8_t signal_style, const TraceRestrictProgram *prog = nullptr, uint z = 0);
 
-	ScopeResolver *GetScope(VarSpriteGroupScope scope = VSG_SCOPE_SELF, VarSpriteGroupScopeOffset relative = 0) override
+	ScopeResolver *GetScope(VarSpriteGroupScope scope = VarSpriteGroupScope::Self, VarSpriteGroupScopeOffset relative = 0) override
 	{
 		switch (scope) {
-			case VSG_SCOPE_SELF: return &this->newsignals_scope;
+			case VarSpriteGroupScope::Self: return &this->newsignals_scope;
 			default:             return ResolverObject::GetScope(scope, relative);
 		}
 	}

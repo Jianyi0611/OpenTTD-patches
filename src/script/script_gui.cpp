@@ -42,6 +42,9 @@
 #include "../game/game_info.hpp"
 #include "../game/game_instance.hpp"
 
+#include "../widgets/script_widget.h"
+#include "../widgets/misc_widget.h"
+
 #include "table/strings.h"
 
 #include "../safeguards.h"
@@ -915,7 +918,7 @@ struct ScriptDebugWindow : public Window {
 				if (colour == TextColour::Black) colour = TextColour::White; // Make black text readable by inverting it to white.
 			}
 
-			DrawString(fr, line.text, colour, SA_LEFT | SA_FORCE);
+			DrawString(fr, line.text, colour, AlignmentH::ForceLeft);
 			fr.top += this->resize.step_height;
 		}
 	}

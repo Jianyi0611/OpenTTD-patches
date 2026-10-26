@@ -25,9 +25,10 @@
 #include "base_consist.h"
 #include "newgrf_cache_check.h"
 #include "landscape.h"
+#include "newgrf_type.h"
 #include "network/network.h"
 #include "core/alignment.hpp"
-#include "sl/saveload_common.h"
+#include "sl/saveload_common_type.h"
 #include <array>
 #include <vector>
 
@@ -574,7 +575,7 @@ public:
 	Direction GetMapImageDirection() const { return this->direction; }
 
 	const GRFFile *GetGRF() const;
-	uint32_t GetGRFID() const;
+	GrfID GetGRFID() const;
 
 	/**
 	 * Invalidates cached NewGRF variables
@@ -1081,7 +1082,15 @@ public:
 	{
 		if (this->cur_implicit_order_index == this->cur_real_order_index) {
 			/* Increment real order index as well */
-			this->SkipToNextRealOrderIndex();
+			bool executing_before = this->IsExecutingSchedule();
+			bool wrapped = this->SkipToNextRealOrderIndex();
+			if (wrapped && executing_before) {
+				/* The skip returned us from an executed schedule: both order
+				 * indexes already point at the order to resume with, so there
+				 * is nothing left to advance here. Advancing anyway would lap
+				 * the whole list and fake a second end-of-pass wrap. */
+				return;
+			}
 		}
 
 		assert(this->cur_real_order_index == 0 || this->cur_real_order_index < this->GetNumOrders());
@@ -1241,23 +1250,28 @@ public:
 	/**
 	 * Get the first part of an articulated engine.
 	 * @return First part of the engine.
+	 * @note An in-place reversed consist can have an articulated part as the
+	 * chain front; the front itself is returned then.
 	 */
 	inline Vehicle *GetFirstEnginePart()
 	{
 		Vehicle *v = this;
-		while (v->IsArticulatedPart()) v = v->Previous();
-		return v;
+		while (v != nullptr && v->IsArticulatedPart()) v = v->Previous();
+		return v != nullptr ? v : this;
 	}
 
 	/**
 	 * Get the first part of an articulated engine.
 	 * @return First part of the engine.
+	 * @note An in-place reversed consist can have an articulated part as the
+	 * chain front, in which case no base precedes it; the front itself is
+	 * returned then.
 	 */
 	inline const Vehicle *GetFirstEnginePart() const
 	{
 		const Vehicle *v = this;
-		while (v->IsArticulatedPart()) v = v->Previous();
-		return v;
+		while (v != nullptr && v->IsArticulatedPart()) v = v->Previous();
+		return v != nullptr ? v : this;
 	}
 
 	/**

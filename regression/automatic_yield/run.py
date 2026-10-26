@@ -89,6 +89,7 @@ def main():
     if not args.modes:
         modes += ["layout-new-first", "layout-new-second", "layout-new-third", "layout-new-platform", "far-multi-outlet", "far-near-wrong-outlet", "topology-merge2", "topology-merge3", "topology-merge3-signals", "topology-split", "topology-rejoin", "occupied-second", "occupied-third", "occupied-platform"]
         modes += ["mixed-p1o1-pass", "mixed-p1o1-stop", "mixed-p2o1-pass", "mixed-p2o1-stop", "mixed-p1o2-pass", "mixed-p1o2-stop", "mixed-p3o2-pass", "mixed-p3o2-stop", "mixed-p3o2-signals", "mixed-shared", "mixed-independent", "mixed-rejoin", "mixed-add", "mixed-full", "mixed-outlet-explicit", "mixed-outlet-conditional", "mixed-outlet-single-clear", "mixed-outlet-change", "mixed-outlet-blocked"]
+        modes += ["mixed-independent-stops"]
     for mode in modes:
         if mode.startswith("grf-") and mode not in {"grf-basic", "grf-two", "grf-200", "grf-160-250", "grf-consecutive"}:
             raise SystemExit("Unknown exact-speed scenario: " + mode)

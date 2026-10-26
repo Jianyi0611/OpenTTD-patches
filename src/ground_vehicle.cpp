@@ -117,6 +117,15 @@ void GroundVehicle<T, Type>::CargoChanged()
 	for (T *u = T::From(this); u != nullptr; u = u->Next()) {
 		uint32_t current_weight = u->GetCargoWeight();
 		if (u->IsArticulatedPart()) {
+			/* An in-place reversed consist has articulated parts before their
+			 * base in chain order, so locate the base instead of relying on
+			 * the stale articulated_weight of the previous engine. */
+			const Vehicle *base_veh = u->Previous();
+			while (base_veh != nullptr && base_veh->IsArticulatedPart()) base_veh = base_veh->Previous();
+			const T *base = (base_veh != nullptr) ? T::From(base_veh) : nullptr;
+			uint16_t engine_weight = (base != nullptr) ? base->GetWeightWithoutCargo() : 0;
+			uint part_count = (base != nullptr) ? base->GetEnginePartsCount() : 1;
+			articulated_weight = engine_weight / part_count;
 			current_weight += articulated_weight;
 		} else {
 			uint16_t engine_weight = u->GetWeightWithoutCargo();

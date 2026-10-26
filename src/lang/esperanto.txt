@@ -626,6 +626,7 @@ STR_NEWS_MENU_DELETE_ALL_MESSAGES                               :Forigi ĉiujn m
 # About menu
 STR_ABOUT_MENU_LAND_BLOCK_INFO                                  :Landkvadrataj informoj
 STR_ABOUT_MENU_HELP                                             :Helpo & manlibroj
+STR_ABOUT_MENU_ENTER_SCREENSAVER_MODE                           :Baskuligi ekrankurtenan reĝimon
 STR_ABOUT_MENU_TOGGLE_CONSOLE                                   :Baskuligi konzolon
 STR_ABOUT_MENU_AI_DEBUG                                         :AI/Ludoskripta sencimigo
 STR_ABOUT_MENU_SCREENSHOT                                       :Ekranfoto
@@ -719,7 +720,6 @@ STR_GRAPH_LAST_24_MONTHS                                        :{TINY_FONT}{BLA
 STR_GRAPH_LAST_24_QUARTERS                                      :{TINY_FONT}{BLACK}6 jaroj (po jarkvarono)
 STR_GRAPH_LAST_24_YEARS                                         :{TINY_FONT}{BLACK}24 jaroj (po jaro)
 
-STR_GRAPH_TOGGLE_RANGE                                          :{BLACK}Baskulu diagramon de tiu ŝarĝotipo
 STR_GRAPH_SELECT_SCALE                                          :Ŝanĝi horizontalan skalon de diagramoj
 
 STR_GRAPH_CARGO_PAYMENT_RATES_CAPTION                           :{WHITE}Ŝarĝpagaj tarifoj
@@ -735,14 +735,21 @@ STR_GRAPH_CARGO_PAYMENT_CARGO                                   :{TINY_FONT}{BLA
 
 STR_GRAPH_INDUSTRY_CAPTION                                      :{WHITE}{INDUSTRY} - Historio de ŝarĝo
 STR_GRAPH_INDUSTRY_RANGE_PRODUCED                               :Produktita
+STR_GRAPH_INDUSTRY_RANGE_PRODUCED_TOOLTIP                       :Baskuli diagramon de ŝarĝoj, produktataj de tiu ĉi entrepreno
 STR_GRAPH_INDUSTRY_RANGE_TRANSPORTED                            :Transportita
+STR_GRAPH_INDUSTRY_RANGE_TRANSPORTED_TOOLTIP                    :Baskuligi diagramon de ŝarĝoj, transportataj de tiu ĉi entrepreno
 STR_GRAPH_INDUSTRY_RANGE_DELIVERED                              :Liverita
+STR_GRAPH_INDUSTRY_RANGE_DELIVERED_TOOLTIP                      :Baskuligi diagramon de ŝarĝoj, liverataj al tiu ĉi entrepreno
 STR_GRAPH_INDUSTRY_RANGE_WAITING                                :Atendita
+STR_GRAPH_INDUSTRY_RANGE_WAITING_TOOLTIP                        :Baskuligi diagramon de ŝarĝoj, atendantaj ĉe tiu ĉi entrepreno
 
 STR_GRAPH_TOWN_CARGO_CAPTION                                    :{WHITE}{TOWN} - Historio de ŝarĝo
 STR_GRAPH_TOWN_RANGE_PRODUCED                                   :Provizita
+STR_GRAPH_TOWN_RANGE_PRODUCED_TOOLTIP                           :Baskuligi diagramon de ŝarĝoj, produktataj de tiu ĉi urbo
 STR_GRAPH_TOWN_RANGE_TRANSPORTED                                :Transportita
+STR_GRAPH_TOWN_RANGE_TRANSPORTED_TOOLTIP                        :Baskuligi diagramon de ŝarĝoj, transportataj de tiu ĉi urbo
 STR_GRAPH_TOWN_RANGE_DELIVERED                                  :Liverita
+STR_GRAPH_TOWN_RANGE_DELIVERED_TOOLTIP                          :Baskuligi diagramon de ŝarĝoj, liverataj al tiu ĉi urbo
 
 STR_GRAPH_PERFORMANCE_DETAIL_TOOLTIP                            :{BLACK}Montri detalaj rendimentpritaksoj
 
@@ -1298,9 +1305,9 @@ STR_RIVERS_MODERATE                                             :Mezmultaj
 STR_RIVERS_LOT                                                  :Multaj
 
 ###length 3
-STR_DISASTER_NONE                                               :Neniu
-STR_DISASTER_REDUCED                                            :Malpli
-STR_DISASTER_NORMAL                                             :Normale
+STR_BREAKDOWNS_NONE                                             :Neniu
+STR_BREAKDOWNS_REDUCED                                          :Malpli
+STR_BREAKDOWNS_NORMAL                                           :Normale
 
 ###length 4
 STR_SUBSIDY_X1_5                                                :x1.5
@@ -1751,7 +1758,7 @@ STR_CONFIG_SETTING_TREE_PLACER_ORIGINAL                         :originala
 STR_CONFIG_SETTING_TREE_PLACER_IMPROVED                         :plibonigita
 
 STR_CONFIG_SETTING_ROAD_SIDE                                    :Trafikflanko: {STRING}
-STR_CONFIG_SETTING_ROAD_SIDE_HELPTEXT                           :Elektu, sur kiu flanko de la vojo veturas stratveturiloj
+STR_CONFIG_SETTING_ROAD_SIDE_HELPTEXT                           :Elektu, sur kiu flanko de la vojo veturas stratveturiloj.{}Ĉi tio povas ankaŭ influi la grafikojn de signaliloj.{}Rekomencado de la ludo povas esti bezonata por tuta efekto
 
 ###length 2
 STR_CONFIG_SETTING_ROAD_SIDE_LEFT                               :maldekstra
@@ -2980,22 +2987,22 @@ STR_PICKER_COLLECTION_DELETE_QUERY                              :Forigi kolekton
 STR_PICKER_COLLECTION_DELETE_QUERY_TEXT                         :{YELLOW}Ĉu vi certas, ke vi volas forigi ĉi tiun kolekton?
 STR_PICKER_COLLECTION_DELETE_QUERY_DISABLED_TEXT                :{YELLOW}Ĉu vi certas, ke vi volas forigi ĉi tiun kolekton? Ĝi enhavas erojn de malŝaltitaj NewGRF-dosieroj!
 
-STR_PICKER_STATION_CLASS_TOOLTIP                                :Elektu klason de stacioj por montri
+STR_PICKER_STATION_CLASS_TOOLTIP                                :Elektu klason de stacioj por montri. Stir+Klaku por aldoni aŭ forigi en la listo de konservitaj eroj
 STR_PICKER_STATION_TYPE_TOOLTIP                                 :Elektu tipon de stacio por konstrui. Stir-klako aldonas aŭ forigas la stacion kiel konservita
 STR_PICKER_STATION_COLLECTION_TOOLTIP                           :Elekti kolekton de stacioj por montrado
-STR_PICKER_WAYPOINT_CLASS_TOOLTIP                               :Elektu klason de vojpunktoj por montri
+STR_PICKER_WAYPOINT_CLASS_TOOLTIP                               :Elektu klason de vojpunktoj por montri. Stir+Klaku por aldoni aŭ forigi en la listo de konservitaj eroj
 STR_PICKER_WAYPOINT_TYPE_TOOLTIP                                :Elektu vojpunkton por konstrui. Stir-klako aldonas aŭ forigas la vojpunkton kiel konservita
 STR_PICKER_WAYPOINT_COLLECTION_TOOLTIP                          :Elekti kolekton de vojpunktoj por montrado
-STR_PICKER_ROADSTOP_BUS_CLASS_TOOLTIP                           :Elektu klason de bushaltejoj por montri
+STR_PICKER_ROADSTOP_BUS_CLASS_TOOLTIP                           :Elektu klason de bushaltejoj por montri. Stir+Klaku por aldoni aŭ forigi en la listo de konservitaj eroj
 STR_PICKER_ROADSTOP_BUS_TYPE_TOOLTIP                            :Elektu tipon de bushaltejo por konstrui. Stir-klako aldonas aŭ forigas la bushaltejon kiel konservita
 STR_PICKER_ROADSTOP_BUS_COLLECTION_TOOLTIP                      :Elekti kolekton de bushaltejoj por montrado
-STR_PICKER_ROADSTOP_TRUCK_CLASS_TOOLTIP                         :Elektu klason de ŝarĝstacioj por montri
+STR_PICKER_ROADSTOP_TRUCK_CLASS_TOOLTIP                         :Elektu klason de ŝarĝstacioj por montri. Stir+Klaku por aldoni aŭ forigi en la listo de konservitaj eroj
 STR_PICKER_ROADSTOP_TRUCK_TYPE_TOOLTIP                          :Elektu tipon de ŝarĝstacio por konstrui. Stir-klako aldonas aŭ forigas la ŝarĝstacion kiel konservita
 STR_PICKER_ROADSTOP_TRUCK_COLLECTION_TOOLTIP                    :Elekti kolekton de ŝarĝstacioj por montrado
-STR_PICKER_OBJECT_CLASS_TOOLTIP                                 :Elektu klason de objektoj por montri
+STR_PICKER_OBJECT_CLASS_TOOLTIP                                 :Elektu klason de objektoj por montri. Stir+Klaku por aldoni aŭ forigi en la listo de konservitaj eroj
 STR_PICKER_OBJECT_TYPE_TOOLTIP                                  :Elektu tipon de objekto por konstrui. Stir-klako aldonas aŭ forigas la objekton kiel konservita. Stir-klako kaj ŝovo elektas diagonalan areon. Ankaŭ premu majuskligan klavon por nur montri kostotakson
 STR_PICKER_OBJECT_COLLECTION_TOOLTIP                            :Elekti kolekton de objektoj por montrado
-STR_PICKER_HOUSE_CLASS_TOOLTIP                                  :Elektu urbodistrikton por montri
+STR_PICKER_HOUSE_CLASS_TOOLTIP                                  :Elektu urbodistrikton por montri. Stir+Klaku por aldoni aŭ forigi en la listo de konservitaj eroj
 STR_PICKER_HOUSE_TYPE_TOOLTIP                                   :Elektu tipon de domo por konstrui. Stir-klako aldonas aŭ forigas la objekton kiel konservita
 STR_PICKER_HOUSE_COLLECTION_TOOLTIP                             :Elekti kolekton de domoj por montrado
 
@@ -3188,6 +3195,7 @@ STR_TREES_MODE_FOREST_LG_TOOLTIP                                :{BLACK}Planti g
 # Land generation window (SE)
 STR_TERRAFORM_TOOLBAR_LAND_GENERATION_CAPTION                   :{WHITE}Generado de tero
 STR_TERRAFORM_TOOLTIP_PLACE_ROCKY_AREAS_ON_LANDSCAPE            :{BLACK}Meti rokecajn lokojn en la lando.{}Stir+Klaku por forigi rokecajn lokojn
+STR_TERRAFORM_TOOLTIP_PLACE_ROUGH_AREAS_ON_LANDSCAPE            :{BLACK}Meti malglatajn lokojn en la lando.{}Stir+Klaku por forigi malglatajn lokojn
 STR_TERRAFORM_TOOLTIP_DEFINE_DESERT_AREA                        :{BLACK}Difini dezertan regionon.{}Stir+Klaku por forigi dezertan regionon
 STR_TERRAFORM_TOOLTIP_INCREASE_SIZE_OF_LAND_AREA                :{BLACK}Grandigi landparton por (mal)altigi
 STR_TERRAFORM_TOOLTIP_DECREASE_SIZE_OF_LAND_AREA                :{BLACK}Malgrandigi landparton por (mal)altigi
@@ -3373,6 +3381,8 @@ STR_LAI_WATER_DESCRIPTION_LOCK                                  :Kluzo
 STR_LAI_WATER_DESCRIPTION_RIVER                                 :Rivero
 STR_LAI_WATER_DESCRIPTION_COAST_OR_RIVERBANK                    :Mara aŭ rivera bordo
 STR_LAI_WATER_DESCRIPTION_SHIP_DEPOT                            :Ŝipgaraĝo
+STR_LAI_WATER_DESCRIPTION_WATER_ROCKS                           :Rokoj
+STR_LAI_WATER_DESCRIPTION_COAST_ROCKS                           :Mara aŭ rivera bordo kun rokoj
 
 # Industries come directly from their industry names
 
@@ -3486,6 +3496,9 @@ STR_SAVELOAD_LOAD_BUTTON                                        :{BLACK}Ŝarĝi
 STR_SAVELOAD_LOAD_TOOLTIP                                       :{BLACK}Ŝarĝi la elektitan ludon
 STR_SAVELOAD_LOAD_HEIGHTMAP_TOOLTIP                             :{BLACK}Ŝarĝi la elektitan altecmapon
 STR_SAVELOAD_LOAD_TOWN_DATA_TOOLTIP                             :{BLACK}Ŝarĝi la datumon de elektita urbo
+STR_SAVELOAD_NEW_DIRECTORY_BUTTON                               :{BLACK}Nova dosierujo
+STR_SAVELOAD_NEW_DIRECTORY_TOOLTIP                              :{BLACK}Krei novan dosierujon en la aktuala loko
+STR_SAVELOAD_NEW_DIRECTORY_QUERY_CAPTION                        :{WHITE}Enigu nomon por la nova dosierujo
 STR_SAVELOAD_DETAIL_CAPTION                                     :{BLACK}Detaloj de la ludo
 STR_SAVELOAD_DETAIL_NOT_AVAILABLE                               :{BLACK}Ne disponeblas informoj
 STR_SAVELOAD_DETAIL_COMPANY_INDEX                               :{SILVER}{COMMA}: {WHITE}{STRING}
@@ -3930,6 +3943,7 @@ STR_GOALS_PROGRESS_COMPLETE                                     :{GREEN}{STRING}
 STR_GOALS_TOOLTIP_CLICK_ON_SERVICE_TO_CENTER                    :{BLACK}Klaku la celon por centri la ĉefvidon ĉe la industrio/urbo/landkvadrato. Stir+Klaku por malfermi novan vidujon ĉe la loko de la industrio/urbo/landkvadrato
 
 # Goal question window
+###length 4
 STR_GOAL_QUESTION_CAPTION_QUESTION                              :{BLACK}Demando
 STR_GOAL_QUESTION_CAPTION_INFORMATION                           :{BLACK}Informoj
 STR_GOAL_QUESTION_CAPTION_WARNING                               :{BLACK}Atentu
@@ -5163,6 +5177,11 @@ STR_ERROR_AUTOSAVE_FAILED                                       :Aŭtomata konse
 STR_ERROR_UNABLE_TO_READ_DRIVE                                  :{BLACK}Ne eblas legi diskon
 STR_ERROR_GAME_SAVE_FAILED                                      :Ludkonservado fiaskis...
 STR_ERROR_UNABLE_TO_DELETE_FILE                                 :Ne eblas forviŝi dosieron
+STR_ERROR_CANNOT_CREATE_DIRECTORY                               :Ne povas krei dosierujon...
+STR_ERROR_DIRECTORY_NAME_IN_USE                                 :Dosiero aŭ dosierujo kun tiu nomo ankaŭ ekzistas
+STR_ERROR_DIRECTORY_ILLEGAL_NAME                                :Nomo de dosierujo ne povas enhavi specialajn signojn
+STR_ERROR_DIRECTORY_LEADING_DOT                                 :Nomo de dosierujo ne povas komenci kun punkto
+STR_ERROR_DIRECTORY_PERMISSION_DENIED                           :Vi ne havas permeson krei dosierujon ĉi tie
 STR_ERROR_GAME_LOAD_FAILED                                      :Ludŝarĝado fiaskis...
 STR_GAME_SAVELOAD_ERROR_BROKEN_INTERNAL_ERROR                   :Interna eraro: {STRING}
 STR_GAME_SAVELOAD_ERROR_BROKEN_SAVEGAME                         :Rompa konservludo - {STRING}
@@ -5465,6 +5484,10 @@ STR_ERROR_BRIDGE_TOO_LOW_FOR_BUOY                               :ponto estas tro
 STR_ERROR_BRIDGE_TOO_LOW_FOR_RAIL_WAYPOINT                      :ponto estas tro malalta (je {HEIGHT}) por relvojpunkto
 STR_ERROR_BRIDGE_TOO_LOW_FOR_ROAD_WAYPOINT                      :ponto estas tro malalta (je {HEIGHT}) por strata vojpunkto
 STR_ERROR_BRIDGE_TOO_LOW_FOR_LOCK                               :ponto estas tro malalta (je {HEIGHT}) por kluzo
+STR_ERROR_BRIDGE_TOO_LOW_FOR_TRAIN_DEPOT                        :ponto estas {HEIGHT} tro malalta por vagonartenejo
+STR_ERROR_BRIDGE_TOO_LOW_FOR_ROADVEH_DEPOT                      :ponto estas {HEIGHT} tro malalta por stratveturila garaĝo
+STR_ERROR_BRIDGE_TOO_LOW_FOR_SHIP_DEPOT                         :ponto estas {HEIGHT} tro malalta por ŝipgaraĝo
+STR_ERROR_BRIDGE_TOO_LOW_FOR_OBJECT                             :ponto estas {HEIGHT} tro malalta por objekto
 
 # Tunnel related errors
 STR_ERROR_CAN_T_BUILD_TUNNEL_HERE                               :Ne povas konstrui tunelon ĉi tie...

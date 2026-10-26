@@ -8,6 +8,8 @@
 /** @file order_serialisation.cpp Handling of order serialisation and deserialisation to/from JSON. */
 
 #include "stdafx.h"
+#include "company_base.h"
+#include "company_type.h"
 #include "command_func.h"
 #include "debug.h"
 #include "error.h"
@@ -24,15 +26,18 @@
 #include "strings_func.h"
 #include "timetable_cmd.h"
 #include "vehicle_base.h"
+#include "vehiclelist.h"
 #include "core/format.hpp"
 #include "core/serialisation.hpp"
 #include "depot_base.h"
 #include "town.h"
+#include "group_type.h"
 #include "3rdparty/nlohmann/json.hpp"
 #include "3rdparty/robin_hood/robin_hood.h"
 
 #include "table/strings.h"
 
+#include <optional>
 #include <type_traits>
 
 #include "safeguards.h"
@@ -476,7 +481,7 @@ static nlohmann::ordered_json DispatchScheduleToJSON(const DispatchSchedule &sd)
 	return json;
 }
 
-std::string OrderListToJSONString(const OrderList *ol)
+nlohmann::json OrderListToJSON(const OrderList *ol)
 {
 	using FName = OrderSerialisationFieldNames;
 
@@ -557,6 +562,120 @@ std::string OrderListToJSONString(const OrderList *ol)
 
 	json[FName::Orders::OBJKEY] = std::move(orders);
 
+	return json;
+}
+
+std::string OrderListToJSONString(const OrderList *ol)
+{
+	return OrderListToJSON(ol).dump(4);
+}
+
+struct GroupWithChildren {
+	const Group *data;
+	std::map<GroupID, GroupWithChildren *> children;
+
+	GroupWithChildren(const Group *group) : data(group) {}
+
+	static std::map<GroupID, GroupWithChildren> FromGlobalPool(Owner owner_id, std::optional<VehicleType> vt) {
+		std::map<GroupID, GroupWithChildren> found_groups;
+
+		for (const Group *group : Group::Iterate()) {
+			if ((!vt.has_value() || group->vehicle_type == vt) && group->owner == owner_id) {
+				/* Add group to found groups. */
+				auto res = found_groups.try_emplace(group->index, group);
+				if (!res.second) continue; // Already existed
+
+				/* Explore parents. */
+				GroupWithChildren *child = &res.first->second;
+				const Group *parent = group;
+				while ((parent = Group::GetIfValid(parent->parent)) != nullptr) {
+					auto res = found_groups.try_emplace(parent->index, parent);
+					res.first->second.children[child->data->index] = child;
+					if (!res.second) {
+						break; // No need to continue, no new information to be given to above parents
+					}
+
+					child = &res.first->second;
+				}
+			}
+		}
+
+		return found_groups;
+	}
+};
+
+nlohmann::json MakePerOrderListVehicleSet(GroupID group_id, Owner owner, std::optional<VehicleType> vt)
+{
+	nlohmann::json json = nlohmann::json::array();
+	robin_hood::unordered_set<const OrderList *> seen_order_lists;
+
+	uint8_t vt_mask = 0;
+	if (vt.has_value()) {
+		SetBit(vt_mask, to_underlying(*vt));
+	} else {
+		for (VehicleType vtt = VehicleType::Begin; vtt != VehicleType::CompanyEnd; vtt++) {
+			SetBit(vt_mask, to_underlying(vtt));
+		}
+	}
+	for (const Vehicle *v : Vehicle::IterateTypeMaskFrontOnly(vt_mask)) {
+		if (v->owner == owner && v->group_id == group_id && v->orders != nullptr && v->IsPrimaryVehicle()) {
+			if (!seen_order_lists.insert(v->orders).second) continue;
+
+			auto vehicles_array = nlohmann::json::array();
+			for (const Vehicle *u = v->FirstShared(); u != nullptr; u = u->NextShared()) {
+				if (u->group_id == group_id) vehicles_array.push_back(u->index.base());
+			}
+			json.push_back({
+				{"vehicles", std::move(vehicles_array)},
+				{"order-data", OrderListToJSON(v->orders)}
+			});
+		}
+	}
+
+	return json;
+}
+
+nlohmann::json GroupOrdersToJSON(const GroupWithChildren &group)
+{
+	nlohmann::json json;
+	json["group-name"] = GetString(STR_GROUP_NAME, group.data->index);
+	json["orderlists"] = MakePerOrderListVehicleSet(group.data->index, group.data->owner, group.data->vehicle_type);
+
+	/* Recursively export children */
+	auto children = nlohmann::json::array();
+	for (const auto &[_id, child] : group.children) {
+		children.push_back(GroupOrdersToJSON(*child));
+	}
+	json["children"] = std::move(children);
+
+	return json;
+}
+
+std::string VehicleListOrdersToJSONString(VehicleListIdentifier vehicle_list)
+{
+	nlohmann::json json;
+	auto groups = GroupWithChildren::FromGlobalPool(vehicle_list.company, vehicle_list.vtype);
+
+	if (vehicle_list.ToGroupID() == ALL_GROUP) {
+		json["company-name"] = Company::Get(vehicle_list.company)->name;
+		json["ungrouped"] = MakePerOrderListVehicleSet(DEFAULT_GROUP, vehicle_list.company, vehicle_list.vtype);
+		for (const auto &[_group_id, group] : groups) {
+			/* If it's a root, run the export pipeline. */
+			if (Group::GetIfValid(group.data->parent) == nullptr) {
+				json["groups"].push_back(GroupOrdersToJSON(group));
+			}
+		}
+	} else if (vehicle_list.ToGroupID() == DEFAULT_GROUP) {
+		json["company-name"] = Company::Get(vehicle_list.company)->name;
+		json["ungrouped"] = MakePerOrderListVehicleSet(DEFAULT_GROUP, vehicle_list.company, vehicle_list.vtype);
+	} else {
+		auto it = groups.find(vehicle_list.ToGroupID());
+		if (it != groups.end()) {
+			json = GroupOrdersToJSON(it->second);
+		} else {
+			json["error"] = "Could not find source group";
+		}
+	}
 	return json.dump(4);
 }
 

@@ -71,6 +71,14 @@ const char *GetOrderTypeName(OrderType order_type);
  */
 bool OrderListIsSomeonesHome(const OrderList *ol);
 
+/**
+ * Whether any vehicle owned by another company is currently using the given order list.
+ * Such a list cannot be made private.
+ * @param ol the order list to test
+ * @return true when a vehicle of another company is using the list
+ */
+bool OrderListIsUsedByOtherCompany(const OrderList *ol);
+
 #endif /* ORDER_FUNC_H */
 
 struct Depot;

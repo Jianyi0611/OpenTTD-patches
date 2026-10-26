@@ -72,6 +72,7 @@
 #include "train_cmd.h"
 #include "vehicle_cmd.h"
 #include "tile_cmd.h"
+#include "script/api/script_event_types.hpp"
 #include "3rdparty/cpp-btree/btree_set.h"
 #include "3rdparty/cpp-btree/btree_map.h"
 #include "3rdparty/robin_hood/robin_hood.h"
@@ -514,12 +515,12 @@ void VehicleLengthChanged(const Vehicle *u)
 	const Engine *engine = u->GetEngine();
 	if (engine->grf_prop.grffile == nullptr) {
 		// This can be reached if an engine is unexpectedly no longer attached to a GRF at all
-		if (GamelogGRFBugReverse(0, engine->grf_prop.local_id)) {
+		if (GamelogGRFBugReverse({}, engine->grf_prop.local_id)) {
 			ShowNewGrfVehicleError(u->engine_type, STR_NEWGRF_BROKEN, STR_NEWGRF_BROKEN_VEHICLE_LENGTH, GRFBug::VehLength, true);
 		}
 		return;
 	}
-	uint32_t grfid = engine->grf_prop.grfid;
+	GrfID grfid = engine->grf_prop.grfid;
 	GRFConfig *grfconfig = GetGRFConfig(grfid);
 	if (GamelogGRFBugReverse(grfid, engine->grf_prop.local_id) || !grfconfig->grf_bugs.Test(GRFBug::VehLength)) {
 		ShowNewGrfVehicleError(u->engine_type, STR_NEWGRF_BROKEN, STR_NEWGRF_BROKEN_VEHICLE_LENGTH, GRFBug::VehLength, true);
@@ -760,7 +761,7 @@ static void FindClosestTrainToTunnelBridgeEndEnum(const Train *t, FindTrainClose
 
 	if (t->vehstatus.Test(VehState::Crashed)) return;
 
-	if (!IsDiagonalDirection(t->direction)) {
+	if ((t->track & (TRACK_BIT_HORZ | TRACK_BIT_VERT)) != TRACK_BIT_NONE) {
 		/* Check for vehicles on non-across track pieces of custom bridge head */
 		if ((GetAcrossTunnelBridgeTrackBits(t->tile) & t->track & TRACK_BIT_ALL) == TRACK_BIT_NONE) return;
 	}
@@ -805,7 +806,7 @@ static void GetAvailableFreeTilesInSignalledTunnelBridgeEnum(const Train *v, Get
 	/* Don't look at wagons between front and back of train. */
 	if ((v->Previous() != nullptr && v->Next() != nullptr)) return;
 
-	if (!IsDiagonalDirection(v->direction)) {
+	if ((v->track & (TRACK_BIT_HORZ | TRACK_BIT_VERT)) != TRACK_BIT_NONE) {
 		/* Check for vehicles on non-across track pieces of custom bridge head */
 		if ((GetAcrossTunnelBridgeTrackBits(v->tile) & v->track & TRACK_BIT_ALL) == TRACK_BIT_NONE) return;
 	}
@@ -1141,7 +1142,7 @@ const GRFFile *Vehicle::GetGRF() const
  * This is the GRF providing the Action 3 for the engine type.
  * @return GRF ID of the associated NewGRF.
  */
-uint32_t Vehicle::GetGRFID() const
+GrfID Vehicle::GetGRFID() const
 {
 	return this->GetEngine()->GetGRFID();
 }
@@ -1229,7 +1230,7 @@ void Vehicle::PreDestructor()
 
 	if (this->IsEngineCountable()) {
 		GroupStatistics::CountEngine(this, -1);
-		if (this->IsPrimaryVehicle()) GroupStatistics::CountVehicle(this, -1);
+		if (this->IsPrimaryVehicle() && this->Primary() == this) GroupStatistics::CountVehicle(this, -1);
 		GroupStatistics::UpdateAutoreplace(this->owner);
 
 		if (this->owner == _local_company) InvalidateAutoreplaceWindow(this->engine_type, this->group_id);
@@ -4177,6 +4178,16 @@ CommandCost Vehicle::SendToDepot(DoCommandFlags flags, DepotCommandFlags command
 	CommandCost ret = CheckOwnership(this->owner);
 	if (ret.Failed()) return ret;
 
+	/* A cross-company coupled train may not be sold as a whole by one of the
+	 * companies. Reject the sell order up front so it cannot be accepted here
+	 * and then fail only when the train arrives in the depot. */
+	if (this->type == VehicleType::Train && command.Test(DepotCommandFlag::Sell) && !command.Test(DepotCommandFlag::Cancel)) {
+		for (const Vehicle *v = this->First(); v != nullptr; v = v->Next()) {
+			CommandCost owner_ret = CheckOwnership(v->owner);
+			if (owner_ret.Failed()) return owner_ret;
+		}
+	}
+
 	if (this->vehstatus.Test(VehState::Crashed)) return CMD_ERROR;
 	if (this->IsStoppedInDepot()) {
 		if (command.Test(DepotCommandFlag::Sell) && !command.Test(DepotCommandFlag::Cancel) && (!command.Test(DepotCommandFlag::Specific) || specific_depot == this->tile)) {
@@ -4418,7 +4429,8 @@ static void SpawnAdvancedVisualEffect(const Vehicle *v)
 	}
 
 	Direction l_dir = v->direction;
-	if (v->type == VehicleType::Train && Train::From(v)->flags.Test(VehicleRailFlag::Flipped)) l_dir = ReverseDir(l_dir);
+	if ((v->type == VehicleType::Train && Train::From(v)->flags.Test(VehicleRailFlag::Flipped))
+			|| (v->type == VehicleType::Ship && Ship::From(v)->flags.Test(VehicleShipFlag::SecondEndFacingForward))) l_dir = ReverseDir(l_dir);
 	Direction t_dir = ChangeDir(l_dir, DirDiff::Right90);
 
 	int8_t x_center = _vehicle_smoke_pos[l_dir] * l_center;
@@ -4626,7 +4638,8 @@ void Vehicle::ShowVisualEffect(uint max_speed) const
 			int x = _vehicle_smoke_pos[v->direction] * effect_offset;
 			int y = _vehicle_smoke_pos[ChangeDir(v->direction, DirDiff::Right90)] * effect_offset;
 
-			if (v->type == VehicleType::Train && Train::From(v)->flags.Test(VehicleRailFlag::Flipped)) {
+			if ((v->type == VehicleType::Train && Train::From(v)->flags.Test(VehicleRailFlag::Flipped))
+					|| (v->type == VehicleType::Ship && Ship::From(v)->flags.Test(VehicleShipFlag::SecondEndFacingForward))) {
 				x = -x;
 				y = -y;
 			}

@@ -391,7 +391,7 @@ bool FillGRFDetails(GRFConfig &config, bool is_static, Subdirectory subdir)
 	config.FinalizeParameterInfo();
 
 	/* Skip if the grfid is 0 (not read) or if it is an internal GRF */
-	if (config.ident.grfid == 0 || config.flags.Test(GRFConfigFlag::System)) return false;
+	if (config.ident.grfid.Empty() || config.flags.Test(GRFConfigFlag::System)) return false;
 
 	if (is_static) {
 		/* Perform a 'safety scan' for static GRFs */
@@ -538,7 +538,7 @@ GRFListCompatibility IsGoodGRFConfigList(GRFConfigList &grfconfig)
 				if (name != nullptr) buf.format(", name: '{}'", name);
 			});
 			if (f != nullptr) {
-				Debug(grf, 1, "NewGRF {:08X} ({}) not found; checksum {}{}'. Compatibility mode on", std::byteswap(c->ident.grfid), c->GetDisplayPath(), c->ident.md5sum, grf_info(*c));
+				Debug(grf, 1, "NewGRF {} ({}) not found; checksum {}{}'. Compatibility mode on", c->ident.grfid, c->GetDisplayPath(), c->ident.md5sum, grf_info(*c));
 				if (!c->flags.Test(GRFConfigFlag::Compatible)) {
 					/* Preserve original_md5sum after it has been assigned */
 					c->flags.Set(GRFConfigFlag::Compatible);
@@ -551,13 +551,13 @@ GRFListCompatibility IsGoodGRFConfigList(GRFConfigList &grfconfig)
 			}
 
 			/* No compatible grf was found, mark it as disabled */
-			Debug(grf, 0, "NewGRF {:08X} ({}) not found; checksum {}{}", std::byteswap(c->ident.grfid), c->GetDisplayPath(), c->ident.md5sum, grf_info(*c));
+			Debug(grf, 0, "NewGRF {} ({}) not found; checksum {}{}", c->ident.grfid, c->GetDisplayPath(), c->ident.md5sum, grf_info(*c));
 
 			c->status = GRFStatus::NotFound;
 			res = GRFListCompatibility::NotFound;
 		} else {
 compatible_grf:
-			Debug(grf, 1, "Loading GRF {:08X} from {}", std::byteswap(f->ident.grfid), f->GetDisplayPath());
+			Debug(grf, 1, "Loading GRF {} from {}", f->ident.grfid, f->GetDisplayPath());
 			/* The filename could be the filename as in the savegame. As we need
 			 * to load the GRF here, we need the correct filename, so overwrite that
 			 * in any case and set the name and info when it is not set already.
@@ -701,7 +701,7 @@ void ScanNewGRFFiles(NewGRFScanCallback *callback)
  * @param desired_version Requested version
  * @return The matching grf, if it exists in #_all_grfs, else \c nullptr.
  */
-const GRFConfig *FindGRFConfig(uint32_t grfid, FindGRFConfigMode mode, const MD5Hash *md5sum, uint32_t desired_version)
+const GRFConfig *FindGRFConfig(GrfID grfid, FindGRFConfigMode mode, const MD5Hash *md5sum, uint32_t desired_version)
 {
 	assert((mode == FindGRFConfigMode::Exact) != (md5sum == nullptr));
 	const GRFConfig *best = nullptr;
@@ -727,9 +727,9 @@ const GRFConfig *FindGRFConfig(uint32_t grfid, FindGRFConfigMode mode, const MD5
  * @param mask  GRFID mask to allow for partial matching.
  * @return The grf config, if it exists, else \c nullptr.
  */
-GRFConfig *GetGRFConfig(uint32_t grfid, uint32_t mask)
+GRFConfig *GetGRFConfig(GrfID grfid, uint32_t mask)
 {
-	auto it = std::ranges::find_if(_grfconfig, [grfid, mask](const auto &c) { return (c->ident.grfid & mask) == (grfid & mask); });
+	auto it = std::ranges::find_if(_grfconfig, [grfid, mask](const auto &c) { return (FlattenNewGRFLabel(c->ident.grfid) & mask) == (FlattenNewGRFLabel(grfid) & mask); });
 	if (it != std::end(_grfconfig)) return it->get();
 
 	return nullptr;

@@ -315,6 +315,15 @@ void AfterLoadVehiclesPhase1(bool part_of_load)
 					v->primary_order = v->orders->index;
 				}
 			}
+		} else {
+			/* Nested schedules no longer keep per-caller return frames: finishing
+			 * any executed schedule returns straight to the primary list. Drop
+			 * frames saved by builds with the older per-level return semantics,
+			 * as leftover frames would wrongly mark jumps as recursive. */
+			for (Vehicle *v : Vehicle::Iterate()) {
+				si_v = v;
+				v->execute_schedule_stack.clear();
+			}
 		}
 
 		/* Order lists that have no vehicles are never passed to Initialize(); recompute their
@@ -1094,7 +1103,7 @@ NamedSaveLoadTable GetVehicleDescription(VehicleType vt)
 		NSL("",                          SLEG_CONDVAR(_cargo_count,                       SLE_UINT16,                 SL_MIN_VERSION,  SLV_68)),
 		NSL("cargo.packets",          SLE_CONDREFRING(Vehicle, cargo.packets,             REF_CARGO_PACKET,           SLV_68, SL_MAX_VERSION)),
 		NSL("",                    SLEG_CONDREFRING_X(_cpp_packets,                       REF_CARGO_PACKET,           SL_MIN_VERSION, SL_MAX_VERSION, SlXvFeatureTest(XSLFTO_AND, XSLFI_CHILLPP))),
-		NSL("cargo.action_counts",        SLE_CONDARR(Vehicle, cargo.action_counts,       SLE_UINT, to_underlying(VehicleCargoList::MoveToAction::End), SLV_181, SL_MAX_VERSION)),
+		NSL("cargo.action_counts",        SLE_CONDARR(Vehicle, cargo.action_counts,       SLE_UINT32, to_underlying(VehicleCargoList::MoveToAction::End), SLV_181, SL_MAX_VERSION)),
 		NSL("cargo_age_counter",          SLE_CONDVAR(Vehicle, cargo_age_counter,         SLE_UINT16,                 SLV_162, SL_MAX_VERSION)),
 
 		NSL("day_counter",                    SLE_VAR(Vehicle, day_counter,               SLE_UINT8)),
@@ -1125,6 +1134,8 @@ NamedSaveLoadTable GetVehicleDescription(VehicleType vt)
 		NSL("current_order.couple_speed_unit2", SLE_CONDVAR_X(Vehicle, current_order.couple_speed_unit2, SLE_UINT8, SL_MIN_VERSION, SL_MAX_VERSION, SlXvFeatureTest(XSLFTO_AND, XSLFI_COUPLE_SPEED_FILTER, 2))),
 		NSL("current_order.couple_speed_value1", SLE_CONDVAR_X(Vehicle, current_order.couple_speed_value1, SLE_UINT16, SL_MIN_VERSION, SL_MAX_VERSION, SlXvFeatureTest(XSLFTO_AND, XSLFI_COUPLE_SPEED_FILTER, 2))),
 		NSL("current_order.couple_speed_value2", SLE_CONDVAR_X(Vehicle, current_order.couple_speed_value2, SLE_UINT16, SL_MIN_VERSION, SL_MAX_VERSION, SlXvFeatureTest(XSLFTO_AND, XSLFI_COUPLE_SPEED_FILTER, 2))),
+		NSL("current_order.couple_speed_comparator1", SLE_CONDVAR_X(Vehicle, current_order.couple_speed_comparator1, SLE_UINT8, SL_MIN_VERSION, SL_MAX_VERSION, SlXvFeatureTest(XSLFTO_AND, XSLFI_COUPLE_SPEED_FILTER, 3))),
+		NSL("current_order.couple_speed_comparator2", SLE_CONDVAR_X(Vehicle, current_order.couple_speed_comparator2, SLE_UINT8, SL_MIN_VERSION, SL_MAX_VERSION, SlXvFeatureTest(XSLFTO_AND, XSLFI_COUPLE_SPEED_FILTER, 3))),
 		NSL("current_order.flags",      SLE_CONDVAR_X(Vehicle, current_order.flags,       SLE_FILE_U8 | SLE_VAR_U16,  SLV_5, SL_MAX_VERSION, SlXvFeatureTest(XSLFTO_AND, XSLFI_ORDER_FLAGS_EXTRA, 0, 0))),
 		NSL("current_order.flags",      SLE_CONDVAR_X(Vehicle, current_order.flags,       SLE_UINT16,                 SLV_5, SL_MAX_VERSION, SlXvFeatureTest(XSLFTO_AND, XSLFI_ORDER_FLAGS_EXTRA, 1))),
 		NSL("current_order.dest",         SLE_CONDVAR(Vehicle, current_order.dest,        SLE_UINT16,                 SLV_5, SL_MAX_VERSION)),
@@ -1296,6 +1307,7 @@ NamedSaveLoadTable GetVehicleDescription(VehicleType vt)
 		NSL("rotation",                   SLE_CONDVAR(Ship, rotation,                   SLE_UINT8,                   SLV_SHIP_ROTATION, SL_MAX_VERSION)),
 		NSL("lost_count",               SLE_CONDVAR_X(Ship, lost_count,                 SLE_UINT8,                   SL_MIN_VERSION, SL_MAX_VERSION, SlXvFeatureTest(XSLFTO_AND, XSLFI_SHIP_LOST_COUNTER))),
 		NSL("critical_breakdown_count", SLE_CONDVAR_X(Ship, critical_breakdown_count,   SLE_UINT8,                   SL_MIN_VERSION, SL_MAX_VERSION, SlXvFeatureTest(XSLFTO_AND, XSLFI_IMPROVED_BREAKDOWNS, 8))),
+		NSLT("flags",                         SLE_VAR(Ship, flags,                      SLE_UINT8)),
 
 		NSL("",                          SLE_CONDNULL(16,                                                            SLV_2, SLV_144)), // old reserved space
 	};
@@ -2085,14 +2097,14 @@ bool DidLoadLegacyAircraftData()
 }
 
 static const ChunkHandler veh_chunk_handlers[] = {
-	{ 'VEHS', Save_VEHS, Load_VEHS, Ptrs_VEHS, nullptr, CH_SPARSE_TABLE },
-	{ 'VEOX', nullptr,   Load_VEOX, nullptr,   nullptr, CH_READONLY },
-	{ 'VESR', Save_VESR, Load_VESR, nullptr,   nullptr, CH_SPARSE_TABLE },
-	{ 'VENC', Save_VENC, Load_VENC, nullptr,   nullptr, CH_RIFF,         Special_VENC },
-	{ 'CPLM', Save_CPLM, Load_CPLM, nullptr,  nullptr, CH_RIFF,         Special_CPLM },
-	{ 'CSFC', Save_CSFC, Load_CSFC, nullptr,  nullptr, CH_RIFF,         Special_CSFC },
-	{ 'VLKA', nullptr,   Load_VLKA, nullptr,   nullptr, CH_READONLY },
-	{ 'VUBS', nullptr,   Load_VUBS, nullptr,   nullptr, CH_READONLY },
+	{ 'VEHS', Save_VEHS, Load_VEHS, Ptrs_VEHS, nullptr, ChunkType::SparseTable },
+	{ 'VEOX', nullptr,   Load_VEOX, nullptr,   nullptr, ChunkType::ReadOnly },
+	{ 'VESR', Save_VESR, Load_VESR, nullptr,   nullptr, ChunkType::SparseTable },
+	{ 'VENC', Save_VENC, Load_VENC, nullptr,   nullptr, ChunkType::Riff,         Special_VENC },
+	{ 'CPLM', Save_CPLM, Load_CPLM, nullptr,  nullptr, ChunkType::Riff,         Special_CPLM },
+	{ 'CSFC', Save_CSFC, Load_CSFC, nullptr,  nullptr, ChunkType::Riff,         Special_CSFC },
+	{ 'VLKA', nullptr,   Load_VLKA, nullptr,   nullptr, ChunkType::ReadOnly },
+	{ 'VUBS', nullptr,   Load_VUBS, nullptr,   nullptr, ChunkType::ReadOnly },
 };
 
 extern const ChunkHandlerTable _veh_chunk_handlers(veh_chunk_handlers);

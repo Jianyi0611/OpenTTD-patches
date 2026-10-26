@@ -591,8 +591,15 @@ CommandCost CmdBulkChangeTimetable(DoCommandFlags flags, OrderTargetType target_
 				Order *order = ol->GetOrderAt(order_number);
 				if (order == nullptr || order->IsType(OT_IMPLICIT)) continue;
 
-				/* Exclude waypoints from set all wait times command */
-				if (mtf == MTF_WAIT_TIME && !ctrl_flags.Test(ModifyTimetableCtrlFlag::ClearField) && order->IsType(OT_GOTO_WAYPOINT)) continue;
+				/* Waypoints have no editable wait time; coupling orders have no wait
+				 * time at all and use the same flags bit as the "use the waiting
+				 * consist's schedule" option. Skip both so that bulk timetable edits
+				 * cannot toggle that option. */
+				if (mtf == MTF_WAIT_TIME &&
+						(order->IsType(OT_GOTO_COUPLE) ||
+						 (!ctrl_flags.Test(ModifyTimetableCtrlFlag::ClearField) && order->IsType(OT_GOTO_WAYPOINT)))) {
+					continue;
+				}
 
 				CmdChangeTimetable(flags, OrderTargetType::OrderList, id, order_number, mtf, data, ctrl_flags);
 			}
@@ -615,8 +622,15 @@ CommandCost CmdBulkChangeTimetable(DoCommandFlags flags, OrderTargetType target_
 			Order *order = v->GetOrder(order_number);
 			if (order == nullptr || order->IsType(OT_IMPLICIT)) continue;
 
-			/* Exclude waypoints from set all wait times command */
-			if (mtf == MTF_WAIT_TIME && !ctrl_flags.Test(ModifyTimetableCtrlFlag::ClearField) && order->IsType(OT_GOTO_WAYPOINT)) continue;
+			/* Waypoints have no editable wait time; coupling orders have no wait
+			 * time at all and use the same flags bit as the "use the waiting
+			 * consist's schedule" option. Skip both so that bulk timetable edits
+			 * cannot toggle that option. */
+			if (mtf == MTF_WAIT_TIME &&
+					(order->IsType(OT_GOTO_COUPLE) ||
+					 (!ctrl_flags.Test(ModifyTimetableCtrlFlag::ClearField) && order->IsType(OT_GOTO_WAYPOINT)))) {
+				continue;
+			}
 
 			Command<Commands::ChangeTimetable>::Do(flags, OrderTargetType::Vehicle, v->index.base(), order_number, mtf, data, ctrl_flags);
 		}
@@ -911,13 +925,73 @@ CommandCost CmdTimetableSeparation(DoCommandFlags flags, OrderTargetType target_
 	return CommandCost();
 }
 
+/**
+ * Total timetable length of \a ol including the schedules it executes.
+ * The execute-schedule orders themselves carry no times, but a full pass of a
+ * list takes the executed schedule's cycle as well, so that length belongs to
+ * the cycle of the list executing it (recursively).
+ * @param ol The order list to measure.
+ * @param depth Recursion guard for (already runtime-prevented) recursion.
+ * @return The length in ticks using the raw times.
+ */
+static Ticks GetEffectiveTotalDuration(const OrderList *ol, uint depth)
+{
+	if (ol == nullptr || depth > 8) return 0;
+	Ticks total = ol->GetTotalDuration();
+	for (VehicleOrderID i = 0; i < ol->GetNumOrders(); i++) {
+		const Order *order = ol->GetOrderAt(i);
+		if (order == nullptr || !order->IsExecuteScheduleOrder()) continue;
+		total += GetEffectiveTotalDuration(OrderList::GetIfValid(order->GetDestination().ToOrderListID()), depth + 1);
+	}
+	return total;
+}
+
+/**
+ * Same as GetEffectiveTotalDuration() but using the timetabled times.
+ * @return The length in ticks, or INVALID_TICKS when any involved list has an
+ *         incomplete timetable.
+ */
+static Ticks GetEffectiveTimetableTotalDuration(const OrderList *ol, uint depth)
+{
+	if (ol == nullptr || depth > 8) return INVALID_TICKS;
+	Ticks total = ol->GetTimetableTotalDuration();
+	if (total == INVALID_TICKS) return INVALID_TICKS;
+	for (VehicleOrderID i = 0; i < ol->GetNumOrders(); i++) {
+		const Order *order = ol->GetOrderAt(i);
+		if (order == nullptr || !order->IsExecuteScheduleOrder()) continue;
+		const Ticks sub = GetEffectiveTimetableTotalDuration(OrderList::GetIfValid(order->GetDestination().ToOrderListID()), depth + 1);
+		if (sub == INVALID_TICKS) return INVALID_TICKS;
+		total += sub;
+	}
+	return total;
+}
+
+/** Can the cycle of an executed schedule be used for separation? */
+static bool IsExecutedScheduleUsable(const OrderList *ol, uint depth)
+{
+	if (ol == nullptr || depth > 8 || !ol->IsCompleteTimetable()) return false;
+	for (VehicleOrderID i = 0; i < ol->GetNumOrders(); i++) {
+		const Order *order = ol->GetOrderAt(i);
+		if (order == nullptr || !order->IsExecuteScheduleOrder()) continue;
+		if (!IsExecutedScheduleUsable(OrderList::GetIfValid(order->GetDestination().ToOrderListID()), depth + 1)) return false;
+	}
+	return true;
+}
+
 static inline bool IsOrderUsableForSeparation(const Order *order)
 {
+	/* An executed schedule contributes its full cycle to this list, which is
+	 * only known once that schedule is completely timetabled. */
+	if (order->IsExecuteScheduleOrder()) {
+		return IsExecutedScheduleUsable(OrderList::GetIfValid(order->GetDestination().ToOrderListID()), 0);
+	}
 	if (order->HasNoTimetableTimes()) return true;
 
-	if (order->GetWaitTime() == 0 && order->IsType(OT_GOTO_STATION) && !(order->GetNonStopType() & ONSF_NO_STOP_AT_DESTINATION_STATION)) {
+	if (order->GetWaitTime() == 0 && !order->IsWaitTimetabled() && order->IsType(OT_GOTO_STATION) && !(order->GetNonStopType() & ONSF_NO_STOP_AT_DESTINATION_STATION)) {
 		// non-station orders are permitted to have 0 wait times
-		return false;
+		// Decouple stations never load, so their wait time is timetabled as
+		// zero on purpose; that is a valid state for separation.
+		if (order->GetDecouple() != ODF_DECOUPLE) return false;
 	}
 
 	if (order->GetTravelTime() == 0 && !order->IsTravelTimetabled()) {
@@ -947,6 +1021,10 @@ std::vector<TimetableProgress> PopulateSeparationState(const Vehicle *v_start)
 			}
 			if (!IsOrderUsableForSeparation(order)) separation_valid = false;
 			cumulative_ticks += order->GetTravelTime() + order->GetWaitTime();
+			/* A passed execute-schedule order took the whole executed cycle. */
+			if (order->IsExecuteScheduleOrder()) {
+				cumulative_ticks += GetEffectiveTotalDuration(OrderList::GetIfValid(order->GetDestination().ToOrderListID()), 0);
+			}
 		}
 		if (!vehicle_ok) continue;
 
@@ -987,7 +1065,7 @@ void UpdateSeparationOrder(Vehicle *v_start)
 	std::vector<TimetableProgress> progress_array = PopulateSeparationState(v_start);
 	if (progress_array.size() < 2) return;
 
-	const uint duration = v_start->orders->GetTotalDuration();
+	const uint duration = GetEffectiveTotalDuration(v_start->orders, 0);
 	Vehicle *v = Vehicle::Get(progress_array.back().id);
 	Vehicle *v_ahead = Vehicle::Get(progress_array.front().id);
 	uint behind_index = (uint)progress_array.size() - 1;
@@ -1346,7 +1424,14 @@ void UpdateVehicleTimetable(Vehicle *v, bool travelling)
 		UpdateSeparationOrder(v);
 		v->current_order_time = 0;
 		v->current_loading_time = 0;
-	} else {
+	} else if (!real_timetable_order->HasNoTimetableTimes()) {
+		/* Orders that cannot carry timetable times (decouple markers, wait-for-
+		 * couple orders, slot/counter/label orders) have no timetabled duration
+		 * to settle against: their IsTravelTimetabled()/IsWaitTimetabled() only
+		 * pretend to be timetabled in order to lock the timetable fields.
+		 * Without this check the actual time spent is charged in full to the
+		 * lateness counter, e.g. the whole inbound leg of a wait-for-couple
+		 * order. */
 		v->lateness_counter -= (timetabled - time_taken);
 	}
 
@@ -1356,7 +1441,7 @@ void UpdateVehicleTimetable(Vehicle *v, bool travelling)
 	 * length of a full cycle till lateness is less than the length of a timetable
 	 * cycle. When the timetable isn't fully filled the cycle will be INVALID_TICKS. */
 	if (v->lateness_counter > (int)timetabled) {
-		Ticks cycle = v->orders->GetTimetableTotalDuration();
+		Ticks cycle = GetEffectiveTimetableTotalDuration(v->orders, 0);
 		if (cycle != INVALID_TICKS && v->lateness_counter > cycle) {
 			if (cycle == 0) {
 				v->lateness_counter = 0;

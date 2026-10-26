@@ -31,16 +31,16 @@ static std::string _ai_saveload_settings;
 static bool        _ai_saveload_is_random;
 
 static const SaveLoad _ai_company_desc[] = {
-	   SLEG_SSTR("name",      _ai_saveload_name,         SLE_STR),
-	   SLEG_SSTR("settings",  _ai_saveload_settings,     SLE_STR),
-	SLEG_CONDVAR("version",   _ai_saveload_version,   SLE_UINT32, SLV_108, SL_MAX_VERSION),
-	SLEG_CONDVAR("is_random", _ai_saveload_is_random,   SLE_BOOL, SLV_136, SLV_AI_LOCAL_CONFIG),
+	   SLEG_SSTR("name",      _ai_saveload_name,         VarTypes::STR),
+	   SLEG_SSTR("settings",  _ai_saveload_settings,     VarTypes::STR),
+	SLEG_CONDVAR("version", _ai_saveload_version, VarFileType::U32 | VarMemType::I32, SaveLoadVersion::StoreAIVersion, SaveLoadVersion::MaxVersion),
+	SLEG_CONDVAR("is_random", _ai_saveload_is_random, VarTypes::BOOL, SaveLoadVersion::SplitLoadWaitCounters, SaveLoadVersion::AILocalConfig),
 };
 
 static const SaveLoad _ai_running_desc[] = {
-	SLEG_CONDSSTR("running_name",     _ai_saveload_name,        SLE_STR, SLV_AI_LOCAL_CONFIG, SL_MAX_VERSION),
-	SLEG_CONDSSTR("running_settings", _ai_saveload_settings,    SLE_STR, SLV_AI_LOCAL_CONFIG, SL_MAX_VERSION),
-	 SLEG_CONDVAR("running_version",  _ai_saveload_version,  SLE_UINT32, SLV_AI_LOCAL_CONFIG, SL_MAX_VERSION),
+	SLEG_CONDSSTR("running_name", _ai_saveload_name, VarTypes::STR, SaveLoadVersion::AILocalConfig, SaveLoadVersion::MaxVersion),
+	SLEG_CONDSSTR("running_settings", _ai_saveload_settings, VarTypes::STR, SaveLoadVersion::AILocalConfig, SaveLoadVersion::MaxVersion),
+	 SLEG_CONDVAR("running_version", _ai_saveload_version, VarFileType::U32 | VarMemType::I32, SaveLoadVersion::AILocalConfig, SaveLoadVersion::MaxVersion),
 };
 
 static void SaveReal_AIPL(int arg)
@@ -75,7 +75,7 @@ static void SaveReal_AIPL(int arg)
 }
 
 struct AIPLChunkHandler : ChunkHandler {
-	AIPLChunkHandler() : ChunkHandler('AIPL', CH_TABLE) {}
+	AIPLChunkHandler() : ChunkHandler("AIPL", ChunkType::Table) {}
 
 	void Load() const override
 	{

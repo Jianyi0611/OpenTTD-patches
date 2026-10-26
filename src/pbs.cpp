@@ -999,6 +999,38 @@ PBSTileInfo FollowTrainReservation(const Train *v, Vehicle **train_on_res, Follo
 	return ftoti.res;
 }
 
+/**
+ * Find a foreign consist physically standing on any tile of the reservation
+ * chain that starts at the given train's moving front.
+ * @param v The train whose reserved path is inspected.
+ * @return a vehicle of the first foreign consist found on the chain, or nullptr.
+ */
+Train *FindForeignTrainOnReservation(const Train *v)
+{
+	const Train *front = v->GetMovingFront();
+	if (!HasReservedTracks(front->tile, front->track) && !IsRailStationTile(front->tile)) return nullptr;
+	Train *result = nullptr;
+	FollowReservationEnumerate(v->owner, v->GetIndirectCompatibleRailTypes(), front->tile, front->GetVehicleTrackdir(), FRF_NONE,
+			[&](TileIndex tile, Trackdir td) -> bool {
+				for (Train *u : VehiclesOnTile<VehicleType::Train>(tile)) {
+					if (u->Primary() == v->Primary()) continue;
+					/* Sheltered depot parts do not occupy the entrance track.
+					 * Parts still entering or leaving keep ordinary track bits
+					 * and must continue to block the reservation. */
+					if (u->track == TRACK_BIT_DEPOT) continue;
+					/* A just-decoupled partner necessarily shares the tile
+					 * around the cut with us (see IsPlatformAheadOccupied); it
+					 * does not stand in our way on that first tile, and the
+					 * partner may wait there for a couple indefinitely. */
+					if (tile == front->tile && u->Primary()->flags.Test(VehicleRailFlag::JustDecoupled)) continue;
+					result = u;
+					return true;
+				}
+				return false;
+			});
+	return result;
+}
+
 void ApplyAvailableFreeTunnelBridgeTiles(TrainReservationLookAhead *lookahead, int free_tiles, TileIndex tile, TileIndex end)
 {
 	lookahead->flags.Set(TrainReservationLookAheadFlag::TunnelBridgeExitFree, free_tiles == INT_MAX);
@@ -1633,7 +1665,7 @@ bool IsCouplePartnerTile(const Train *v, TileIndex tile)
 }
 
 /** Tile budget for the couple approach walk. */
-static constexpr uint COUPLE_APPROACH_BUDGET = 256;
+static constexpr uint COUPLE_APPROACH_BUDGET = 2048;
 
 enum class CoupleApproachOutcome {
 	Unreachable,     ///< the partner could not be reached at all

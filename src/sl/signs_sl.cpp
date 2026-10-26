@@ -12,6 +12,7 @@
 #include "../fios.h"
 
 #include "saveload.h"
+#include "saveload_func.h"
 
 #include "../safeguards.h"
 

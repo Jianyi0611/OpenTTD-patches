@@ -176,8 +176,9 @@ enum SlXvFeatureIndex {
 	XSLFI_ENGINE_MULTI_RAILTYPE,                  ///< See: SLV_ENGINE_MULTI_RAILTYPE (PR #14357)
 	XSLFI_TOWN_SUPPLY_HISTORY,                    ///< See: SLV_TOWN_SUPPLY_HISTORY (PR #14461)
 	XSLFI_DRIVE_BACKWARDS,                        ///< See: SLV_DRIVE_BACKWARDS (PR#15379)
-	XSLFI_TRAIN_SERVICE_AT_STATION,              ///< Trains can be serviced at stations
-	XSLFI_TRAIN_NO_DEPOT_TEMPORARY_STOP,        ///< Trains do not temporarily stop in / route through depots
+	XSLFI_DOUBLE_ENDED_SHIPS,                     ///< See: SLV_DOUBLE_ENDED_SHIPS (PR#16002)
+	XSLFI_TRAIN_SERVICE_AT_STATION,               ///< Trains can be serviced at stations
+	XSLFI_TRAIN_NO_DEPOT_TEMPORARY_STOP,          ///< Trains do not temporarily stop in / route through depots
 
 	XSLFI_PR_13745_APPLIED,                       ///< Tag to indicate that the fix in PR #13745 has been already applied
 	XSLFI_SIGNAL_STATE_FIX,                       ///< Tag for signal state fixes
@@ -287,6 +288,8 @@ inline bool SlXvIsFeatureMissing(SlXvFeatureIndex feature, uint16_t min_version 
 /**
  * Returns true if @p feature is missing (i.e. has a version of 0, or less than the specified minimum version)
  */
+uint GetSavedCargoCount();
+
 inline bool SlXvIsFeatureMissing(const std::array<uint16_t, XSLFI_SIZE> &feature_versions, SlXvFeatureIndex feature, uint16_t min_version = 1)
 {
 	return !SlXvIsFeaturePresent(feature_versions, feature, min_version);
@@ -338,12 +341,6 @@ void SlXvSetCurrentState();
 void SlXvSetStaticCurrentVersions();
 
 bool SlXvCheckSpecialSavegameVersions();
-
-/**
- * Get the number of per-cargo entries which are stored in the savegame currently being loaded.
- * @return The number of per-cargo entries.
- */
-uint GetSavedCargoCount();
 
 bool SlXvIsChunkDiscardable(uint32_t id);
 

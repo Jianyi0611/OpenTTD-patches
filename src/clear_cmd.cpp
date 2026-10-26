@@ -57,17 +57,17 @@ static CommandCost ClearTile_Clear(TileIndex tile, DoCommandFlags flags)
 	return price;
 }
 
-SpriteID GetSpriteIDForClearLand(const Slope slope, uint8_t set)
+SpriteID GetSpriteIDForClearLand(const Slope slope, uint8_t density)
 {
-	return SPR_FLAT_BARE_LAND + SlopeToSpriteOffset(slope) + set * 19;
+	return _clear_land_sprites_grass[density] + SlopeToSpriteOffset(slope);
 }
 
-void DrawClearLandTile(const TileInfo *ti, uint8_t set)
+void DrawClearLandTile(const TileInfo *ti, uint8_t density)
 {
-	DrawGroundSprite(GetSpriteIDForClearLand(ti->tileh, set), PAL_NONE);
+	DrawGroundSprite(GetSpriteIDForClearLand(ti->tileh, density), PAL_NONE);
 }
 
-SpriteID GetSpriteIDForHillyLand(const Slope slope, const uint rough_index)
+SpriteID GetSpriteIDForRoughLand(const Slope slope, const uint rough_index)
 {
 	if (slope != SLOPE_FLAT) {
 		return SPR_FLAT_ROUGH_LAND + SlopeToSpriteOffset(slope);
@@ -76,9 +76,13 @@ SpriteID GetSpriteIDForHillyLand(const Slope slope, const uint rough_index)
 	}
 }
 
-void DrawHillyLandTile(const TileInfo *ti)
+/**
+ * Draw a ClearGround::Rough tile.
+ * @param ti The tile to draw.
+ */
+void DrawRoughLandTile(const TileInfo *ti)
 {
-	DrawGroundSprite(GetSpriteIDForHillyLand(ti->tileh, GB(TileHash(ti->x, ti->y), 4, 3)), PAL_NONE);
+	DrawGroundSprite(GetSpriteIDForRoughLand(ti->tileh, GB(TileHash(ti->x, ti->y), 4, 3)), PAL_NONE);
 }
 
 SpriteID GetSpriteIDForRocks(const Slope slope, const uint tile_hash)
@@ -124,6 +128,10 @@ SpriteID GetSpriteIDForSnowDesert(const Slope slope, const uint density)
 	return _clear_land_sprites_snow_desert[density] + SlopeToSpriteOffset(slope);
 }
 
+/**
+ * Draw the fences atop a ClearGround::Fields tile.
+ * @param ti The tile to draw.
+ */
 static void DrawClearLandFence(const TileInfo *ti)
 {
 	/* combine fences into one sprite object */
@@ -185,7 +193,7 @@ static void DrawTile_Clear(TileInfo *ti, DrawTileProcParams params)
 			break;
 
 		case ClearGround::Rough:
-			if (!params.no_ground_tiles) DrawHillyLandTile(ti);
+			if (!params.no_ground_tiles) DrawRoughLandTile(ti);
 			break;
 
 		case ClearGround::Rocks:
@@ -217,9 +225,7 @@ static void DrawTile_Clear(TileInfo *ti, DrawTileProcParams params)
 				uint8_t density = GetClearDensity(ti->tile);
 				DrawGroundSprite(_clear_land_sprites_snow_desert[density] + slope_to_sprite_offset, PAL_NONE);
 				if (real_ground == ClearGround::Rocks) {
-					/* There 4 levels of snowy overlay rocks, each with 19 sprites. */
-					++density;
-					DrawGroundSprite(SPR_OVERLAY_ROCKS_BASE + (density * 19) + slope_to_sprite_offset, PAL_NONE);
+					DrawGroundSprite(_clear_land_sprites_snowy_rocks[density] + slope_to_sprite_offset, PAL_NONE);
 				}
 			}
 			break;
@@ -415,44 +421,122 @@ static void TileLoop_Clear(TileIndex tile)
 	MarkTileDirtyByTile(tile, VMDF_NOT_MAP_MODE_NON_VEG);
 }
 
+/**
+ * Test if a tile may have rocks on.
+ * @param tile The tile index.
+ * @param allow_water Whether to consider plain water tiles.
+ * @return true if the tile may have rocks.
+ */
+static bool TileMayHaveRocks(TileIndex tile, bool allow_water)
+{
+	if (!IsValidTile(tile)) return false;
+	switch (GetTileType(tile)) {
+		case TileType::Clear: return true;
+		case TileType::Water: return IsCoast(tile) || (allow_water && (IsSea(tile) || IsRiver(tile)));
+		default: return false;
+	}
+}
+
+/**
+ * Make a tile that may have rocks on have rocks on.
+ * @param tile The tile index.
+ */
+static void TileMakeRocks(TileIndex tile)
+{
+	switch (GetTileType(tile)) {
+		case TileType::Clear:
+			SetClearGroundDensity(tile, ClearGround::Rocks, 3);
+			break;
+
+		case TileType::Water:
+			/* Rocks can jump over but not replace rivers. */
+			if (IsRiver(tile)) return;
+			SetWaterTileType(tile, IsCoast(tile) ? WaterTileType::CoastRocks : WaterTileType::ClearRocks);
+			break;
+
+		default:
+			break;
+	}
+}
+
+/**
+ * Generate a cluster of rocks.
+ * @param tile Initial tile.
+ * @param count Number of rocks to attempt to place.
+ */
+void GenerateRocks(TileIndex tile, uint32_t count)
+{
+	if (!TileMayHaveRocks(tile, false)) return;
+
+	for (;;) {
+		TileMakeRocks(tile);
+		MarkTileDirtyByTile(tile);
+
+		TileIndex tile_new;
+		do {
+			if (--count == 0) return;
+			tile_new = tile + TileOffsByDiagDir(RandomRange(DiagDirection::End));
+		} while (!TileMayHaveRocks(tile_new, true));
+		tile = tile_new;
+	}
+}
+
+/**
+ * Test if a tile may have rough ground on.
+ * @param tile The tile index.
+ * @return true if the tile may have rough ground.
+ */
+static bool TileMayHaveRough(TileIndex tile)
+{
+	return IsTileType(tile, TileType::Clear) && !IsClearGround(tile, ClearGround::Desert);
+}
+
+/**
+ * Generate a cluster of rough ground.
+ * @param tile Initial tile.
+ * @param count Number of rough ground tiles to attempt to place.
+ */
+static void GenerateRough(TileIndex tile, uint32_t count)
+{
+	if (!TileMayHaveRough(tile)) return;
+
+	for (;;) {
+		SetClearGroundDensity(tile, ClearGround::Rough, 3);
+		MarkTileDirtyByTile(tile);
+
+		TileIndex tile_new;
+		do {
+			if (--count == 0) return;
+			tile_new = tile + TileOffsByDiagDir(RandomRange(DiagDirection::End));
+		} while (!TileMayHaveRough(tile_new));
+		tile = tile_new;
+	}
+}
+
+/**
+ * Generate rough and rocky features on clear tiles.
+ */
 void GenerateClearTile()
 {
-	uint i, gi;
-	TileIndex tile;
-
-	/* add rough tiles */
-	i = Map::ScaleBySize(GB(Random(), 0, 10) + 0x400);
-	gi = Map::ScaleBySize(GB(Random(), 0, 7) + 0x80);
+	uint i = Map::ScaleBySize(GB(Random(), 0, 9) + 0x200);
+	uint gi = Map::ScaleBySize(GB(Random(), 0, 7) + 0x80);
 
 	SetGeneratingWorldProgress(GenWorldProgress::RoughAndRocks, gi + i);
+
+	/* Add rough tiles. */
 	do {
+		uint32_t r = Random();
 		IncreaseGeneratingWorldProgress(GenWorldProgress::RoughAndRocks);
-		tile = RandomTile();
-		if (IsTileType(tile, TileType::Clear) && !IsClearGround(tile, ClearGround::Desert)) SetClearGroundDensity(tile, ClearGround::Rough, 3);
+		GenerateRough(RandomTileSeed(r), GB(r, 24, 3) + 1);
 	} while (--i);
 
-	/* add rocky tiles */
+	/* Add rocky tiles. */
 	i = gi;
 	do {
 		uint32_t r = Random();
-		tile = RandomTileSeed(r);
-
 		IncreaseGeneratingWorldProgress(GenWorldProgress::RoughAndRocks);
-		if (IsTileType(tile, TileType::Clear)) {
-			uint j = GB(r, 16, 4) + _settings_game.game_creation.amount_of_rocks + ((int)TileHeight(tile) * _settings_game.game_creation.height_affects_rocks);
-			for (;;) {
-				TileIndex tile_new;
-
-				SetClearGroundDensity(tile, ClearGround::Rocks, 3);
-				MarkTileDirtyByTile(tile);
-				do {
-					if (--j == 0) goto get_out;
-					tile_new = tile + TileOffsByDiagDir((DiagDirection)GB(Random(), 0, 2));
-				} while (!IsTileType(tile_new, TileType::Clear));
-				tile = tile_new;
-			}
-get_out:;
-		}
+		TileIndex tile = RandomTileSeed(r);
+		GenerateRocks(tile, GB(r, 24, 4) + _settings_game.game_creation.amount_of_rocks + ((int)TileHeight(tile) * _settings_game.game_creation.height_affects_rocks));
 	} while (--i);
 }
 

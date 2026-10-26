@@ -29,6 +29,8 @@
 #include "../fios.h"
 #include "network_content_gui.h"
 
+#include "../widgets/network_content_widget.h"
+#include "../widgets/misc_widget.h"
 
 #include "table/strings.h"
 #include "../table/sprites.h"
@@ -165,19 +167,19 @@ void BaseNetworkContentDownloadStatusWindow::DrawWidget(const Rect &r, WidgetID 
 			DrawFrameRect(ir.WithWidth((uint64_t)ir.Width() * this->downloaded_bytes / this->total_bytes, _current_text_dir == TD_RTL), Colours::Mauve, {});
 			DrawString(ir.left, ir.right, CentreBounds(ir.top, ir.bottom, GetCharacterHeight(FontSize::Normal)),
 				GetString(STR_CONTENT_DOWNLOAD_PROGRESS_SIZE, this->downloaded_bytes, this->total_bytes, this->downloaded_bytes * 100LL / this->total_bytes),
-				TextColour::FromString, SA_HOR_CENTER);
+				TextColour::FromString, AlignmentH::Centre);
 			break;
 		}
 
 		case WID_NCDS_PROGRESS_TEXT:
 			if (this->downloaded_bytes == this->total_bytes) {
-				DrawStringMultiLine(r, STR_CONTENT_DOWNLOAD_COMPLETE, TextColour::FromString, SA_CENTER);
+				DrawStringMultiLine(r, STR_CONTENT_DOWNLOAD_COMPLETE, TextColour::FromString, {AlignmentH::Centre, AlignmentV::Middle});
 			} else if (!this->name.empty()) {
 				DrawStringMultiLine(r,
 					GetString(STR_CONTENT_DOWNLOAD_FILE, this->name, this->downloaded_files, this->total_files),
-					TextColour::FromString, SA_CENTER);
+					TextColour::FromString, {AlignmentH::Centre, AlignmentV::Middle});
 			} else {
-				DrawStringMultiLine(r, STR_CONTENT_DOWNLOAD_INITIALISE, TextColour::FromString, SA_CENTER);
+				DrawStringMultiLine(r, STR_CONTENT_DOWNLOAD_INITIALISE, TextColour::FromString, {AlignmentH::Centre, AlignmentV::Middle});
 			}
 			break;
 	}
@@ -687,12 +689,12 @@ public:
 				case ContentInfo::State::DoesNotExist: sprite = SPR_BLOT; pal = PALETTE_TO_RED; break;
 				default: NOT_REACHED();
 			}
-			DrawSpriteIgnorePadding(sprite, pal, checkbox.WithY(mr), SA_CENTER);
+			DrawSpriteIgnorePadding(sprite, pal, checkbox.WithY(mr), {AlignmentH::Centre, AlignmentV::Middle});
 
 			StringID str = GetContentTypeString(ci->type);
-			DrawString(type.left, type.right, mr.top + text_y_offset, str, TextColour::Black, SA_HOR_CENTER);
+			DrawString(type.left, type.right, mr.top + text_y_offset, str, TextColour::Black, AlignmentH::Centre);
 
-			int x = DrawString(name.left, name.right, mr.top + version_y_offset, ci->version, TextColour::Black, SA_RIGHT, false, FontSize::Small);
+			int x = DrawString(name.left, name.right, mr.top + version_y_offset, ci->version, TextColour::Black, AlignmentH::End, false, FontSize::Small);
 			x += rtl ? WidgetDimensions::scaled.hsep_wide : -WidgetDimensions::scaled.hsep_wide;
 
 			DrawString(rtl ? x : name.left, rtl ? name.right : x, mr.top + text_y_offset, ci->name, TextColour::Black);
@@ -715,7 +717,7 @@ public:
 
 		/* Create the nice darker rectangle at the details top */
 		GfxFillRect(r.WithHeight(HEADER_HEIGHT).Shrink(WidgetDimensions::scaled.bevel.left, WidgetDimensions::scaled.bevel.top, WidgetDimensions::scaled.bevel.right, 0), GetColourGradient(Colours::LightBlue, Shade::Normal));
-		DrawString(hr.left, hr.right, hr.top, STR_CONTENT_DETAIL_TITLE, TextColour::FromString, SA_HOR_CENTER);
+		DrawString(hr.left, hr.right, hr.top, STR_CONTENT_DETAIL_TITLE, TextColour::FromString, AlignmentH::Centre);
 
 		/* Draw the total download size */
 		DrawString(tr.left, tr.right, tr.bottom - GetCharacterHeight(FontSize::Normal) + 1, GetString(STR_CONTENT_TOTAL_DOWNLOAD_SIZE, this->filesize_sum));
@@ -723,7 +725,7 @@ public:
 		if (this->selected == nullptr) return;
 
 		/* And fill the rest of the details when there's information to place there */
-		DrawStringMultiLine(hr.left, hr.right, hr.top + GetCharacterHeight(FontSize::Normal), hr.bottom, STR_CONTENT_DETAIL_SUBTITLE_UNSELECTED + to_underlying(this->selected->state), TextColour::FromString, SA_CENTER);
+		DrawStringMultiLine(hr.left, hr.right, hr.top + GetCharacterHeight(FontSize::Normal), hr.bottom, STR_CONTENT_DETAIL_SUBTITLE_UNSELECTED + to_underlying(this->selected->state), TextColour::FromString, {AlignmentH::Centre, AlignmentV::Middle});
 
 		/* Also show the total download size, so keep some space from the bottom */
 		tr.bottom -= GetCharacterHeight(FontSize::Normal) + WidgetDimensions::scaled.vsep_wide;
@@ -799,7 +801,7 @@ public:
 
 	void OnClick([[maybe_unused]] Point pt, WidgetID widget, [[maybe_unused]] int click_count) override
 	{
-		if (widget >= WID_NCL_TEXTFILE && widget < WID_NCL_TEXTFILE + TFT_CONTENT_END) {
+		if (widget >= WID_NCL_TEXTFILE && widget < WID_NCL_TEXTFILE + TextfileType::ContentEnd) {
 			if (this->selected == nullptr || this->selected->state != ContentInfo::State::AlreadyHere) return;
 
 			ShowContentTextfileWindow(this, (TextfileType)(widget - WID_NCL_TEXTFILE), this->selected);
@@ -1006,7 +1008,7 @@ public:
 		this->SetWidgetDisabledState(WID_NCL_SELECT_ALL, !show_select_all);
 		this->SetWidgetDisabledState(WID_NCL_SELECT_UPDATE, !show_select_upgrade || !this->filter_data.string_filter.IsEmpty());
 		this->SetWidgetDisabledState(WID_NCL_OPEN_URL, this->selected == nullptr || this->selected->url.empty());
-		for (TextfileType tft : EnumRange(TFT_CONTENT_BEGIN, TFT_CONTENT_END)) {
+		for (TextfileType tft : EnumRange(TextfileType::ContentBegin, TextfileType::ContentEnd)) {
 			this->SetWidgetDisabledState(WID_NCL_TEXTFILE + tft, this->selected == nullptr || this->selected->state != ContentInfo::State::AlreadyHere || !this->selected->GetTextfile(tft).has_value());
 		}
 	}
@@ -1049,7 +1051,7 @@ static constexpr std::initializer_list<NWidgetPart> _nested_network_content_list
 		NWidget(NWID_VERTICAL), SetPIP(0, WidgetDimensions::unscaled.vsep_wide, 0), SetPadding(WidgetDimensions::unscaled.sparse_resize),
 			/* Top */
 			NWidget(NWID_HORIZONTAL, NWidContainerFlag::EqualSize), SetPIP(0, WidgetDimensions::unscaled.hsep_wide, 0),
-				NWidget(WWT_TEXT, Colours::Invalid, WID_NCL_FILTER_CAPT), SetFill(1, 0), SetResize(1, 0), SetStringTip(STR_CONTENT_FILTER_TITLE), SetAlignment(SA_RIGHT | SA_VERT_CENTER),
+				NWidget(WWT_TEXT, Colours::Invalid, WID_NCL_FILTER_CAPT), SetFill(1, 0), SetResize(1, 0), SetStringTip(STR_CONTENT_FILTER_TITLE), SetAlignment({AlignmentH::End, AlignmentV::Middle}),
 				NWidget(WWT_EDITBOX, Colours::LightBlue, WID_NCL_FILTER), SetFill(1, 0), SetResize(1, 0),
 						SetStringTip(STR_LIST_FILTER_OSKTITLE, STR_LIST_FILTER_TOOLTIP),
 			EndContainer(),
@@ -1088,11 +1090,11 @@ static constexpr std::initializer_list<NWidgetPart> _nested_network_content_list
 					NWidget(NWID_VERTICAL),
 						NWidget(NWID_HORIZONTAL, NWidContainerFlag::EqualSize),
 							NWidget(WWT_PUSHTXTBTN, Colours::White, WID_NCL_OPEN_URL), SetResize(1, 0), SetFill(1, 0), SetStringTip(STR_CONTENT_OPEN_URL, STR_CONTENT_OPEN_URL_TOOLTIP),
-							NWidget(WWT_PUSHTXTBTN, Colours::White, WID_NCL_TEXTFILE + TFT_README), SetFill(1, 0), SetResize(1, 0), SetStringTip(STR_TEXTFILE_VIEW_README, STR_TEXTFILE_VIEW_README_TOOLTIP),
+							NWidget(WWT_PUSHTXTBTN, Colours::White, WID_NCL_TEXTFILE + TextfileType::Readme), SetFill(1, 0), SetResize(1, 0), SetStringTip(STR_TEXTFILE_VIEW_README, STR_TEXTFILE_VIEW_README_TOOLTIP),
 						EndContainer(),
 						NWidget(NWID_HORIZONTAL, NWidContainerFlag::EqualSize),
-							NWidget(WWT_PUSHTXTBTN, Colours::White, WID_NCL_TEXTFILE + TFT_CHANGELOG), SetFill(1, 0), SetResize(1, 0), SetStringTip(STR_TEXTFILE_VIEW_CHANGELOG, STR_TEXTFILE_VIEW_CHANGELOG_TOOLTIP),
-							NWidget(WWT_PUSHTXTBTN, Colours::White, WID_NCL_TEXTFILE + TFT_LICENSE), SetFill(1, 0), SetResize(1, 0), SetStringTip(STR_TEXTFILE_VIEW_LICENCE, STR_TEXTFILE_VIEW_LICENCE_TOOLTIP),
+							NWidget(WWT_PUSHTXTBTN, Colours::White, WID_NCL_TEXTFILE + TextfileType::Changelog), SetFill(1, 0), SetResize(1, 0), SetStringTip(STR_TEXTFILE_VIEW_CHANGELOG, STR_TEXTFILE_VIEW_CHANGELOG_TOOLTIP),
+							NWidget(WWT_PUSHTXTBTN, Colours::White, WID_NCL_TEXTFILE + TextfileType::License), SetFill(1, 0), SetResize(1, 0), SetStringTip(STR_TEXTFILE_VIEW_LICENCE, STR_TEXTFILE_VIEW_LICENCE_TOOLTIP),
 						EndContainer(),
 					EndContainer(),
 				EndContainer(),

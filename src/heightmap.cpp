@@ -13,7 +13,7 @@
 #include "strings_func.h"
 #include "void_map.h"
 #include "error.h"
-#include "sl/saveload.h"
+#include "sl/saveload_func.h"
 #include "bmp.h"
 #include "gfx_func.h"
 #include "fios.h"

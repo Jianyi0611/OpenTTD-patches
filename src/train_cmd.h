@@ -22,6 +22,8 @@ enum class MoveRailVehicleFlags : uint8_t {
 };
 DECLARE_ENUM_AS_BIT_SET(MoveRailVehicleFlags)
 
+struct Order;
+
 DEF_CMD_TUPLE_LT (Commands::MoveRailVehicle,          CmdMoveRailVehicle,           {}, CommandType::VehicleConstruction, CmdDataT<VehicleID, VehicleID, MoveRailVehicleFlags>)
 DEF_CMD_TUPLE_LT (Commands::ForceTrainProceed,        CmdForceTrainProceed,         {}, CommandType::VehicleManagement,   CmdDataT<VehicleID>)
 DEF_CMD_TUPLE_LT (Commands::ReverseTrainDirection,    CmdReverseTrainDirection,     {}, CommandType::VehicleManagement,   CmdDataT<VehicleID, bool>)
@@ -38,5 +40,6 @@ extern btree::btree_map<VehicleID, uint64_t> _couple_search_last_fail;
 void ClearCoupleSearchLastFail();
 void CancelTrainCoupleCheckpoint(Train *train);
 bool TrainShouldWaitForCoupleAtCheckpoint(Train *train, bool *at_checkpoint = nullptr, StationID arrived = StationID::Invalid());
+bool IsCoupleCheckpointEngaged(const Train *moving, const Order *order);
 
 #endif /* TRAIN_CMD_H */

@@ -13,6 +13,7 @@
 #include "strings_type.h"
 #include "string_type.h"
 #include "gfx_type.h"
+#include "newgrf_type.h"
 #include "core/bitmath_func.hpp"
 #include "vehicle_type.h"
 #include <array>
@@ -26,7 +27,7 @@
  */
 inline StringTab GetStringTab(StringID str)
 {
-	StringTab result = (StringTab)(str >> TAB_SIZE_BITS);
+	StringTab result = static_cast<StringTab>(str.base() >> TAB_SIZE_BITS);
 	if (result >= TEXT_TAB_NEWGRF_START) return TEXT_TAB_NEWGRF_START;
 	if (result >= TEXT_TAB_GAMESCRIPT_START) return TEXT_TAB_GAMESCRIPT_START;
 	return result;
@@ -39,7 +40,7 @@ inline StringTab GetStringTab(StringID str)
  */
 inline StringIndexInTab GetStringIndex(StringID str)
 {
-	return StringIndexInTab{str - (GetStringTab(str) << TAB_SIZE_BITS)};
+	return StringIndexInTab{str.base() - (GetStringTab(str) << TAB_SIZE_BITS)};
 }
 
 /**
@@ -58,7 +59,7 @@ inline StringID MakeStringID(StringTab tab, StringIndexInTab index)
 		assert(tab < TEXT_TAB_END);
 		assert(index < TAB_SIZE);
 	}
-	return (tab << TAB_SIZE_BITS) + index.base();
+	return StringID{(tab << TAB_SIZE_BITS) + index.base()};
 }
 
 /**
@@ -76,7 +77,7 @@ static inline void PrepareArgsForNextRun(std::span<StringParameter> args)
 [[nodiscard]] std::string_view GetStringPtr(StringID string);
 void AppendStringWithArgsInPlace(struct format_target &result, StringID string, std::span<StringParameter> args);
 void AppendStringWithArgsInPlace(std::string &result, StringID string, std::span<StringParameter> args);
-uint32_t GetStringGRFID(StringID string);
+GrfID GetStringGRFID(StringID string);
 
 uint ConvertKmhishSpeedToDisplaySpeed(uint speed, VehicleType type);
 uint ConvertDisplaySpeedToKmhishSpeed(uint speed, VehicleType type);
@@ -320,5 +321,7 @@ public:
 };
 
 void CheckForMissingGlyphs(MissingGlyphSearcher *searcher = nullptr);
+
+void AppendWidestTinyOrIsoCalendarDate(struct format_target &result, bool iso, FontSize size = FontSize::Normal);
 
 #endif /* STRINGS_FUNC_H */

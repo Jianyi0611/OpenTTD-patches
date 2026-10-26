@@ -10,6 +10,7 @@
 #include "stdafx.h"
 #include "tracerestrict_overtaking.h"
 #include "aircraft.h"
+#include "airport_cmd.h"
 #include "base_media_base.h"
 #include "base_media_music.h"
 #include "base_media_sounds.h"
@@ -365,14 +366,19 @@ static int32_t GetDefaultServiceInterval(const IntSettingDesc &sd, VehicleType t
 }
 
 /**
- * Callback for when the player changes the timekeeping units.
- * @param Unused.
+ * Callback for when the player changes the custom airport setting.
+ * Enabling the feature converts all airports of the game into custom airports.
+ * @param new_value The new value of the setting.
  */
-static void ModifyAirportLayout(int32_t)
+static void ModifyAirportLayout(int32_t new_value)
 {
 	CloseWindowByClass(WindowClass::BuildToolbar);
 	extern AirType _last_built_airtype;
 	_last_built_airtype = AIRTYPE_BEGIN;
+
+	if (new_value != 0 && (_game_mode == GameMode::Normal || _game_mode == GameMode::Editor)) {
+		ConvertAllAirportsToCustom();
+	}
 }
 
 static void ChangeTimekeepingUnits(int32_t)
@@ -687,7 +693,7 @@ static void AircraftRangeChanged(int32_t)
 
 static void TownFoundingChanged(int32_t new_value)
 {
-	if (_game_mode != GameMode::Editor && _settings_game.economy.found_town == TF_FORBIDDEN) {
+	if (_game_mode != GameMode::Editor && _settings_game.economy.found_town == TownFounding::Forbidden) {
 		CloseWindowById(WindowClass::FoundTown, 0);
 	} else {
 		InvalidateWindowData(WindowClass::FoundTown, 0);

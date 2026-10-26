@@ -82,9 +82,10 @@ enum OrderWidgets : WidgetID {
 	WID_O_COUPLE_SLOT,               ///< Select trace restrict slot for coupling.
 	WID_O_COUPLE_STATION,            ///< Select the station to couple at.
 	WID_O_COUPLE_MORE,               ///< Open the window with the remaining coupling criteria.
-	WID_O_COUPLE_DIAGNOSTICS,        ///< Show coupling target and candidate diagnostics.
+	WID_O_COUPLE_USE_WAITING,        ///< Toggle using the waiting train's schedule when coupling.
 	WID_O_ORDERS_FIRST,              ///< Select orders for first part of decoupled train.
 	WID_O_ORDERS_SECOND,             ///< Select orders for second part of decoupled train.
+	WID_O_WAIT_COUPLE_DIAGNOSTICS,   ///< Show whether a waiting train has been claimed.
 	WID_O_WAIT_COUPLE_STATION,       ///< Select the station a waiting train travels to before holding.
 };
 

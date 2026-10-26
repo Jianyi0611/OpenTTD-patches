@@ -51,7 +51,7 @@ void Order::ConvertFromOldSavegame()
 	this->flags = 0;
 
 	/* First handle non-stop - use value from savegame if possible, else use value from config file */
-	if (_settings_client.gui.sg_new_nonstop || (IsSavegameVersionBefore(SLV_22) && _savegame_type != SGT_TTO && _savegame_type != SGT_TTD && (_settings_client.gui.new_nonstop || _settings_game.order.nonstop_only))) {
+	if (_settings_client.gui.sg_new_nonstop || (IsSavegameVersionBefore(SLV_22) && _savegame_type != SavegameType::TTO && _savegame_type != SavegameType::TTD && (_settings_client.gui.new_nonstop || _settings_game.order.nonstop_only))) {
 		/* OFB_NON_STOP */
 		this->SetNonStopType((old_flags & 8) ? ONSF_NO_STOP_AT_ANY_STATION : ONSF_NO_STOP_AT_INTERMEDIATE_STATIONS);
 	} else {
@@ -208,6 +208,8 @@ NamedSaveLoadTable GetOrderDescription()
 		NSL("couple_speed_unit2", SLE_CONDVAR_X(Order, couple_speed_unit2, SLE_UINT8, SL_MIN_VERSION, SL_MAX_VERSION, SlXvFeatureTest(XSLFTO_AND, XSLFI_COUPLE_SPEED_FILTER, 2))),
 		NSL("couple_speed_value1", SLE_CONDVAR_X(Order, couple_speed_value1, SLE_UINT16, SL_MIN_VERSION, SL_MAX_VERSION, SlXvFeatureTest(XSLFTO_AND, XSLFI_COUPLE_SPEED_FILTER, 2))),
 		NSL("couple_speed_value2", SLE_CONDVAR_X(Order, couple_speed_value2, SLE_UINT16, SL_MIN_VERSION, SL_MAX_VERSION, SlXvFeatureTest(XSLFTO_AND, XSLFI_COUPLE_SPEED_FILTER, 2))),
+		NSL("couple_speed_comparator1", SLE_CONDVAR_X(Order, couple_speed_comparator1, SLE_UINT8, SL_MIN_VERSION, SL_MAX_VERSION, SlXvFeatureTest(XSLFTO_AND, XSLFI_COUPLE_SPEED_FILTER, 3))),
+		NSL("couple_speed_comparator2", SLE_CONDVAR_X(Order, couple_speed_comparator2, SLE_UINT8, SL_MIN_VERSION, SL_MAX_VERSION, SlXvFeatureTest(XSLFTO_AND, XSLFI_COUPLE_SPEED_FILTER, 3))),
 		NSL("max_speed",       SLE_CONDVAR(Order, max_speed,          SLE_UINT16,                   SLV_172, SL_MAX_VERSION)),
 		NSL("",             SLE_CONDNULL_X(1,                                                       SL_MIN_VERSION, SL_MAX_VERSION, SlXvFeatureTest(XSLFTO_AND, XSLFI_MORE_COND_ORDERS, 1, 6))), // jump_counter
 
@@ -730,10 +732,10 @@ static void Ptrs_BKOR()
 }
 
 static const ChunkHandler order_chunk_handlers[] = {
-	{ 'BKOR', Save_BKOR, Load_BKOR, Ptrs_BKOR, nullptr, CH_TABLE },
-	{ 'ORDR', nullptr,   Load_ORDR, nullptr,   nullptr, CH_READONLY },
-	{ 'ORDL', Save_ORDL, Load_ORDL, Ptrs_ORDL, nullptr, CH_TABLE },
-	{ 'ORDX', nullptr,   Load_ORDX, nullptr,   nullptr, CH_READONLY },
+	{ 'BKOR', Save_BKOR, Load_BKOR, Ptrs_BKOR, nullptr, ChunkType::Table },
+	{ 'ORDR', nullptr,   Load_ORDR, nullptr,   nullptr, ChunkType::ReadOnly },
+	{ 'ORDL', Save_ORDL, Load_ORDL, Ptrs_ORDL, nullptr, ChunkType::Table },
+	{ 'ORDX', nullptr,   Load_ORDX, nullptr,   nullptr, ChunkType::ReadOnly },
 };
 
 extern const ChunkHandlerTable _order_chunk_handlers(order_chunk_handlers);

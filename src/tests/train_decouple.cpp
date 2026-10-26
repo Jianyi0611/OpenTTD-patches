@@ -38,10 +38,12 @@
 #include "../rail_cmd.h"
 #include "../signal_func.h"
 #include "../bridge_map.h"
+#include "../depot_base.h"
 #include "../roadveh_transport.h"
 #include "../scope.h"
 #include "../gfx_type.h"
 #include "../sl/saveload.h"
+#include "../sl/saveload_func.h"
 #include "../sl/saveload_filter.h"
 #include "../strings_func.h"
 
@@ -53,7 +55,7 @@ extern void UpdateVehicleTileHash(Vehicle *v, bool remove);
 struct CoupleSnapshotCapture : SaveFilter {
 	std::vector<uint8_t> bytes;
 	CoupleSnapshotCapture() : SaveFilter(nullptr) {}
-	void Write(uint8_t *data, size_t size) override { bytes.insert(bytes.end(), data, data + size); }
+	void Write(const uint8_t *data, size_t size) override { bytes.insert(bytes.end(), data, data + size); }
 };
 
 TEST_CASE("Aircraft - state transitions refresh callback caches even when stopped")
@@ -310,7 +312,7 @@ TEST_CASE_METHOD(TrainDecoupleFixture, "Couple - network snapshot preserves wide
 	DeallocateMap();
 	REQUIRE(result == SaveLoadResult::Ok);
 	/* Older clients must reject snapshots whose coupling criteria they cannot enforce. */
-	for (const std::string field : {"current_order.couple_speed_value1", "current_order.couple_speed_value2", "current_order.couple_speed_unit1", "current_order.couple_speed_unit2"}) {
+	for (const std::string field : {"current_order.couple_speed_value1", "current_order.couple_speed_value2", "current_order.couple_speed_unit1", "current_order.couple_speed_unit2", "current_order.couple_speed_comparator1", "current_order.couple_speed_comparator2"}) {
 		CHECK(std::search(snapshot->bytes.begin(), snapshot->bytes.end(), field.begin(), field.end()) != snapshot->bytes.end());
 	}
 	const std::string speed_feature = "couple_speed_filter";
@@ -395,8 +397,8 @@ TEST_CASE_METHOD(TrainDecoupleFixture, "Couple - callback trial restores both co
 	SetBit(engine->cb36_properties_used, PROP_TRAIN_USER_DATA);
 	CallbackResultSpriteGroup result(0x400);
 	DeterministicSpriteGroup group(SpriteGroupID::Invalid());
-	group.size = DSG_SIZE_DWORD;
-	group.var_scope = VSG_SCOPE_SELF;
+	group.size = DeterministicSpriteGroupSize::DWord;
+	group.var_scope = VarSpriteGroupScope::Self;
 	DeterministicSpriteGroupAdjust adjust{};
 	adjust.variable = 0x40;
 	adjust.and_mask = UINT32_MAX;
@@ -581,7 +583,7 @@ TEST_CASE_METHOD(TrainDecoupleFixture, "Couple - allow only an adjacent engine o
 	DeallocateMap();
 }
 
-TEST_CASE_METHOD(TrainDecoupleFixture, "Schedule - nested returns resume each caller")
+TEST_CASE_METHOD(TrainDecoupleFixture, "Schedule - finishing any schedule returns to the primary list")
 {
 	Train *v = MakeTrain();
 	auto make_list = []() {
@@ -600,19 +602,17 @@ TEST_CASE_METHOD(TrainDecoupleFixture, "Schedule - nested returns resume each ca
 	v->primary_order_index = 2;
 	v->execute_schedule_stack.push_back(parent->index.base() | (1U << 16));
 	SECTION("ordinary return") {}
-	SECTION("nested call at the end of another list") {
+	SECTION("stale frames from older nested semantics are ignored") {
 		OrderList *completed = make_list();
 		v->execute_schedule_stack.push_back(completed->index.base() | (3U << 16));
 	}
 	v->ReturnFromExecuteSchedule();
-	CHECK(v->orders == parent);
-	CHECK(v->cur_real_order_index == 1);
-	CHECK(v->primary_order == root->index);
-	CHECK(v->IsExecutingSchedule());
-	v->ReturnFromExecuteSchedule();
 	CHECK(v->orders == root);
 	CHECK(v->cur_real_order_index == 2);
+	CHECK(v->primary_order == root->index);
+	CHECK(v->primary_order_index == INVALID_VEH_ORDER_ID);
 	CHECK_FALSE(v->IsExecutingSchedule());
+	CHECK(v->execute_schedule_stack.empty());
 	_vehicle_pool.CleanPool();
 	_orderlist_pool.CleanPool();
 }
@@ -1372,6 +1372,7 @@ protected:
 		_tracerestrictslot_pool.CleanPool();
 		_vehicle_pool.CleanPool();
 		ResetVehicleHash();
+		_station_pool.CleanPool();
 		_company_pool.CleanPool();
 		DeallocateMap();
 	}
@@ -5439,3 +5440,90 @@ TEST_CASE_METHOD(AutomaticYieldStationRouteFixture,"Automatic yield station cont
 #include "auto_yield_topology_proof.inc"
 #include "auto_yield_outlet_candidates.inc"
 #include "auto_yield_mixed_platform.inc"
+#include "auto_yield_depot_reservation.inc"
+
+/** A goto-couple train directly behind an unclaimed waiting partner. */
+class CoupleBlockingPartnerFixture : public TrainDecoupleFixture {
+protected:
+	AutoRestoreBackup<CompanyID> company_backup{_current_company, AutoRestoreBackupNoNewValueTag{}};
+	AutoRestoreBackup<uint8_t> length_limit{_settings_game.vehicle.max_train_length, uint8_t{8}};
+	AutoRestoreBackup<RailTypes> rail_direct{const_cast<RailTypeInfo *>(GetRailTypeInfo(RAILTYPE_RAIL))->compatible_railtypes, RailTypes{RAILTYPE_RAIL}};
+	AutoRestoreBackup<RailTypes> rail_power{const_cast<RailTypeInfo *>(GetRailTypeInfo(RAILTYPE_RAIL))->powered_railtypes, RailTypes{RAILTYPE_RAIL}};
+	AutoRestoreBackup<RailTypes> rail_compatibility{const_cast<RailTypeInfo *>(GetRailTypeInfo(RAILTYPE_RAIL))->indirect_compatible_railtypes, RailTypes{RAILTYPE_RAIL}};
+	Train *moving;
+	Train *waiting;
+	Station *station;
+
+	CoupleBlockingPartnerFixture()
+	{
+		REQUIRE(Company::GetNumItems() == 0);
+		REQUIRE(Station::GetNumItems() == 0);
+		ResetVehicleHash();
+		AllocateMap(64, 64);
+		_current_company = Company::Create()->index;
+		for (uint x = 9; x <= 12; x++) MakeRailNormal(TileXY(x, 10), _current_company, TRACK_BIT_X, RAILTYPE_RAIL);
+		station = Station::Create(TileXY(12, 10));
+		station->owner = _current_company;
+		station->facilities = {StationFacility::Train};
+		station->train_station = TileArea(station->xy, 1, 1);
+		station->rect.BeforeAddTile(station->xy, StationRect::ADD_FORCE);
+		MakeRailStation(station->xy, _current_company, station->index, Axis::X, 0, RAILTYPE_RAIL);
+		moving = MakeTrain();
+		waiting = MakeTrain();
+		Place(moving, 10);
+		Place(waiting, 12);
+		for (Train *train : {moving, waiting}) {
+			train->SetFrontEngine();
+			train->owner = _current_company;
+			train->track = TRACK_BIT_X;
+			train->direction = Direction::SW;
+			train->compatible_railtypes.Set(RAILTYPE_RAIL);
+			train->railtypes.Set(RAILTYPE_RAIL);
+			train->vcache.cached_max_speed = 120;
+			train->gcache.cached_total_length = VEHICLE_LENGTH;
+		}
+		moving->current_order.MakeGoToCouple();
+		moving->current_order.SetCoupleSlot(TraceRestrictSlotID::Invalid());
+		waiting->current_order.MakeWaitCouple();
+		waiting->current_order.SetCoupleSlot(TraceRestrictSlotID::Invalid());
+		waiting->last_station_visited = station->index;
+		/* Both consists have their current tile reserved. The waiting train
+		 * occupies the only exit line, exactly where the approach starts. */
+		REQUIRE(TryReserveRailTrack(moving->tile, TRACK_X));
+		REQUIRE(TryReserveRailTrack(waiting->tile, TRACK_X));
+	}
+
+	~CoupleBlockingPartnerFixture()
+	{
+		_vehicle_pool.CleanPool();
+		ResetVehicleHash();
+		_orderlist_pool.CleanPool();
+		_station_pool.CleanPool();
+		_company_pool.CleanPool();
+		ClearOrderDestinationRefcountMap();
+		DeallocateMap();
+	}
+
+	void Place(Train *train, uint x)
+	{
+		train->tile = TileXY(x, 10);
+		train->x_pos = x * TILE_SIZE + 8;
+		train->y_pos = 10 * TILE_SIZE + 8;
+		train->z_pos = 0;
+		UpdateVehicleTileHash(train, false);
+	}
+};
+
+TEST_CASE_METHOD(CoupleBlockingPartnerFixture, "Couple - goto couple claims a waiting partner blocking the line")
+{
+	GameRandomSeedChecker random_checker;
+	ClearCoupleSearchLastFail();
+	/* The first extension stops at the waiting train before the target search
+	 * has run. The approach must claim that partner and reserve up to it. */
+	REQUIRE(TryPathReserve(moving));
+	CHECK(moving->couple_target == waiting->index);
+	CHECK(GetCoupleClaimant(waiting) == moving);
+	CHECK(GetRailReservationTrackBits(TileXY(11, 10)) != TRACK_BIT_NONE);
+	CHECK(random_checker.Check());
+	for (Train *train : {moving, waiting}) CHECK(ValidateVehicleTileHash(train));
+}

@@ -1533,6 +1533,8 @@ STR_CONFIG_DEPARTURE_VEHICLE_TYPE                               :Show vehicle ty
 STR_CONFIG_DEPARTURE_VEHICLE_TYPE_HELPTEXT                      :Whether to show a vehicle's type as an icon in its departure board entries
 STR_CONFIG_DEPARTURE_VEHICLE_COLOR                              :Show vehicle type icon in silver: {STRING2}
 STR_CONFIG_DEPARTURE_VEHICLE_COLOR_HELPTEXT                     :Whether to show vehicle type icons in silver
+STR_CONFIG_DEPARTURE_SCHEDULE_ROUTE_ID                          :Show vehicle route ID in entries: {STRING2}
+STR_CONFIG_DEPARTURE_SCHEDULE_ROUTE_ID_HELPTEXT                 :Whether to show schedule the dispatch route ID associated a departure board entry
 STR_CONFIG_DEPARTURE_LARGER_FONT                                :Use larger font for stations called at on departure boards: {STRING2}
 STR_CONFIG_DEPARTURE_LARGER_FONT_HELPTEXT                       :Whether to use a larger font for lists of stations called at
 STR_CONFIG_DEPARTURE_DESTINATION_TYPE                           :Show icons for destinations that are docks or airports: {STRING2}
@@ -1869,6 +1871,7 @@ STR_ORDER_APPEND_REVERSED_ORDER_LIST                            :Append reversed
 STR_ORDER_DUPLICATE_ORDER                                       :Duplicate order
 STR_ORDER_CHANGE_JUMP_TARGET                                    :Change jump target
 STR_ORDER_EXPORT_ORDER_LIST                                     :Export order list
+STR_ORDER_EXPORT_ORDER_LISTS                                    :Export order lists
 STR_ORDER_IMPORT_ORDER_LIST_REPLACE                             :Import order list (replace)
 STR_ORDER_IMPORT_ORDER_LIST_APPEND                              :Import order list (append)
 STR_ORDER_IMPORT_ORDER_LIST_INSERT                              :Import order list (insert)
@@ -1881,7 +1884,7 @@ STR_ORDER_TRY_ACQUIRE_SLOT_BUTTON                               :Try acquire slo
 STR_ORDER_EXECUTE_SCHEDULE_BUTTON                               :Execute schedule
 STR_ORDER_EXECUTE_SCHEDULE                                      :Execute schedule: {RAW_STRING}
 STR_ORDER_EXECUTE_SCHEDULE_UNDEFINED                             :Execute schedule: {STRING}
-STR_ORDER_EXECUTE_SCHEDULE_TOOLTIP                              :{BLACK}The order list to execute when this order is reached
+STR_ORDER_EXECUTE_SCHEDULE_TOOLTIP                              :{BLACK}The order list to execute when this order is reached. Hold Shift to also show other companies' public schedules
 STR_ORDERS_END_OF_EXECUTE_SCHEDULE                              :- - {RAW_STRING} execution finished - -
 STR_ORDERS_EXIT_EXECUTE_BUTTON                                  :{BLACK}Exit execution
 STR_ORDERS_EXIT_EXECUTE_TOOLTIP                                 :{BLACK}Exit the currently executed schedule and return to this vehicle's own orders
@@ -2108,11 +2111,17 @@ STR_ORDER_LIST_ALL_SCHEDULES                                    :All schedules
 STR_ORDER_LIST_ALL_SCHEDULES_TOOLTIP                            :{BLACK}Drag a schedule or group here to move it out of its group
 STR_ORDER_WAIT_COUPLE_STATION_TOOLTIP                            :{BLACK}Select a station on the map for the train to wait at. Click again to clear, so the train holds where it is.
 STR_ORDER_WAIT_COUPLE_AT                                        : at {STATION}
+STR_WAIT_COUPLE_DIAGNOSTIC_TOOLTIP                              :{BLACK}Show whether an approaching train has claimed this waiting train
+STR_WAIT_COUPLE_DIAGNOSTIC_CAPTION                              :{WHITE}Wait-for-coupling diagnostics
+STR_WAIT_COUPLE_DIAGNOSTIC_NONE                                 :Not claimed by any train
+STR_WAIT_COUPLE_DIAGNOSTIC_CLAIMED                              :Claimed by {VEHICLE}
 STR_ORDER_COUPLE_CHECK_SELECT                                   :{BLACK}Check location: {RAW_STRING}...
+STR_ORDER_COUPLE_CHECK_LABEL                                    :{BLACK}Early check point
 STR_ORDER_COUPLE_CHECK_ITEM                                     :{BLACK}{RAW_STRING}{RAW_STRING}
 STR_ORDER_COUPLE_CHECK_NONE                                     :{BLACK}Check only when going to couple
 STR_ORDER_COUPLE_CHECK_MENU                                     :{BLACK}Check for partner at: {RAW_STRING}
-STR_ORDER_COUPLE_CHECK_AT                                       :; check at {STATION} first
+STR_ORDER_COUPLE_CHECK_AT                                       :; check at {RAW_STRING} first
+STR_ORDER_COUPLE_CHECK_MISSING                                  :; the check point is gone
 STR_ORDER_LIST_EDIT                                             :{BLACK}Edit
 STR_ORDER_LIST_DELETE                                           :{BLACK}Delete
 STR_ORDER_LIST_DELETE_TOOLTIP                                   :{BLACK}Delete the selected order list
@@ -2127,6 +2136,7 @@ STR_SORT_BY_ORDER_LIST_ID                                      :Order list ID
 STR_ERROR_CAN_T_RENAME_ORDER_LIST                               :{WHITE}Can't rename order list...
 STR_ERROR_CAN_T_DELETE_ORDER_LIST                               :{WHITE}Can't delete order list...
 STR_ERROR_ORDER_LIST_IN_USE                                     :{WHITE}It is used by other vehicles
+STR_ERROR_ORDER_LIST_IN_USE_BY_OTHER_COMPANY                    :{WHITE}It is still used by vehicles of other companies
 STR_ORDER_LIST_ORDERS_CAPTION                                  :{WHITE}{RAW_STRING} (Orders)
 STR_ORDER_LIST_ORDERS_OTHER_CAPTION                            :{WHITE}{COMPANY}: {RAW_STRING}
 
@@ -2717,6 +2727,14 @@ STR_ORDER_COUPLE_SPEED_LABEL2                                  :{BLACK}Maximum
 STR_ORDER_COUPLE_SPEED_QUERY                                  :{WHITE}Maximum speed threshold ({STRING}, whole units)
 STR_ORDER_COUPLE_SPEED_RANGE_TOOLTIP                           :{BLACK}Limit the waiting train top speed, including both bounds. My top speed follows the approaching train. Select Manual, then click the number. Disable both for no limit, or choose My top speed twice for equal speeds. Legacy comparisons retain their effect until reselected.
 STR_ORDER_COUPLE_SPEED_RANGE_SUFFIX                           : (waiting train max. speed {STRING} {NUM} {STRING})
+STR_ORDER_COUPLE_SPEED_SUFFIX_BOTH                            : and top speed {NUM}-{NUM} {STRING}
+STR_ORDER_COUPLE_SPEED_SUFFIX_ONE                             : and top speed {STRING}{NUM} {STRING}
+STR_ORDER_COUPLE_SPEED_SUFFIX_RANGE_OWN_FIRST                 : and top speed {STRING}-{NUM} {STRING}
+STR_ORDER_COUPLE_SPEED_SUFFIX_RANGE_OWN_SECOND                : and top speed {NUM} {STRING}-{STRING}
+STR_ORDER_COUPLE_SPEED_SUFFIX_OWN_MIN                         : and top speed >= my train's top speed
+STR_ORDER_COUPLE_SPEED_SUFFIX_OWN_MAX                         : and top speed <= my train's top speed
+STR_ORDER_COUPLE_SPEED_SUFFIX_OWN_BOTH                        : and top speed equal to my train's
+STR_ORDER_COUPLE_SPEED_SUFFIX_LEGACY                          : and a legacy relative speed condition
 STR_COUPLE_DIAGNOSTIC_SPEED_RANGE                             :Waiting train maximum speed fails the custom speed criteria
 
 STR_ORDER_COUPLE_SPEED_VALUE                                    :{BLACK}{NUM} {STRING}
@@ -2724,4 +2742,5 @@ STR_ORDER_COUPLE_SPEED_INVALID                                  :{WHITE}Enter a 
 
 STR_ORDER_COUPLE_SPEED_LABEL                                     :{BLACK}Speed
 STR_ORDER_COUPLE_SPEED_OWN_MAX                                   :{BLACK}My top speed
+STR_ORDER_COUPLE_SPEED_OWN_PLAIN                                 :My train's top speed
 STR_ORDER_COUPLE_SPEED_MANUAL                                    :{BLACK}Manual

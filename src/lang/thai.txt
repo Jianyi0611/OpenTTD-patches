@@ -1016,9 +1016,9 @@ STR_RIVERS_MODERATE                                             :ปานกล
 STR_RIVERS_LOT                                                  :หลาย
 
 ###length 3
-STR_DISASTER_NONE                                               :ไม่มี
-STR_DISASTER_REDUCED                                            :ภาวะลดลง
-STR_DISASTER_NORMAL                                             :ภาวะปกติ
+STR_BREAKDOWNS_NONE                                             :ไม่มี
+STR_BREAKDOWNS_REDUCED                                          :ภาวะลดลง
+STR_BREAKDOWNS_NORMAL                                           :ภาวะปกติ
 
 ###length 4
 STR_SUBSIDY_X1_5                                                :1.5 เท่า
@@ -3154,6 +3154,7 @@ STR_GOALS_PROGRESS_COMPLETE                                     :{GREEN}{STRING}
 STR_GOALS_TOOLTIP_CLICK_ON_SERVICE_TO_CENTER                    :{BLACK}คลิ๊กเลือกที่เป้าหมายเพื่อพาไปยังจุดเริ่มต้นที่จะทำตามเป้าหมาย
 
 # Goal question window
+###length 4
 STR_GOAL_QUESTION_CAPTION_QUESTION                              :{BLACK}คำถาม
 STR_GOAL_QUESTION_CAPTION_INFORMATION                           :{BLACK}ข้อมูลต่างๆ
 STR_GOAL_QUESTION_CAPTION_WARNING                               :{BLACK}คำเตือน

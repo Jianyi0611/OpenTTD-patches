@@ -79,6 +79,7 @@ AirType _last_built_airtype = AIRTYPE_BEGIN;
 #include "industry_map.h"
 #include "misc_cmd.h"
 #include "core/string_consumer.hpp"
+#include "screensaver.h"
 
 #include "widgets/toolbar_widget.h"
 
@@ -539,7 +540,7 @@ static CallBackFunction ToolbarTownClick(Window *w)
 {
 	DropDownList list;
 	list.push_back(MakeDropDownListStringItem(STR_TOWN_MENU_TOWN_DIRECTORY, TownMenuEntries::ShowDirectory));
-	if (_settings_game.economy.found_town != TF_FORBIDDEN) list.push_back(MakeDropDownListStringItem(STR_TOWN_MENU_FOUND_TOWN, TownMenuEntries::ShowFoundTown));
+	if (_settings_game.economy.found_town != TownFounding::Forbidden) list.push_back(MakeDropDownListStringItem(STR_TOWN_MENU_FOUND_TOWN, TownMenuEntries::ShowFoundTown));
 	if (_settings_game.economy.place_houses != PlaceHouses::Forbidden) list.push_back(MakeDropDownListStringItem(STR_SCENEDIT_TOWN_MENU_PACE_HOUSE, TownMenuEntries::ShowPlaceHouses));
 
 	PopupMainToolbarMenu(w, WID_TN_TOWNS, std::move(list), 0);
@@ -558,7 +559,7 @@ static CallBackFunction MenuClickTown(int index)
 	switch (TownMenuEntries(index)) {
 		case TownMenuEntries::ShowDirectory: ShowTownDirectory(); break;
 		case TownMenuEntries::ShowFoundTown: // Setting could be changed when the dropdown was open
-			if (_settings_game.economy.found_town != TF_FORBIDDEN) ShowFoundTownWindow();
+			if (_settings_game.economy.found_town != TownFounding::Forbidden) ShowFoundTownWindow();
 			break;
 		case TownMenuEntries::ShowPlaceHouses: // Setting could be changed when the dropdown was open
 			if (_settings_game.economy.place_houses != PlaceHouses::Forbidden) ShowBuildHousePicker(nullptr);
@@ -1153,6 +1154,7 @@ enum HelpMenuEntries {
 	HME_PICKER,
 
 	HME_HELP,
+	HME_SCREENSAVER,
 	HME_CONSOLE,
 	HME_SCRIPT_DEBUG,
 	HME_SCREENSHOT,
@@ -1308,6 +1310,7 @@ static CallBackFunction ToolbarHelpClick(Window *w)
 	list.push_back(MakeDropDownListStringItem(STR_ABOUT_MENU_SHOW_PICKER_TOOL,          HME_PICKER,        _local_company == COMPANY_SPECTATOR));
 	list.push_back(MakeDropDownListDividerItem());
 	list.push_back(MakeDropDownListStringItem(STR_ABOUT_MENU_HELP,                      HME_HELP,          false));
+	list.push_back(MakeDropDownListStringItem(STR_ABOUT_MENU_ENTER_SCREENSAVER_MODE,    HME_SCREENSAVER,   false));
 	list.push_back(MakeDropDownListStringItem(STR_ABOUT_MENU_TOGGLE_CONSOLE,            HME_CONSOLE,       false));
 	list.push_back(MakeDropDownListStringItem(STR_ABOUT_MENU_AI_DEBUG,                  HME_SCRIPT_DEBUG,  false));
 	list.push_back(MakeDropDownListStringItem(STR_ABOUT_MENU_SCREENSHOT,                HME_SCREENSHOT,    false));
@@ -1410,6 +1413,7 @@ static CallBackFunction MenuClickHelp(int index)
 		case HME_LANDINFO:       return PlaceLandBlockInfo();
 		case HME_PICKER:         return PlacePickerTool();
 		case HME_HELP:           ShowHelpWindow();                 break;
+		case HME_SCREENSAVER:    ToggleScreensaverMode();          break;
 		case HME_CONSOLE:        IConsoleSwitch();                 break;
 		case HME_SCRIPT_DEBUG:   ShowScriptDebugWindow(CompanyID::Invalid(), _ctrl_pressed); break;
 		case HME_SCREENSHOT:     ShowScreenshotWindow();           break;
@@ -2704,10 +2708,10 @@ struct ScenarioEditorToolbarWindow : Window {
 			case WID_TE_SPACER: {
 				int height = r.Height();
 				if (height > 2 * GetCharacterHeight(FontSize::Normal)) {
-					DrawString(r.left, r.right, height / 2 - GetCharacterHeight(FontSize::Normal), STR_SCENEDIT_TOOLBAR_OPENTTD, TextColour::FromString, SA_HOR_CENTER);
-					DrawString(r.left, r.right, height / 2, STR_SCENEDIT_TOOLBAR_SCENARIO_EDITOR, TextColour::FromString, SA_HOR_CENTER);
+					DrawString(r.left, r.right, height / 2 - GetCharacterHeight(FontSize::Normal), STR_SCENEDIT_TOOLBAR_OPENTTD, TextColour::FromString, AlignmentH::Centre);
+					DrawString(r.left, r.right, height / 2, STR_SCENEDIT_TOOLBAR_SCENARIO_EDITOR, TextColour::FromString, AlignmentH::Centre);
 				} else {
-					DrawString(r.left, r.right, (height - GetCharacterHeight(FontSize::Normal)) / 2, STR_SCENEDIT_TOOLBAR_SCENARIO_EDITOR, TextColour::FromString, SA_HOR_CENTER);
+					DrawString(r.left, r.right, (height - GetCharacterHeight(FontSize::Normal)) / 2, STR_SCENEDIT_TOOLBAR_SCENARIO_EDITOR, TextColour::FromString, AlignmentH::Centre);
 				}
 				break;
 			}
@@ -2888,7 +2892,7 @@ static constexpr std::initializer_list<NWidgetPart> _nested_toolb_scen_inner_wid
 	NWidget(WWT_PANEL, Colours::Grey, WID_TE_DATE_PANEL),
 		NWidget(NWID_HORIZONTAL), SetPIP(2, 2, 2), SetPadding(1),
 			NWidget(WWT_IMGBTN, Colours::Grey, WID_TE_DATE_BACKWARD), SetSpriteTip(SPR_ARROW_DOWN, STR_SCENEDIT_TOOLBAR_MOVE_THE_STARTING_DATE_BACKWARD_TOOLTIP), SetFill(0, 1),
-			NWidget(WWT_TEXT, Colours::Invalid, WID_TE_DATE), SetToolTip(STR_SCENEDIT_TOOLBAR_SET_DATE_TOOLTIP), SetTextStyle(TextColour::White), SetAlignment(SA_CENTER), SetFill(0, 1),
+			NWidget(WWT_TEXT, Colours::Invalid, WID_TE_DATE), SetToolTip(STR_SCENEDIT_TOOLBAR_SET_DATE_TOOLTIP), SetTextStyle(TextColour::White), SetAlignment({AlignmentH::Centre, AlignmentV::Middle}), SetFill(0, 1),
 			NWidget(WWT_IMGBTN, Colours::Grey, WID_TE_DATE_FORWARD), SetSpriteTip(SPR_ARROW_UP, STR_SCENEDIT_TOOLBAR_MOVE_THE_STARTING_DATE_FORWARD_TOOLTIP), SetFill(0, 1),
 		EndContainer(),
 	EndContainer(),

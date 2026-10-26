@@ -42,7 +42,10 @@ jobs:
   apk:
     name: Build APK
 
-    runs-on: ubuntu-latest
+    # ubuntu-26.04 ships uutils coreutils, whose basename/ln argument parsing
+    # breaks pelya template's openssl/compile.sh symlink trick
+    # (aarch64-linux-android21-ar never gets created).
+    runs-on: ubuntu-24.04
     # A cold run compiles ICU and Boost (~1h); the caches below bring a warm one
     # down to a few minutes.
     timeout-minutes: 240

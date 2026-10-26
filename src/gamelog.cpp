@@ -98,12 +98,12 @@ void GamelogReset()
  * @param md5sum array of md5sum to print, if known
  * @param gc GrfConfig, if known
  */
-static void PrintGrfInfo(format_target &buffer, uint grfid, const MD5Hash *md5sum, const GRFConfig *gc)
+static void PrintGrfInfo(format_target &buffer, GrfID grfid, const MD5Hash *md5sum, const GRFConfig *gc)
 {
 	if (md5sum != nullptr) {
-		buffer.format("GRF ID {:08X}, checksum {}", std::byteswap(grfid), *md5sum);
+		buffer.format("GRF ID {}, checksum {}", grfid, *md5sum);
 	} else {
-		buffer.format("GRF ID {:08X}", std::byteswap(grfid));
+		buffer.format("GRF ID {}", grfid);
 	}
 
 	if (gc != nullptr) {
@@ -144,7 +144,7 @@ struct GRFPresence{
 	GRFPresence(const GRFConfig *gc) : gc(gc), was_missing(false) {}
 	GRFPresence() = default;
 };
-typedef btree::btree_map<uint32_t, GRFPresence> GrfIDMapping;
+typedef btree::btree_map<GrfID, GRFPresence> GrfIDMapping;
 
 /**
  * Prints active gamelog
@@ -186,28 +186,31 @@ void GamelogPrint(format_target &buffer)
 					buffer.format("modified, _openttd_newgrf_version = 0x{:08x}", lc->revision.newgrf);
 					break;
 
-				case GamelogChangeType::OldVer:
+				case GamelogChangeType::OldVer: {
 					/* The game was loaded from before 0.7.0-beta1. */
 					buffer.append("Conversion from ");
-					switch (lc->oldver.type) {
-						default: NOT_REACHED();
-						case SGT_OTTD:
+					const SavegameType stype = (lc->oldver.type > std::numeric_limits<std::underlying_type_t<SavegameType>>::max()) ? SavegameType::Invalid : static_cast<SavegameType>(lc->oldver.type);
+					switch (stype) {
+						default:
+							buffer.append("Unknown savegame type");
+							break;
+
+						case SavegameType::OTTD:
 							buffer.format("OTTD savegame without gamelog: version {}, {}",
 								GB(lc->oldver.version, 8, 16), GB(lc->oldver.version, 0, 8));
 							break;
 
-						case SGT_TTO:
+						case SavegameType::TTO:
 							buffer.append("TTO savegame");
 							break;
 
-						case SGT_TTD:
+						case SavegameType::TTD:
 							buffer.append("TTD savegame");
 							break;
 
-						case SGT_TTDP1:
-						case SGT_TTDP2:
-							buffer.format("TTDP savegame, {} format",
-								lc->oldver.type == SGT_TTDP1 ? "old" : "new");
+						case SavegameType::TTDP1:
+						case SavegameType::TTDP2:
+							buffer.format("TTDP savegame, {} format", stype == SavegameType::TTDP1 ? "old" : "new");
 							if (lc->oldver.version != 0) {
 								buffer.format(", TTDP version {}.{}.{}.{}",
 									GB(lc->oldver.version, 24, 8), GB(lc->oldver.version, 20, 4),
@@ -216,6 +219,7 @@ void GamelogPrint(format_target &buffer)
 							break;
 					}
 					break;
+				}
 
 				case GamelogChangeType::Setting:
 					/* A setting with the SF_NO_NETWORK flag got changed; these settings usually affect NewGRFs, such as road side or wagon speed limits. */
@@ -273,8 +277,8 @@ void GamelogPrint(format_target &buffer)
 				case GamelogChangeType::GRFMove: {
 					/* The order of NewGRFs got changed, which might cause some other NewGRFs to behave differently. */
 					auto gm = grf_names.find(lc->grfrem.grfid);
-					buffer.format("GRF order changed: {:08X} moved {} places {}",
-						std::byteswap(lc->grfmove.grfid), abs(lc->grfmove.offset), lc->grfmove.offset >= 0 ? "down" : "up" );
+					buffer.format("GRF order changed: {} moved {} places {}",
+						lc->grfmove.grfid, abs(lc->grfmove.offset), lc->grfmove.offset >= 0 ? "down" : "up" );
 					PrintGrfInfo(buffer, lc->grfmove.grfid, nullptr, gm != grf_names.end() ? gm->second.gc : nullptr);
 					if (gm == grf_names.end()) buffer.append(". Gamelog inconsistency: GrfID was never added!");
 					break;
@@ -285,7 +289,7 @@ void GamelogPrint(format_target &buffer)
 					auto gm = grf_names.find(lc->grfrem.grfid);
 					assert (lc->grfbug.bug == GRFBug::VehLength);
 
-					buffer.format("Rail vehicle changes length outside a depot: GRF ID {:08X}, internal ID 0x{:X}", std::byteswap(lc->grfbug.grfid), lc->grfbug.data);
+					buffer.format("Rail vehicle changes length outside a depot: GRF ID {}, internal ID 0x{:X}", lc->grfbug.grfid, lc->grfbug.data);
 					PrintGrfInfo(buffer, lc->grfbug.grfid, nullptr, gm != grf_names.end() ? gm->second.gc : nullptr);
 					if (gm == grf_names.end()) buffer.append(". Gamelog inconsistency: GrfID was never added!");
 					break;
@@ -422,8 +426,8 @@ void GamelogOldver()
 	LoggedChange *lc = GamelogChange(GamelogChangeType::OldVer);
 	if (lc == nullptr) return;
 
-	lc->oldver.type = _savegame_type;
-	lc->oldver.version = (_savegame_type == SGT_OTTD ? ((uint32_t)_sl_version << 8 | _sl_minor_version) : _ttdp_version);
+	lc->oldver.type = to_underlying(_savegame_type);
+	lc->oldver.version = (_savegame_type == SavegameType::OTTD ? ((uint32_t)_sl_version << 8 | _sl_minor_version) : _ttdp_version);
 }
 
 /**
@@ -490,7 +494,7 @@ void GamelogTestMode()
  * @param bug type of bug, @see enum GRFBugs
  * @param data additional data
  */
-static void GamelogGRFBug(uint32_t grfid, GRFBug bug, uint64_t data)
+static void GamelogGRFBug(GrfID grfid, GRFBug bug, uint64_t data)
 {
 	assert(_gamelog_action_type == GamelogActionType::GRFBug);
 
@@ -511,7 +515,7 @@ static void GamelogGRFBug(uint32_t grfid, GRFBug bug, uint64_t data)
  * @param internal_id the internal ID of whatever's broken in the NewGRF
  * @return true iff a unique record was done
  */
-bool GamelogGRFBugReverse(uint32_t grfid, uint16_t internal_id)
+bool GamelogGRFBugReverse(GrfID grfid, uint16_t internal_id)
 {
 	for (LoggedAction &la : _gamelog_actions) {
 		for (LoggedChange &lc : la.changes) {
@@ -544,7 +548,7 @@ static inline bool IsLoggableGrfConfig(const GRFConfig &g)
  * Logs removal of a GRF
  * @param grfid ID of removed GRF
  */
-void GamelogGRFRemove(uint32_t grfid)
+void GamelogGRFRemove(GrfID grfid)
 {
 	assert(_gamelog_action_type == GamelogActionType::Load || _gamelog_action_type == GamelogActionType::GRF);
 
@@ -590,7 +594,7 @@ void GamelogGRFCompatible(const GRFIdentifier &newg)
  * @param grfid GRF that is moved
  * @param offset how far it is moved, positive = moved down
  */
-static void GamelogGRFMove(uint32_t grfid, int32_t offset)
+static void GamelogGRFMove(GrfID grfid, int32_t offset)
 {
 	assert(_gamelog_action_type == GamelogActionType::GRF);
 
@@ -606,7 +610,7 @@ static void GamelogGRFMove(uint32_t grfid, int32_t offset)
  * Details about parameters changed are not stored
  * @param grfid ID of GRF to store
  */
-static void GamelogGRFParameters(uint32_t grfid)
+static void GamelogGRFParameters(GrfID grfid)
 {
 	assert(_gamelog_action_type == GamelogActionType::GRF);
 

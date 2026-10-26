@@ -1067,9 +1067,9 @@ STR_RIVERS_MODERATE                                             :متوسطة
 STR_RIVERS_LOT                                                  :كثيرة
 
 ###length 3
-STR_DISASTER_NONE                                               :بدون
-STR_DISASTER_REDUCED                                            :قليل
-STR_DISASTER_NORMAL                                             :طبيعي
+STR_BREAKDOWNS_NONE                                             :بدون
+STR_BREAKDOWNS_REDUCED                                          :قليل
+STR_BREAKDOWNS_NORMAL                                           :طبيعي
 
 ###length 4
 STR_SUBSIDY_X1_5                                                :*1.5
@@ -3058,6 +3058,7 @@ STR_GOALS_TEXT                                                  :{ORANGE}{STRING
 STR_GOALS_PROGRESS                                              :{ORANGE}{STRING}
 
 # Goal question window
+###length 4
 STR_GOAL_QUESTION_CAPTION_QUESTION                              :{BLACK}اسئله
 STR_GOAL_QUESTION_CAPTION_INFORMATION                           :{BLACK}معلومات
 STR_GOAL_QUESTION_CAPTION_WARNING                               :{BLACK}تحذير

@@ -41,15 +41,12 @@ static AirType GetConversionAirtype(uint airport)
 		AirType air_type;
 	};
 
-	switch (_cur_gps.grffile->grfid) {
-		default:
-			Debug(misc, 0, "Trying to load airports of unknown airtype from grffile with id {}", _cur_gps.grffile->grfid);
-			return AIRTYPE_GRAVEL;
-		case 16860225:
+	const GrfID grfid = _cur_gps.grffile->grfid;
+	if (grfid == GrfID{"\001\001DA"}) { // 16860225
 			return AIRTYPE_WATER;
-		case 19680837: // North Korean Aviation Set: Small asphalt airports
+	} else if (grfid == GrfID{"\001,NE"}) { // 19680837 North Korean Aviation Set: Small asphalt airports
 			return AIRTYPE_ASPHALT;
-		case 5259587: { // OpenGFX+ Airports
+	} else if (grfid == GrfID{"\000PAC"}) { // 5259587 OpenGFX+ Airports
 			/* This table indicates how to convert the airports provided in OpenGFX+Airports,
 			* as long as it is the first NewGRF to be applied that modifies airports. */
 			/* The "S" shows which airports have a (close) equivalent in original airports. */
@@ -73,8 +70,10 @@ static AirType GetConversionAirtype(uint airport)
 
 			if (airport >= num_opengfx_plus_airports) NOT_REACHED();
 			return opengfx_plus_airports[airport].air_type;
-		}
 	}
+
+	Debug(misc, 0, "Trying to load airports of unknown airtype from grffile with id {}", grfid);
+	return AIRTYPE_GRAVEL;
 }
 
 /**

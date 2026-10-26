@@ -41,6 +41,8 @@
 #include "tbtr_template_vehicle_func.h"
 #include "scope.h"
 
+#include "widgets/vehicle_widget.h"
+
 #include "table/strings.h"
 
 #include "safeguards.h"
@@ -265,7 +267,10 @@ CommandCost CmdSellVehicle(DoCommandFlags flags, TileIndex tile, VehicleID v_id,
 
 	Vehicle *front = v->Primary();
 
-	CommandCost ret = CheckOwnership(front->owner);
+	/* The vehicle the user picked must belong to the current company. The
+	 * sold chain is checked again in CmdSellRailWagon(), as it may contain
+	 * vehicles of other companies after a cross-company coupling. */
+	CommandCost ret = CheckOwnership(v->owner);
 	if (ret.Failed()) return ret;
 
 	if (HasFlag(sell_flags, SellVehicleFlags::VirtualOnly) != HasBit(front->subtype, GVSF_VIRTUAL)) return CMD_ERROR;
@@ -1101,7 +1106,12 @@ Train *VirtualTrainFromTemplateVehicle(const TemplateVehicle *tv, StringID &err,
 
 		UpdateNewVirtualTrainFromSource(tmp, tv);
 
-		CmdMoveRailVehicle(DoCommandFlag::Execute, tmp->index, tail->index, MoveRailVehicleFlags::Virtual);
+		CommandCost move_result = CmdMoveRailVehicle({DoCommandFlag::Execute, DoCommandFlag::AutoReplace}, tmp->index, tail->index, MoveRailVehicleFlags::Virtual);
+		if (move_result.Failed()) {
+			CmdDeleteVirtualTrain(DoCommandFlag::Execute, tmp->index);
+			CmdDeleteVirtualTrain(DoCommandFlag::Execute, head->index);
+			return nullptr;
+		}
 		tail = tmp;
 
 		tv = tv->GetNextUnit();

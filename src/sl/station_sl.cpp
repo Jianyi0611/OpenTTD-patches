@@ -101,7 +101,7 @@ void MoveBuoysToWaypoints()
 		wp->build_date = build_date;
 		wp->owner      = train ? GetTileOwner(xy) : OWNER_NONE;
 
-		if (IsInsideBS(string_id, STR_SV_STNAME_BUOY, 9)) wp->town_cn = string_id - STR_SV_STNAME_BUOY;
+		if (IsInsideBS(string_id, STR_SV_STNAME_BUOY, 9)) wp->town_cn = (string_id - STR_SV_STNAME_BUOY).base();
 
 		if (train) {
 			/* When we make a rail waypoint of the station, convert the map as well. */
@@ -126,12 +126,12 @@ void AfterLoadStations()
 	/* Update the speclists of all stations to point to the currently loaded custom stations. */
 	for (BaseStation *st : BaseStation::Iterate()) {
 		for (uint i = 0; i < st->speclist.size(); i++) {
-			if (st->speclist[i].grfid == 0) continue;
+			if (st->speclist[i].grfid.Empty()) continue;
 
 			st->speclist[i].spec = StationClass::GetByGrf(st->speclist[i].grfid, st->speclist[i].localidx);
 		}
 		for (uint i = 0; i < st->roadstop_speclist.size(); i++) {
-			if (st->roadstop_speclist[i].grfid == 0) continue;
+			if (st->roadstop_speclist[i].grfid.Empty()) continue;
 
 			st->roadstop_speclist[i].spec = RoadStopClass::GetByGrf(st->roadstop_speclist[i].grfid, st->roadstop_speclist[i].localidx);
 		}
@@ -233,13 +233,13 @@ static Money  _cargo_feeder_share;
 static uint   _cargo_reserved_count;
 
 static const NamedSaveLoad _station_speclist_desc[] = {
-	NSL("grfid",      SLE_CONDVAR(StationSpecList, grfid,    SLE_UINT32, SLV_27, SL_MAX_VERSION)),
+	NSL("grfid",      SLE_CONDVAR(StationSpecList, grfid,    SLE_LABEL,                         SLV_27, SL_MAX_VERSION)),
 	NSL("localidx", SLE_CONDVAR_X(StationSpecList, localidx, SLE_FILE_U8 | SLE_VAR_U16, SL_MIN_VERSION, SL_MAX_VERSION, SlXvFeatureTest(XSLFTO_AND, XSLFI_NEWGRF_ENTITY_EXTRA, 0, 1))),
 	NSL("localidx", SLE_CONDVAR_X(StationSpecList, localidx, SLE_UINT16,                SL_MIN_VERSION, SL_MAX_VERSION, SlXvFeatureTest(XSLFTO_AND, XSLFI_NEWGRF_ENTITY_EXTRA, 2))),
 };
 
 static const NamedSaveLoad _roadstop_speclist_desc[] = {
-	NSL("grfid",      SLE_CONDVAR(RoadStopSpecList, grfid,    SLE_UINT32, SL_MIN_VERSION, SL_MAX_VERSION)),
+	NSL("grfid",      SLE_CONDVAR(RoadStopSpecList, grfid,    SLE_LABEL,                 SL_MIN_VERSION, SL_MAX_VERSION)),
 	NSL("localidx", SLE_CONDVAR_X(RoadStopSpecList, localidx, SLE_FILE_U8 | SLE_VAR_U16, SL_MIN_VERSION, SL_MAX_VERSION, SlXvFeatureTest(XSLFTO_AND, XSLFI_GRF_ROADSTOPS, 0, 2))),
 	NSL("localidx", SLE_CONDVAR_X(RoadStopSpecList, localidx, SLE_UINT16,                SL_MIN_VERSION, SL_MAX_VERSION, SlXvFeatureTest(XSLFTO_AND, XSLFI_GRF_ROADSTOPS, 3))),
 };
@@ -442,7 +442,7 @@ NamedSaveLoadTable GetGoodsDesc()
 		NSL("amount_fract",               SLE_CONDVAR(GoodsEntry, amount_fract,          SLE_UINT8,                  SLV_150,        SL_MAX_VERSION)),
 		NSL("",                    SLEG_CONDREFRING_X(            _packets,              REF_CARGO_PACKET,           SLV_68,         SLV_183,        SlXvFeatureTest(XSLFTO_AND, XSLFI_CHILLPP, 0, 0))),
 		NSL("",                        SLEG_CONDVAR_X(            _num_dests,            SLE_UINT32,                 SLV_183,        SL_MAX_VERSION, SlXvFeatureTest(XSLFTO_OR, XSLFI_CHILLPP))),
-		NSL("cargo.reserved_count",      SLEG_CONDVAR(            _cargo_reserved_count, SLE_UINT,                   SLV_181,        SL_MAX_VERSION)),
+		NSL("cargo.reserved_count",      SLEG_CONDVAR(            _cargo_reserved_count, SLE_UINT32,                 SLV_181,        SL_MAX_VERSION)),
 		NSL("link_graph",                 SLE_CONDVAR(GoodsEntry, link_graph,            SLE_UINT16,                 SLV_183,        SL_MAX_VERSION)),
 		NSL("node",                       SLE_CONDVAR(GoodsEntry, node,                  SLE_UINT16,                 SLV_183,        SL_MAX_VERSION)),
 		NSL("",                          SLEG_CONDVAR(            _num_flows,            SLE_UINT32,                 SLV_183,        SL_MAX_VERSION)),
@@ -1034,7 +1034,7 @@ static void Load_STNN()
 			if (IsSavegameVersionBefore(SLV_161) && !IsSavegameVersionBefore(SLV_145) && st->facilities.Test(StationFacility::Airport)) {
 				/* Store the old persistent storage. The GRFID will be added later. */
 				assert(PersistentStorage::CanAllocateItem());
-				st->airport.psa = PersistentStorage::Create(0, GrfSpecFeature::Invalid, TileIndex{});
+				st->airport.psa = PersistentStorage::Create(GrfID{}, GrfSpecFeature::Invalid, TileIndex{});
 				std::copy(std::begin(_old_st_persistent_storage.storage), std::end(_old_st_persistent_storage.storage), std::begin(st->airport.psa->storage));
 			}
 
@@ -1194,10 +1194,10 @@ static void Load_DOCK()
 }
 
 static const ChunkHandler station_chunk_handlers[] = {
-	{ 'STNS', nullptr,       Load_STNS,     Ptrs_STNS,     nullptr, CH_READONLY },
-	{ 'STNN', Save_STNN,     Load_STNN,     Ptrs_STNN,     nullptr, CH_TABLE },
+	{ 'STNS', nullptr,       Load_STNS,     Ptrs_STNS,     nullptr, ChunkType::ReadOnly },
+	{ 'STNN', Save_STNN,     Load_STNN,     Ptrs_STNN,     nullptr, ChunkType::Table },
 	MakeUpstreamChunkHandler<'ROAD', GeneralUpstreamChunkLoadInfo>(),
-	{ 'DOCK', nullptr,       Load_DOCK,     nullptr,       nullptr, CH_READONLY },
+	{ 'DOCK', nullptr,       Load_DOCK,     nullptr,       nullptr, ChunkType::ReadOnly },
 };
 
 extern const ChunkHandlerTable _station_chunk_handlers(station_chunk_handlers);

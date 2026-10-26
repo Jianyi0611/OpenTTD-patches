@@ -917,6 +917,7 @@ STR_NEWS_MENU_DELETE_ALL_MESSAGES                               :Usuń wszystkie
 # About menu
 STR_ABOUT_MENU_LAND_BLOCK_INFO                                  :Informacje o terenie
 STR_ABOUT_MENU_HELP                                             :Pomoc i instrukcje
+STR_ABOUT_MENU_ENTER_SCREENSAVER_MODE                           :Tryb wygaszacza ekranu
 STR_ABOUT_MENU_TOGGLE_CONSOLE                                   :Włącz/wyłącz konsolę
 STR_ABOUT_MENU_AI_DEBUG                                         :Debugowanie SI / Game Script
 STR_ABOUT_MENU_SCREENSHOT                                       :Zrzut obrazu
@@ -1010,7 +1011,6 @@ STR_GRAPH_LAST_24_MONTHS                                        :{TINY_FONT}{BLA
 STR_GRAPH_LAST_24_QUARTERS                                      :{TINY_FONT}{BLACK}6 lat (kwartalny)
 STR_GRAPH_LAST_24_YEARS                                         :{TINY_FONT}{BLACK}24 lata (roczny)
 
-STR_GRAPH_TOGGLE_RANGE                                          :Przełącz ukrywanie/wyświetlanie wykresu dla tego zakresu danych
 STR_GRAPH_SELECT_SCALE                                          :Zmień skalę poziomą wykresu
 
 STR_GRAPH_CARGO_PAYMENT_RATES_CAPTION                           :{WHITE}Stawki płatności za ładunek
@@ -1026,14 +1026,21 @@ STR_GRAPH_CARGO_PAYMENT_CARGO                                   :{TINY_FONT}{BLA
 
 STR_GRAPH_INDUSTRY_CAPTION                                      :{WHITE}{INDUSTRY} - Historia Ładunków
 STR_GRAPH_INDUSTRY_RANGE_PRODUCED                               :Wyprodukowany
+STR_GRAPH_INDUSTRY_RANGE_PRODUCED_TOOLTIP                       :Przełącz wyświetlanie wykresu ładunku wyprodukowanego w tym przedsiębiorstwie
 STR_GRAPH_INDUSTRY_RANGE_TRANSPORTED                            :Zabrany
+STR_GRAPH_INDUSTRY_RANGE_TRANSPORTED_TOOLTIP                    :Przełącz wyświetlanie wykresu ładunku odebranego z tego przedsiębiorstwa
 STR_GRAPH_INDUSTRY_RANGE_DELIVERED                              :Dostarczony
+STR_GRAPH_INDUSTRY_RANGE_DELIVERED_TOOLTIP                      :Przełącz wyświetlanie wykresu ładunku dostarczonego do tego przedsiębiorstwa
 STR_GRAPH_INDUSTRY_RANGE_WAITING                                :Oczekujący
+STR_GRAPH_INDUSTRY_RANGE_WAITING_TOOLTIP                        :Przełącz wyświetlanie wykresu ładunku oczekującego w tym przedsiębiorstwie
 
 STR_GRAPH_TOWN_CARGO_CAPTION                                    :{WHITE}{TOWN} - Historia Ładunków
 STR_GRAPH_TOWN_RANGE_PRODUCED                                   :Wyprodukowany
+STR_GRAPH_TOWN_RANGE_PRODUCED_TOOLTIP                           :Przełącz wyświetlanie wykresu ładunku wyprodukowanego w tym mieście
 STR_GRAPH_TOWN_RANGE_TRANSPORTED                                :Zabrany
+STR_GRAPH_TOWN_RANGE_TRANSPORTED_TOOLTIP                        :Przełącz wyświetlanie wykresu ładunku odebranego z tego miasta
 STR_GRAPH_TOWN_RANGE_DELIVERED                                  :Dostarczony
+STR_GRAPH_TOWN_RANGE_DELIVERED_TOOLTIP                          :Przełącz wyświetlanie wykresu ładunku dostarczonego do tego miasta
 
 STR_GRAPH_PERFORMANCE_DETAIL_TOOLTIP                            :{BLACK}Pokaż szczegóły oceny wydajności
 
@@ -1590,9 +1597,9 @@ STR_RIVERS_MODERATE                                             :Średnio
 STR_RIVERS_LOT                                                  :Dużo
 
 ###length 3
-STR_DISASTER_NONE                                               :Brak
-STR_DISASTER_REDUCED                                            :Zredukowane
-STR_DISASTER_NORMAL                                             :Normalne
+STR_BREAKDOWNS_NONE                                             :Brak
+STR_BREAKDOWNS_REDUCED                                          :Zredukowane
+STR_BREAKDOWNS_NORMAL                                           :Normalne
 
 ###length 4
 STR_SUBSIDY_X1_5                                                :x1.5
@@ -2039,12 +2046,12 @@ STR_CONFIG_SETTING_TREE_PLACER_NONE                             :Brak
 STR_CONFIG_SETTING_TREE_PLACER_ORIGINAL                         :Oryginalny
 STR_CONFIG_SETTING_TREE_PLACER_IMPROVED                         :Ulepszony
 
-STR_CONFIG_SETTING_ROAD_SIDE                                    :Pojazdy drogowe: {STRING}
-STR_CONFIG_SETTING_ROAD_SIDE_HELPTEXT                           :Wybierz stronę, po której będą jeździć samochody
+STR_CONFIG_SETTING_ROAD_SIDE                                    :Strona w ruchu drogowym: {STRING}
+STR_CONFIG_SETTING_ROAD_SIDE_HELPTEXT                           :Wybierz stronę, po której będą jeździć pojazdy drogowe{}Może to również wpłynąć na stronę sygnalizacji oraz grafikę semaforów.{}Aby zmiana w pełni zadziałała, może być konieczne ponowne załadowanie gry
 
 ###length 2
-STR_CONFIG_SETTING_ROAD_SIDE_LEFT                               :Jazda po lewej
-STR_CONFIG_SETTING_ROAD_SIDE_RIGHT                              :Jazda po prawej
+STR_CONFIG_SETTING_ROAD_SIDE_LEFT                               :Lewa
+STR_CONFIG_SETTING_ROAD_SIDE_RIGHT                              :Prawa
 
 STR_CONFIG_SETTING_HEIGHTMAP_ROTATION                           :Obrót mapy wysokości: {STRING}
 STR_CONFIG_SETTING_HEIGHTMAP_ROTATION_TOOLTIP                   :Wybierz kierunek obrotu mapy wysokości, aby dopasować ją do świata gry
@@ -3267,22 +3274,22 @@ STR_PICKER_COLLECTION_DELETE_QUERY                              :Usuń kolekcję
 STR_PICKER_COLLECTION_DELETE_QUERY_TEXT                         :{YELLOW}Czy na pewno chcesz usunąć tę kolekcję?
 STR_PICKER_COLLECTION_DELETE_QUERY_DISABLED_TEXT                :{YELLOW}Czy na pewno chcesz usunąć tę kolekcję? Zawiera ona elementy z wyłączonych plików NewGRF!
 
-STR_PICKER_STATION_CLASS_TOOLTIP                                :Wybierz klasę stacji do wyświetlenia
+STR_PICKER_STATION_CLASS_TOOLTIP                                :Wybierz klasę stacji do wyświetlenia. Użyj Ctrl, aby dodać lub usunąć z zapisanych elementów
 STR_PICKER_STATION_TYPE_TOOLTIP                                 :Wybierz typ stacji do zbudowania. Użyj Ctrl, aby dodać lub usunąć z zapisanych elementów
 STR_PICKER_STATION_COLLECTION_TOOLTIP                           :Wybierz kolekcję stacji do wyświetlenia
-STR_PICKER_WAYPOINT_CLASS_TOOLTIP                               :Wybierz klasę posterunku do wyświetlenia
+STR_PICKER_WAYPOINT_CLASS_TOOLTIP                               :Wybierz klasę posterunku do wyświetlenia. Użyj Ctrl, aby dodać lub usunąć z zapisanych elementów
 STR_PICKER_WAYPOINT_TYPE_TOOLTIP                                :Wybierz typ posterunku do zbudowania. Użyj Ctrl, aby dodać lub usunąć z zapisanych elementów
 STR_PICKER_WAYPOINT_COLLECTION_TOOLTIP                          :Wybierz kolekcję posterunków do wyświetlenia
-STR_PICKER_ROADSTOP_BUS_CLASS_TOOLTIP                           :Wybierz klasę przystanku do wyświetlenia
+STR_PICKER_ROADSTOP_BUS_CLASS_TOOLTIP                           :Wybierz klasę przystanku do wyświetlenia. Użyj Ctrl, aby dodać lub usunąć z zapisanych elementów
 STR_PICKER_ROADSTOP_BUS_TYPE_TOOLTIP                            :Wybierz typ przystanku do zbudowania. Użyj Ctrl, aby dodać lub usunąć z zapisanych elementów
 STR_PICKER_ROADSTOP_BUS_COLLECTION_TOOLTIP                      :Wybierz kolekcję przystanków autobusowych do wyświetlenia
-STR_PICKER_ROADSTOP_TRUCK_CLASS_TOOLTIP                         :Wybierz klasę stacji ciężarówek do wyświetlenia
+STR_PICKER_ROADSTOP_TRUCK_CLASS_TOOLTIP                         :Wybierz klasę stacji ciężarówek do wyświetlenia. Użyj Ctrl, aby dodać lub usunąć z zapisanych elementów
 STR_PICKER_ROADSTOP_TRUCK_TYPE_TOOLTIP                          :Wybierz typ stacji ciężarówek do zbudowania. Użyj Ctrl, aby dodać lub usunąć z zapisanych elementów
 STR_PICKER_ROADSTOP_TRUCK_COLLECTION_TOOLTIP                    :Wybierz kolekcję stacji ciężarówek do wyświetlenia
-STR_PICKER_OBJECT_CLASS_TOOLTIP                                 :Wybierz klasę obiektu do wyświetlenia
+STR_PICKER_OBJECT_CLASS_TOOLTIP                                 :Wybierz klasę obiektu do wyświetlenia. Użyj Ctrl, aby dodać lub usunąć z zapisanych elementów
 STR_PICKER_OBJECT_TYPE_TOOLTIP                                  :Wybierz typ obiektu do zbudowania. Użyj Ctrl, aby dodać lub usunąć z zapisanych elementów. Przeciągnij z użyciem Ctrl, aby zaznaczyć obszar po przekątnej. Użyj Shift, aby tylko wyświetlić szacunkowy koszt
 STR_PICKER_OBJECT_COLLECTION_TOOLTIP                            :Wybierz kolekcję obiektów do wyświetlenia
-STR_PICKER_HOUSE_CLASS_TOOLTIP                                  :Wybierz strefę miasta do wyświetlenia
+STR_PICKER_HOUSE_CLASS_TOOLTIP                                  :Wybierz strefę miasta do wyświetlenia. Użyj Ctrl, aby dodać lub usunąć z zapisanych elementów
 STR_PICKER_HOUSE_TYPE_TOOLTIP                                   :Wybierz typ budynku do zbudowania. Użyj Ctrl, aby dodać lub usunąć z zapisanych elementów
 STR_PICKER_HOUSE_COLLECTION_TOOLTIP                             :Wybierz kolekcję budynków do wyświetlenia
 
@@ -3474,6 +3481,7 @@ STR_TREES_MODE_FOREST_LG_TOOLTIP                                :{BLACK}Sadź du
 # Land generation window (SE)
 STR_TERRAFORM_TOOLBAR_LAND_GENERATION_CAPTION                   :{WHITE}Tworzenie terenu
 STR_TERRAFORM_TOOLTIP_PLACE_ROCKY_AREAS_ON_LANDSCAPE            :{BLACK}Umieść skalisty teren.{}Użyj Ctrl, aby usunąć skały
+STR_TERRAFORM_TOOLTIP_PLACE_ROUGH_AREAS_ON_LANDSCAPE            :{BLACK}Umieść wyboisty teren.{}Użyj Ctrl, aby usunąć wyboisty teren
 STR_TERRAFORM_TOOLTIP_DEFINE_DESERT_AREA                        :{BLACK}Wyznacz obszar pustyni.{}Użyj Ctrl, aby usunąć obszar pustyni
 STR_TERRAFORM_TOOLTIP_INCREASE_SIZE_OF_LAND_AREA                :{BLACK}Zwiększ rozmiar obniżanego/podwyższanego terenu
 STR_TERRAFORM_TOOLTIP_DECREASE_SIZE_OF_LAND_AREA                :{BLACK}Zmniejsz rozmiar obniżanego/podwyższanego terenu
@@ -3659,6 +3667,8 @@ STR_LAI_WATER_DESCRIPTION_LOCK                                  :Śluza
 STR_LAI_WATER_DESCRIPTION_RIVER                                 :Rzeka
 STR_LAI_WATER_DESCRIPTION_COAST_OR_RIVERBANK                    :Wybrzeże lub brzeg rzeki
 STR_LAI_WATER_DESCRIPTION_SHIP_DEPOT                            :Stocznia
+STR_LAI_WATER_DESCRIPTION_WATER_ROCKS                           :Skały
+STR_LAI_WATER_DESCRIPTION_COAST_ROCKS                           :Wybrzeże lub brzeg rzeki ze skałami
 
 # Industries come directly from their industry names
 
@@ -3772,6 +3782,9 @@ STR_SAVELOAD_LOAD_BUTTON                                        :{BLACK}Wczytaj
 STR_SAVELOAD_LOAD_TOOLTIP                                       :{BLACK}Wczytaj wybraną grę
 STR_SAVELOAD_LOAD_HEIGHTMAP_TOOLTIP                             :{BLACK}Wczytaj wybraną mapę wysokości
 STR_SAVELOAD_LOAD_TOWN_DATA_TOOLTIP                             :{BLACK}Wczytaj zaznaczone dane o miastach
+STR_SAVELOAD_NEW_DIRECTORY_BUTTON                               :{BLACK}Nowy Folder
+STR_SAVELOAD_NEW_DIRECTORY_TOOLTIP                              :{BLACK}Utwórz nowy folder w bieżącej lokalizacji
+STR_SAVELOAD_NEW_DIRECTORY_QUERY_CAPTION                        :{WHITE}Wpisz nazwę dla nowego folderu
 STR_SAVELOAD_DETAIL_CAPTION                                     :{BLACK}Szczegóły Gry
 STR_SAVELOAD_DETAIL_NOT_AVAILABLE                               :{BLACK}Brak dostępnych informacji
 STR_SAVELOAD_DETAIL_COMPANY_INDEX                               :{SILVER}{COMMA}: {WHITE}{STRING}
@@ -4215,6 +4228,7 @@ STR_GOALS_PROGRESS_COMPLETE                                     :{GREEN}{STRING}
 STR_GOALS_TOOLTIP_CLICK_ON_SERVICE_TO_CENTER                    :{BLACK}Kliknij na cel, aby wyśrodkować widok główny na przedsiębiorstwie/mieście/polu. Użyj Ctrl, aby otworzyć nowy podgląd na jego lokalizację
 
 # Goal question window
+###length 4
 STR_GOAL_QUESTION_CAPTION_QUESTION                              :Pytanie
 STR_GOAL_QUESTION_CAPTION_INFORMATION                           :Informacja
 STR_GOAL_QUESTION_CAPTION_WARNING                               :Ostrzeżenie
@@ -5102,9 +5116,9 @@ STR_ORDER_DROP_FULL_LOAD_ANY                                    :Pełny załadun
 STR_ORDER_DROP_NO_LOADING                                       :Nie ładuj
 STR_ORDER_TOOLTIP_FULL_LOAD                                     :{BLACK}Zmień sposób załadunku w zaznaczonym poleceniu
 
-STR_ORDER_TOGGLE_UNLOAD                                         :{BLACK}Rozładuj wszystko
+STR_ORDER_TOGGLE_UNLOAD                                         :{BLACK}Wymuś rozładunek
 STR_ORDER_DROP_UNLOAD_IF_ACCEPTED                               :Rozładuj, jeśli akceptowane
-STR_ORDER_DROP_UNLOAD                                           :Rozładuj wszystko
+STR_ORDER_DROP_UNLOAD                                           :Wymuś rozładunek, nawet nieakceptowane
 STR_ORDER_DROP_TRANSFER                                         :Pozostaw do przeładunku
 STR_ORDER_DROP_NO_UNLOADING                                     :Nie rozładowuj
 STR_ORDER_TOOLTIP_UNLOAD                                        :{BLACK}Zmień sposób rozładunku w zaznaczonym poleceniu
@@ -5207,10 +5221,10 @@ STR_ORDER_IMPLICIT                                              :{SPACE}(Sugerow
 STR_ORDER_FULL_LOAD                                             :{SPACE}(Pełny załadunek)
 STR_ORDER_FULL_LOAD_ANY                                         :{SPACE}(Pełny załadunek czegokolwiek)
 STR_ORDER_NO_LOAD                                               :{SPACE}(Nie ładuj)
-STR_ORDER_UNLOAD                                                :{SPACE}(Rozładuj i zabierz ładunek)
-STR_ORDER_UNLOAD_FULL_LOAD                                      :{SPACE}(Rozładuj i czekaj na pełny załadunek)
-STR_ORDER_UNLOAD_FULL_LOAD_ANY                                  :{SPACE}(Rozładuj i czekaj na pełny załadunek czegokolwiek)
-STR_ORDER_UNLOAD_NO_LOAD                                        :{SPACE}(Rozładuj i pozostaw pusty)
+STR_ORDER_UNLOAD                                                :{SPACE}(Wymuś rozładunek i zabierz ładunek)
+STR_ORDER_UNLOAD_FULL_LOAD                                      :{SPACE}(Wymuś rozładunek i czekaj na pełny załadunek)
+STR_ORDER_UNLOAD_FULL_LOAD_ANY                                  :{SPACE}(Wymuś rozładunek i czekaj na pełny załadunek czegokolwiek)
+STR_ORDER_UNLOAD_NO_LOAD                                        :{SPACE}(Wymuś rozładunek i pozostaw pusty)
 STR_ORDER_TRANSFER                                              :{SPACE}(Pozostaw do przeładunku i załaduj)
 STR_ORDER_TRANSFER_FULL_LOAD                                    :{SPACE}(Pozostaw do przeładunku i czekaj na pełny załadunek)
 STR_ORDER_TRANSFER_FULL_LOAD_ANY                                :{SPACE}(Pozostaw do przeładunku i czekaj na pełny załadunek czegokolwiek)
@@ -5223,9 +5237,9 @@ STR_ORDER_NO_UNLOAD_NO_LOAD                                     :{SPACE}(Nie roz
 STR_ORDER_AUTO_REFIT                                            :{SPACE}(Przebuduj na {STRING.b})
 STR_ORDER_FULL_LOAD_REFIT                                       :{SPACE}(Przebuduj na {STRING.b} i czekaj na pełny załadunek)
 STR_ORDER_FULL_LOAD_ANY_REFIT                                   :{SPACE}(Przebuduj na {STRING.b} i czekaj na pełny załadunek czegokolwiek)
-STR_ORDER_UNLOAD_REFIT                                          :{SPACE}(Rozładuj, przebuduj na {STRING.b} i zabierz ładunek)
-STR_ORDER_UNLOAD_FULL_LOAD_REFIT                                :{SPACE}(Rozładuj, przebuduj na {STRING.b} i czekaj na pełny załadunek)
-STR_ORDER_UNLOAD_FULL_LOAD_ANY_REFIT                            :{SPACE}(Rozładuj, przebuduj na {STRING.b} i czekaj na pełny załadunek czegokolwiek)
+STR_ORDER_UNLOAD_REFIT                                          :{SPACE}(Wymuś rozładunek, przebuduj na {STRING.b} i zabierz ładunek)
+STR_ORDER_UNLOAD_FULL_LOAD_REFIT                                :{SPACE}(Wymuś rozładunek, przebuduj na {STRING.b} i czekaj na pełny załadunek)
+STR_ORDER_UNLOAD_FULL_LOAD_ANY_REFIT                            :{SPACE}(Wymuś rozładunek, przebuduj na {STRING.b} i czekaj na pełny załadunek czegokolwiek)
 STR_ORDER_TRANSFER_REFIT                                        :{SPACE}(Pozostaw do przeładunku, przebuduj na {STRING.b} i załaduj)
 STR_ORDER_TRANSFER_FULL_LOAD_REFIT                              :{SPACE}(Pozostaw do przeładunku, przebuduj na {STRING.b} i czekaj na pełny załadunek)
 STR_ORDER_TRANSFER_FULL_LOAD_ANY_REFIT                          :{SPACE}(Pozostaw do przeładunku, przebuduj na {STRING.b} i czekaj na pełny załadunek czegokolwiek)
@@ -5444,6 +5458,11 @@ STR_ERROR_AUTOSAVE_FAILED                                       :Błąd automaty
 STR_ERROR_UNABLE_TO_READ_DRIVE                                  :{BLACK}Nie można odczytać napędu
 STR_ERROR_GAME_SAVE_FAILED                                      :Nie można zapisać gry...
 STR_ERROR_UNABLE_TO_DELETE_FILE                                 :Nie można usunąć pliku
+STR_ERROR_CANNOT_CREATE_DIRECTORY                               :Nie można utworzyć folderu...
+STR_ERROR_DIRECTORY_NAME_IN_USE                                 :Plik lub folder o tej nazwie już istnieje
+STR_ERROR_DIRECTORY_ILLEGAL_NAME                                :Nazwa folderu nie może zawierać znaków specjalnych
+STR_ERROR_DIRECTORY_LEADING_DOT                                 :Nazwa folderu nie może zaczynać się od kropki
+STR_ERROR_DIRECTORY_PERMISSION_DENIED                           :Nie masz uprawnień do utworzenia folderu w tym miejscu
 STR_ERROR_GAME_LOAD_FAILED                                      :Nie można wczytać gry...
 STR_GAME_SAVELOAD_ERROR_BROKEN_INTERNAL_ERROR                   :Błąd wewnętrzny: {STRING}
 STR_GAME_SAVELOAD_ERROR_BROKEN_SAVEGAME                         :Zepsuta zapisana gra - {STRING}
@@ -5746,6 +5765,10 @@ STR_ERROR_BRIDGE_TOO_LOW_FOR_BUOY                               :most jest o {HE
 STR_ERROR_BRIDGE_TOO_LOW_FOR_RAIL_WAYPOINT                      :most jest o {HEIGHT} za niski dla posterunku kolejowego
 STR_ERROR_BRIDGE_TOO_LOW_FOR_ROAD_WAYPOINT                      :most jest o {HEIGHT} za niski dla posterunku drogowego
 STR_ERROR_BRIDGE_TOO_LOW_FOR_LOCK                               :most jest o {HEIGHT} za niski dla śluzy
+STR_ERROR_BRIDGE_TOO_LOW_FOR_TRAIN_DEPOT                        :most jest o {HEIGHT} za niski dla hali warsztatów
+STR_ERROR_BRIDGE_TOO_LOW_FOR_ROADVEH_DEPOT                      :most jest o {HEIGHT} za niski dla zajezdni samochodowej
+STR_ERROR_BRIDGE_TOO_LOW_FOR_SHIP_DEPOT                         :most jest o {HEIGHT} za niski dla stoczni
+STR_ERROR_BRIDGE_TOO_LOW_FOR_OBJECT                             :most jest o {HEIGHT} za niski dla obiektu
 
 # Tunnel related errors
 STR_ERROR_CAN_T_BUILD_TUNNEL_HERE                               :Nie można tutaj zbudować tunelu...

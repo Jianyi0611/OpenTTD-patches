@@ -44,28 +44,8 @@
 
 #include "safeguards.h"
 
-/**
- * Explains the newgrf shift bit positioning.
- * the grf base will not be used in order to find the string, but rather for
- * jumping from standard langID scheme to the new one.
- */
-enum GRFBaseLanguages : uint8_t {
-	GRFLB_AMERICAN    = 0x01,
-	GRFLB_ENGLISH     = 0x02,
-	GRFLB_GERMAN      = 0x04,
-	GRFLB_FRENCH      = 0x08,
-	GRFLB_SPANISH     = 0x10,
-	GRFLB_GENERIC     = 0x80,
-};
-
-enum GRFExtendedLanguages : uint8_t {
-	GRFLX_AMERICAN    = 0x00,
-	GRFLX_ENGLISH     = 0x01,
-	GRFLX_GERMAN      = 0x02,
-	GRFLX_FRENCH      = 0x03,
-	GRFLX_SPANISH     = 0x04,
-	GRFLX_UNSPECIFIED = 0x7F,
-};
+/** The bitmask of the old GRF languages, which are conveniently the same as the first few GRFLanguages. */
+using OldGRFLanguages = EnumBitSet<GRFLanguage, uint8_t>;
 
 
 /**
@@ -76,7 +56,7 @@ enum GRFExtendedLanguages : uint8_t {
 struct GRFTextEntry {
 	GRFTextList textholder;
 	StringID def_string;
-	uint32_t grfid;
+	GrfID grfid;
 	GRFStringID stringid;
 };
 
@@ -242,7 +222,7 @@ struct UnmappedChoiceList {
  * @param byte80         The control code to use as replacement for the 0x80-value.
  * @return The translated string.
  */
-std::string TranslateTTDPatchCodes(uint32_t grfid, uint8_t language_id, bool allow_newlines, std::string_view str, StringControlCode byte80)
+std::string TranslateTTDPatchCodes(GrfID grfid, GRFLanguage language_id, bool allow_newlines, std::string_view str, StringControlCode byte80)
 {
 	/* Empty input string? Nothing to do here. */
 	if (str.empty()) return {};
@@ -306,7 +286,7 @@ std::string TranslateTTDPatchCodes(uint32_t grfid, uint8_t language_id, bool all
 			{
 				uint16_t string = consumer.ReadUint16LE();
 				builder.PutUtf8(SCC_NEWGRF_STRINL);
-				builder.PutUtf8(MapGRFStringID(grfid, GRFStringID{string}));
+				builder.PutUtf8(MapGRFStringID(grfid, GRFStringID{string}).base());
 				break;
 			}
 			case 0x82:
@@ -483,7 +463,7 @@ string_end:
  * @param langid The The language of the new text.
  * @param text_to_add The text to add to the list.
  */
-static void AddGRFTextToList(GRFTextList &list, uint8_t langid, std::string_view text_to_add)
+static void AddGRFTextToList(GRFTextList &list, GRFLanguage langid, std::string_view text_to_add)
 {
 	/* Loop through all languages and see if we can replace a string */
 	for (auto &text : list) {
@@ -506,7 +486,7 @@ static void AddGRFTextToList(GRFTextList &list, uint8_t langid, std::string_view
  * @param text_to_add The text to add to the list.
  * @note All text-codes will be translated.
  */
-void AddGRFTextToList(GRFTextList &list, uint8_t langid, uint32_t grfid, bool allow_newlines, std::string_view text_to_add)
+void AddGRFTextToList(GRFTextList &list, GRFLanguage langid, GrfID grfid, bool allow_newlines, std::string_view text_to_add)
 {
 	AddGRFTextToList(list, langid, TranslateTTDPatchCodes(grfid, langid, allow_newlines, text_to_add));
 }
@@ -520,7 +500,7 @@ void AddGRFTextToList(GRFTextList &list, uint8_t langid, uint32_t grfid, bool al
  * @param text_to_add The text to add to the list.
  * @note All text-codes will be translated.
  */
-void AddGRFTextToList(GRFTextWrapper &list, uint8_t langid, uint32_t grfid, bool allow_newlines, std::string_view text_to_add)
+void AddGRFTextToList(GRFTextWrapper &list, GRFLanguage langid, GrfID grfid, bool allow_newlines, std::string_view text_to_add)
 {
 	if (list == nullptr) list = std::make_shared<GRFTextList>();
 	AddGRFTextToList(*list, langid, grfid, allow_newlines, text_to_add);
@@ -535,7 +515,7 @@ void AddGRFTextToList(GRFTextWrapper &list, uint8_t langid, uint32_t grfid, bool
 void AddGRFTextToList(GRFTextWrapper &list, std::string_view text_to_add)
 {
 	if (list == nullptr) list = std::make_shared<GRFTextList>();
-	AddGRFTextToList(*list, GRFLX_UNSPECIFIED, text_to_add);
+	AddGRFTextToList(*list, GRFLanguage::Unspecified, text_to_add);
 }
 
 /**
@@ -548,10 +528,10 @@ void AddGRFTextToList(GRFTextWrapper &list, std::string_view text_to_add)
  * @param def_string The fallback string if a translation for this string isn't available.
  * @return The OpenTTD internal string identifier.
  */
-static StringID AddGRFString(uint32_t grfid, GRFStringID stringid, uint8_t langid_to_add, bool allow_newlines, std::string_view text_to_add, StringID def_string)
+static StringID AddGRFString(GrfID grfid, GRFStringID stringid, GRFLanguage langid_to_add, bool allow_newlines, std::string_view text_to_add, StringID def_string)
 {
 	StringIndexInTab id{};
-	extern GRFFile *GetFileByGRFIDExpectCurrent(uint32_t grfid);
+	extern GRFFile *GetFileByGRFIDExpectCurrent(GrfID grfid);
 	GRFFile *grf = GetFileByGRFIDExpectCurrent(grfid);
 	if (grf == nullptr) return STR_EMPTY;
 
@@ -579,7 +559,7 @@ static StringID AddGRFString(uint32_t grfid, GRFStringID stringid, uint8_t langi
 	std::string newtext = TranslateTTDPatchCodes(grfid, langid_to_add, allow_newlines, text_to_add);
 	AddGRFTextToList(_grf_text[id].textholder, langid_to_add, newtext);
 
-	GrfMsg(3, "Added 0x{:X}: grfid {:08X} string 0x{:X} lang 0x{:X} string '{}' ({:X})", id, grfid, stringid, langid_to_add, newtext.c_str(), MakeStringID(TEXT_TAB_NEWGRF_START, id));
+	GrfMsg(3, "Added 0x{:X}: grfid {} string 0x{:X} lang 0x{:X} string '{}' ({:X})", id, grfid, stringid, langid_to_add, newtext, MakeStringID(TEXT_TAB_NEWGRF_START, id));
 
 	return MakeStringID(TEXT_TAB_NEWGRF_START, id);
 }
@@ -595,9 +575,11 @@ static StringID AddGRFString(uint32_t grfid, GRFStringID stringid, uint8_t langi
  * @param def_string The fallback string if a translation for this string isn't available.
  * @return The OpenTTD internal string identifier.
  */
-StringID AddGRFString(uint32_t grfid, GRFStringID stringid, uint8_t langid_to_add, bool new_scheme, bool allow_newlines, std::string_view text_to_add, StringID def_string)
+StringID AddGRFString(GrfID grfid, GRFStringID stringid, uint8_t langid_to_add, bool new_scheme, bool allow_newlines, std::string_view text_to_add, StringID def_string)
 {
-	if (new_scheme) return AddGRFString(grfid, stringid, langid_to_add, allow_newlines, text_to_add, def_string);
+	if (new_scheme) return AddGRFString(grfid, stringid, static_cast<GRFLanguage>(langid_to_add), allow_newlines, text_to_add, def_string);
+
+	OldGRFLanguages old_lang{langid_to_add};
 
 	/* When working with the old language scheme (grf_version is less than 7) and
 	 * English or American is among the set bits, simply add it as English in
@@ -605,12 +587,12 @@ StringID AddGRFString(uint32_t grfid, GRFStringID stringid, uint8_t langid_to_ad
 	 * If English is set, it is pretty safe to assume the translations are not
 	 * actually translated.
 	 */
-	if (langid_to_add & (GRFLB_AMERICAN | GRFLB_ENGLISH)) return AddGRFString(grfid, stringid, GRFLX_ENGLISH, allow_newlines, text_to_add, def_string);
+	if (old_lang.Any({GRFLanguage::American, GRFLanguage::English})) return AddGRFString(grfid, stringid, GRFLanguage::English, allow_newlines, text_to_add, def_string);
 
 	StringID ret = STR_EMPTY;
-	if (langid_to_add & GRFLB_GERMAN) ret = AddGRFString(grfid, stringid, GRFLX_GERMAN, allow_newlines, text_to_add, def_string);
-	if (langid_to_add & GRFLB_FRENCH) ret = AddGRFString(grfid, stringid, GRFLX_FRENCH, allow_newlines, text_to_add, def_string);
-	if (langid_to_add & GRFLB_SPANISH) ret = AddGRFString(grfid, stringid, GRFLX_SPANISH, allow_newlines, text_to_add, def_string);
+	for (GRFLanguage lang: {GRFLanguage::German, GRFLanguage::French, GRFLanguage::Spanish}) {
+		if (old_lang.Test(lang)) ret = AddGRFString(grfid, stringid, lang, allow_newlines, text_to_add, def_string);
+	}
 	return ret;
 }
 
@@ -637,9 +619,9 @@ StringID GetGRFStringID(const GRFFile *grf, GRFStringID stringid)
  * @param stringid The GRF-local identifier of the string.
  * @return The string identifier, or STR_UNDEFINED when it can't be found.
  */
-StringID GetGRFStringID(uint32_t grfid, GRFStringID stringid)
+StringID GetGRFStringID(GrfID grfid, GRFStringID stringid)
 {
-	extern GRFFile *GetFileByGRFIDExpectCurrent(uint32_t grfid);
+	extern GRFFile *GetFileByGRFIDExpectCurrent(GrfID grfid);
 	const GRFFile *grf = GetFileByGRFIDExpectCurrent(grfid);
 	if (unlikely(grf == nullptr)) {
 		auto it = std::ranges::find_if(_grf_text, [&grfid, &stringid](const GRFTextEntry &grf_text) { return grf_text.grfid == grfid && grf_text.stringid == stringid; });
@@ -674,7 +656,7 @@ std::optional<std::string_view> GetGRFStringFromGRFText(const GRFTextList &text_
 
 		/* If the current string is English or American, set it as the
 		 * fallback language if the specific language isn't available. */
-		if (text.langid == GRFLX_UNSPECIFIED || (!default_text.has_value() && (text.langid == GRFLX_ENGLISH || text.langid == GRFLX_AMERICAN))) {
+		if (text.langid == GRFLanguage::Unspecified || (!default_text.has_value() && (text.langid == GRFLanguage::English || text.langid == GRFLanguage::American))) {
 			default_text = text.text;
 		}
 	}
@@ -689,7 +671,7 @@ const char *GetDefaultLangGRFStringFromGRFText(const GRFTextList &text_list)
 	for (const auto &text : text_list) {
 		/* If the current string is English or American, set it as the
 		 * fallback language if the specific language isn't available. */
-		if (text.langid == GRFLX_UNSPECIFIED || (default_text == nullptr && (text.langid == GRFLX_ENGLISH || text.langid == GRFLX_AMERICAN))) {
+		if (text.langid == GRFLanguage::Unspecified || (default_text == nullptr && (text.langid == GRFLanguage::English || text.langid == GRFLanguage::American))) {
 			default_text = text.text.c_str();
 		}
 	}
@@ -722,7 +704,7 @@ const char *GetDefaultLangGRFStringFromGRFText(const GRFTextWrapper &text)
  */
 std::string_view GetGRFStringPtr(StringIndexInTab stringid)
 {
-	if (stringid.base() >= _grf_text.size() || _grf_text[stringid].grfid == 0) {
+	if (stringid.base() >= _grf_text.size() || _grf_text[stringid].grfid.Empty()) {
 		Debug(misc, 0, "Invalid NewGRF string ID: {}", stringid);
 		return "(invalid StringID)";
 	}
@@ -737,15 +719,17 @@ std::string_view GetGRFStringPtr(StringIndexInTab stringid)
 bool CheckGrfLangID(uint8_t lang_id, uint8_t grf_version)
 {
 	if (grf_version < 7) {
+		OldGRFLanguages old_lang{lang_id};
 		switch (_current_language->newgrflangid) {
-			case GRFLX_GERMAN:  return (lang_id & GRFLB_GERMAN)  != 0;
-			case GRFLX_FRENCH:  return (lang_id & GRFLB_FRENCH)  != 0;
-			case GRFLX_SPANISH: return (lang_id & GRFLB_SPANISH) != 0;
-			default:            return (lang_id & (GRFLB_ENGLISH | GRFLB_AMERICAN)) != 0;
+			case GRFLanguage::German: return old_lang.Test(GRFLanguage::German);
+			case GRFLanguage::French: return old_lang.Test(GRFLanguage::French);
+			case GRFLanguage::Spanish: return old_lang.Test(GRFLanguage::Spanish);
+			default: return old_lang.Any({GRFLanguage::American, GRFLanguage::English});
 		}
 	}
 
-	return (lang_id == _current_language->newgrflangid || lang_id == GRFLX_UNSPECIFIED);
+	GRFLanguage new_lang = static_cast<GRFLanguage>(lang_id);
+	return new_lang == _current_language->newgrflangid || new_lang == GRFLanguage::Unspecified;
 }
 
 /**
@@ -931,7 +915,7 @@ static void ProcessNewGRFStringControlCode(char32_t scc, StringConsumer &consume
 			break;
 
 		case SCC_NEWGRF_STRINL: {
-			StringID stringid = consumer.ReadUtf8(STR_NULL);
+			StringID stringid{consumer.ReadUtf8(STR_NULL.base())};
 			/* We also need to handle the substring's stack usage. */
 			HandleNewGRFStringControlCodes(GetStringPtr(stringid), stack, params);
 			break;
@@ -1036,13 +1020,13 @@ char32_t RemapNewGRFStringControlCode(char32_t scc, StringConsumer &consumer)
 	}
 }
 
-uint32_t GetStringGRFID(StringID string)
+GrfID GetStringGRFID(StringID string)
 {
 	switch (GetStringTab(string)) {
 		case TEXT_TAB_NEWGRF_START:
 			return _grf_text[GetStringIndex(string)].grfid;
 		default:
-			return 0;
+			return {};
 	}
 }
 
@@ -1082,7 +1066,7 @@ std::vector<StringParameter> GetGRFStringTextStackParameters(const GRFFile *grff
 
 	if (stack.error) {
 		if (grffile != nullptr) {
-			Debug(misc, 0, "Too many NewGRF string parameters (in {:08X}, {}).", std::byteswap(grffile->grfid), grffile->filename);
+			Debug(misc, 0, "Too many NewGRF string parameters (in {}, {}).", grffile->grfid, grffile->filename);
 		} else {
 			Debug(misc, 0, "Too many NewGRF string parameters.");
 		}

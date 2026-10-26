@@ -10,6 +10,7 @@
 #include "stdafx.h"
 #include "order_base.h"
 #include "order_cmd.h"
+#include "order_func.h"
 #include "orderlist_edit.h"
 #include "orderlist_gui.h"
 #include "schedule_group_gui.h"
@@ -424,9 +425,10 @@ public:
 		if (ol != nullptr && ol->GetCompany() == _local_company) {
 			this->SetWidgetsDisabledState(false, WID_OL_RENAME, WID_OL_PUBLIC, WID_OL_DELETE);
 			this->GetWidget<NWidgetCore>(WID_OL_PUBLIC)->SetString(ol->IsPublic() ? STR_ORDER_LIST_MAKE_PRIVATE : STR_ORDER_LIST_MAKE_PUBLIC);
-			/* A public list may already be used by other companies; making it
-			 * private again has no effect. Keep the button as a placeholder, but disabled. */
-			this->SetWidgetDisabledState(WID_OL_PUBLIC, ol->IsPublic() || ol->IsScheduleGroup());
+			/* A public list can be made private unless another company's vehicles
+			 * are actively using it. Schedules that merely reference it are reset
+			 * when it becomes private. */
+			this->SetWidgetDisabledState(WID_OL_PUBLIC, ol->IsScheduleGroup() || (ol->IsPublic() && OrderListIsUsedByOtherCompany(ol)));
 		} else {
 			this->SetWidgetsDisabledState(true, WID_OL_RENAME, WID_OL_PUBLIC, WID_OL_DELETE);
 			this->GetWidget<NWidgetCore>(WID_OL_PUBLIC)->SetString(STR_ORDER_LIST_MAKE_PUBLIC);

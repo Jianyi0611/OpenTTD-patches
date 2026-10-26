@@ -664,6 +664,7 @@ STR_NEWS_MENU_DELETE_ALL_MESSAGES                               :Удалить 
 # About menu
 STR_ABOUT_MENU_LAND_BLOCK_INFO                                  :Информация об участке земли
 STR_ABOUT_MENU_HELP                                             :Помощь и документация
+STR_ABOUT_MENU_ENTER_SCREENSAVER_MODE                           :Режим сохранения экрана
 STR_ABOUT_MENU_TOGGLE_CONSOLE                                   :Консоль
 STR_ABOUT_MENU_AI_DEBUG                                         :Отладка ИИ / скриптов
 STR_ABOUT_MENU_SCREENSHOT                                       :Снимок экрана
@@ -769,7 +770,6 @@ STR_GRAPH_LAST_24_MONTHS                                        :{TINY_FONT}{BLA
 STR_GRAPH_LAST_24_QUARTERS                                      :{TINY_FONT}{BLACK}6 лет (поквартально)
 STR_GRAPH_LAST_24_YEARS                                         :{TINY_FONT}{BLACK}24 года
 
-STR_GRAPH_TOGGLE_RANGE                                          :Включить/отключить отображение графика
 STR_GRAPH_SELECT_SCALE                                          :Сменить горизонтальный масштаб графика
 
 STR_GRAPH_CARGO_PAYMENT_RATES_CAPTION                           :{WHITE}Оплата за перевозку грузов
@@ -785,14 +785,21 @@ STR_GRAPH_CARGO_PAYMENT_CARGO                                   :{TINY_FONT}{BLA
 
 STR_GRAPH_INDUSTRY_CAPTION                                      :{WHITE}{INDUSTRY} - Продукция
 STR_GRAPH_INDUSTRY_RANGE_PRODUCED                               :Произведено
+STR_GRAPH_INDUSTRY_RANGE_PRODUCED_TOOLTIP                       :Переключить отображение графика грузов, произведённых на предприятии
 STR_GRAPH_INDUSTRY_RANGE_TRANSPORTED                            :Перевезено
+STR_GRAPH_INDUSTRY_RANGE_TRANSPORTED_TOOLTIP                    :Переключить отображение графика перевезённых грузов, произведённых на предприятии
 STR_GRAPH_INDUSTRY_RANGE_DELIVERED                              :Доставлено
+STR_GRAPH_INDUSTRY_RANGE_DELIVERED_TOOLTIP                      :Переключить отображение графика грузов, доставленных на предприятие
 STR_GRAPH_INDUSTRY_RANGE_WAITING                                :В ожидании
+STR_GRAPH_INDUSTRY_RANGE_WAITING_TOOLTIP                        :Переключить отображение графика грузов, ожидающих погрузки
 
 STR_GRAPH_TOWN_CARGO_CAPTION                                    :{WHITE}{TOWN} - Пассажиры и грузы
 STR_GRAPH_TOWN_RANGE_PRODUCED                                   :Произведено
+STR_GRAPH_TOWN_RANGE_PRODUCED_TOOLTIP                           :Переключить отображение графика грузов, произведённых в городе
 STR_GRAPH_TOWN_RANGE_TRANSPORTED                                :Перевезено
+STR_GRAPH_TOWN_RANGE_TRANSPORTED_TOOLTIP                        :Переключить отображение графика перевезённых грузов, произведённых в городе
 STR_GRAPH_TOWN_RANGE_DELIVERED                                  :Доставлено
+STR_GRAPH_TOWN_RANGE_DELIVERED_TOOLTIP                          :Переключить отображение графика грузов, доставленных в город
 
 STR_GRAPH_PERFORMANCE_DETAIL_TOOLTIP                            :{BLACK}Показать составляющие части рейтинга
 
@@ -1359,9 +1366,9 @@ STR_RIVERS_MODERATE                                             :Среднее
 STR_RIVERS_LOT                                                  :Большое
 
 ###length 3
-STR_DISASTER_NONE                                               :нет
-STR_DISASTER_REDUCED                                            :сниженная
-STR_DISASTER_NORMAL                                             :обычная
+STR_BREAKDOWNS_NONE                                             :нет
+STR_BREAKDOWNS_REDUCED                                          :сниженная
+STR_BREAKDOWNS_NORMAL                                           :обычная
 
 ###length 4
 STR_SUBSIDY_X1_5                                                :x1,5
@@ -1811,7 +1818,7 @@ STR_CONFIG_SETTING_TREE_PLACER_ORIGINAL                         :Оригина�
 STR_CONFIG_SETTING_TREE_PLACER_IMPROVED                         :Улучшенный
 
 STR_CONFIG_SETTING_ROAD_SIDE                                    :Движение автотранспорта: {STRING}
-STR_CONFIG_SETTING_ROAD_SIDE_HELPTEXT                           :Выберите сторону дороги, по которой движется автотранспорт
+STR_CONFIG_SETTING_ROAD_SIDE_HELPTEXT                           :Выберите сторону дороги, по которой движется автотранспорт.{}Это также может повлиять на расстановку светофоров.{}При изменении этой настройки игру, возможно, придётся перезапустить для полного и корректного применения для всех транспортных средств.
 
 ###length 2
 STR_CONFIG_SETTING_ROAD_SIDE_LEFT                               :Левостороннее
@@ -3058,22 +3065,22 @@ STR_PICKER_COLLECTION_DELETE_QUERY                              :Удалить 
 STR_PICKER_COLLECTION_DELETE_QUERY_TEXT                         :{YELLOW}Удалить эту коллекцию?
 STR_PICKER_COLLECTION_DELETE_QUERY_DISABLED_TEXT                :{YELLOW}Вы уверены, что хотите удалить эту коллекцию? В ней содержатся объекты из отключённых модулей NewGRF!
 
-STR_PICKER_STATION_CLASS_TOOLTIP                                :Выберите тип станций для отображения
+STR_PICKER_STATION_CLASS_TOOLTIP                                :Выберите тип станций для отображения. Ctrl+щелчок для добавления в сохранённые или удаления.
 STR_PICKER_STATION_TYPE_TOOLTIP                                 :Выберите станцию для строительства. Ctrl+щелчок добавит её в «избранное» или удалит.
 STR_PICKER_STATION_COLLECTION_TOOLTIP                           :Выберите коллекцию станций для отображения
-STR_PICKER_WAYPOINT_CLASS_TOOLTIP                               :Выберите тип маршрутных точек для отображения
+STR_PICKER_WAYPOINT_CLASS_TOOLTIP                               :Выберите тип маршрутных точек для отображения. Ctrl+щелчок для добавления в сохранённые или удаления.
 STR_PICKER_WAYPOINT_TYPE_TOOLTIP                                :Выберите маршрутную точку для строительства. Ctrl+щелчок добавит её в «избранное» или удалит.
 STR_PICKER_WAYPOINT_COLLECTION_TOOLTIP                          :Выберите коллекцию маршрутных точек для отображения
-STR_PICKER_ROADSTOP_BUS_CLASS_TOOLTIP                           :Выберите тип остановок для отображения
+STR_PICKER_ROADSTOP_BUS_CLASS_TOOLTIP                           :Выберите тип остановок для отображения. Ctrl+щелчок для добавления в сохранённые или удаления.
 STR_PICKER_ROADSTOP_BUS_TYPE_TOOLTIP                            :Выберите остановку для строительства. Ctrl+щелчок добавит её в «избранное» или удалит.
 STR_PICKER_ROADSTOP_BUS_COLLECTION_TOOLTIP                      :Выберите коллекцию автобусных остановок для отображения
-STR_PICKER_ROADSTOP_TRUCK_CLASS_TOOLTIP                         :Выберите тип грузовых терминалов для отображения
+STR_PICKER_ROADSTOP_TRUCK_CLASS_TOOLTIP                         :Выберите тип грузовых терминалов для отображения. Ctrl+щелчок для добавления в сохранённые или удаления.
 STR_PICKER_ROADSTOP_TRUCK_TYPE_TOOLTIP                          :Выберите грузовой терминал для строительства. Ctrl+щелчок добавит его в «избранное» или удалит.
 STR_PICKER_ROADSTOP_TRUCK_COLLECTION_TOOLTIP                    :Выберите коллекцию грузовых терминалов для отображения
-STR_PICKER_OBJECT_CLASS_TOOLTIP                                 :Выберите тип объектов для отображения
+STR_PICKER_OBJECT_CLASS_TOOLTIP                                 :Выберите тип объектов для отображения. Ctrl+щелчок для добавления в сохранённые или удаления.
 STR_PICKER_OBJECT_TYPE_TOOLTIP                                  :Выберите объект для строительства. Ctrl+щелчок добавит его в «избранное» или удалит. Ctrl+перетаскивание - выбор диагональной области. При нажатом Shift - оценка стоимости строительства.
 STR_PICKER_OBJECT_COLLECTION_TOOLTIP                            :Выберите коллекцию объектов для отображения
-STR_PICKER_HOUSE_CLASS_TOOLTIP                                  :Выберите городскую зону для отображения соответствующих строений
+STR_PICKER_HOUSE_CLASS_TOOLTIP                                  :Выберите городскую зону для отображения соответствующих строений. Ctrl+щелчок для добавления в сохранённые или удаления.
 STR_PICKER_HOUSE_TYPE_TOOLTIP                                   :Выберите здание для строительства. Ctrl+щелчок добавит его в «избранное» или удалит.
 STR_PICKER_HOUSE_COLLECTION_TOOLTIP                             :Выберите коллекцию домов для отображения
 
@@ -3269,6 +3276,7 @@ STR_TREES_MODE_FOREST_LG_TOOLTIP                                :{BLACK}Созд
 # Land generation window (SE)
 STR_TERRAFORM_TOOLBAR_LAND_GENERATION_CAPTION                   :{WHITE}Генератор карты
 STR_TERRAFORM_TOOLTIP_PLACE_ROCKY_AREAS_ON_LANDSCAPE            :{BLACK}Разместить скалы на карте.{}Ctrl+щелчок убирает скалы.
+STR_TERRAFORM_TOOLTIP_PLACE_ROUGH_AREAS_ON_LANDSCAPE            :{BLACK}Разместить неровности на карте.{}Ctrl+щелчок - убрать неровности.
 STR_TERRAFORM_TOOLTIP_DEFINE_DESERT_AREA                        :{BLACK}Указать область, занимаемую пустыней.{}Ctrl+щелчок убирает песок.
 STR_TERRAFORM_TOOLTIP_INCREASE_SIZE_OF_LAND_AREA                :{BLACK}Увеличить площадь изменения рельефа
 STR_TERRAFORM_TOOLTIP_DECREASE_SIZE_OF_LAND_AREA                :{BLACK}Уменьшить площадь изменения рельефа
@@ -3454,6 +3462,8 @@ STR_LAI_WATER_DESCRIPTION_LOCK                                  :Шлюз
 STR_LAI_WATER_DESCRIPTION_RIVER                                 :Река
 STR_LAI_WATER_DESCRIPTION_COAST_OR_RIVERBANK                    :Морской или речной берег
 STR_LAI_WATER_DESCRIPTION_SHIP_DEPOT                            :Верфь
+STR_LAI_WATER_DESCRIPTION_WATER_ROCKS                           :Камни
+STR_LAI_WATER_DESCRIPTION_COAST_ROCKS                           :Каменистый берег
 
 # Industries come directly from their industry names
 
@@ -3567,6 +3577,9 @@ STR_SAVELOAD_LOAD_BUTTON                                        :{BLACK}Загр
 STR_SAVELOAD_LOAD_TOOLTIP                                       :{BLACK}Загрузить выбранную игру
 STR_SAVELOAD_LOAD_HEIGHTMAP_TOOLTIP                             :{BLACK}Загрузить выбранную карту высот
 STR_SAVELOAD_LOAD_TOWN_DATA_TOOLTIP                             :{BLACK}Загрузка выбранного файла для создания городов
+STR_SAVELOAD_NEW_DIRECTORY_BUTTON                               :{BLACK}Новый каталог
+STR_SAVELOAD_NEW_DIRECTORY_TOOLTIP                              :{BLACK}Создать новый каталог в указанном месте
+STR_SAVELOAD_NEW_DIRECTORY_QUERY_CAPTION                        :{WHITE}Укажите имя нового каталога
 STR_SAVELOAD_DETAIL_CAPTION                                     :{BLACK}Информация об игре
 STR_SAVELOAD_DETAIL_NOT_AVAILABLE                               :{BLACK}Нет информации.
 STR_SAVELOAD_DETAIL_COMPANY_INDEX                               :{SILVER}{COMMA}: {WHITE}{STRING}
@@ -4010,6 +4023,7 @@ STR_GOALS_PROGRESS_COMPLETE                                     :{GREEN}{STRING}
 STR_GOALS_TOOLTIP_CLICK_ON_SERVICE_TO_CENTER                    :{BLACK}Щёлкните по задаче, чтобы показать предприятие/город/место. Ctrl+щелчок показывает в новом окне.
 
 # Goal question window
+###length 4
 STR_GOAL_QUESTION_CAPTION_QUESTION                              :{BLACK}Вопрос
 STR_GOAL_QUESTION_CAPTION_INFORMATION                           :{BLACK}Информация
 STR_GOAL_QUESTION_CAPTION_WARNING                               :{BLACK}Предупреждение
@@ -4905,7 +4919,7 @@ STR_ORDER_TOOLTIP_FULL_LOAD                                     :{BLACK}Изме
 
 STR_ORDER_TOGGLE_UNLOAD                                         :{BLACK}Выгрузить всё
 STR_ORDER_DROP_UNLOAD_IF_ACCEPTED                               :Разгрузиться, если груз принимается
-STR_ORDER_DROP_UNLOAD                                           :Выгрузить всё
+STR_ORDER_DROP_UNLOAD                                           :Принудительно выгрузить всё
 STR_ORDER_DROP_TRANSFER                                         :Передать
 STR_ORDER_DROP_NO_UNLOADING                                     :Не разгружаться
 STR_ORDER_TOOLTIP_UNLOAD                                        :{BLACK}Изменить способ разгрузки на указанной станции
@@ -5245,6 +5259,11 @@ STR_ERROR_AUTOSAVE_FAILED                                       :Автомат�
 STR_ERROR_UNABLE_TO_READ_DRIVE                                  :{BLACK}Не удалось прочитать диск
 STR_ERROR_GAME_SAVE_FAILED                                      :Невозможно сохранить игру...
 STR_ERROR_UNABLE_TO_DELETE_FILE                                 :Невозможно удалить файл
+STR_ERROR_CANNOT_CREATE_DIRECTORY                               :Каталог не может быть создан...
+STR_ERROR_DIRECTORY_NAME_IN_USE                                 :Каталог или файл с таким именем уже существует.
+STR_ERROR_DIRECTORY_ILLEGAL_NAME                                :Имя каталога не должно содержать специальные символы.
+STR_ERROR_DIRECTORY_LEADING_DOT                                 :Имя каталога не должно начинаться с точки.
+STR_ERROR_DIRECTORY_PERMISSION_DENIED                           :У вас нет разрешений для создания этого каталога.
 STR_ERROR_GAME_LOAD_FAILED                                      :Невозможно загрузить игру...
 STR_GAME_SAVELOAD_ERROR_BROKEN_INTERNAL_ERROR                   :Внутренняя ошибка: {STRING}
 STR_GAME_SAVELOAD_ERROR_BROKEN_SAVEGAME                         :Файл повреждён - {STRING}
@@ -5547,6 +5566,10 @@ STR_ERROR_BRIDGE_TOO_LOW_FOR_BUOY                               :высота м
 STR_ERROR_BRIDGE_TOO_LOW_FOR_RAIL_WAYPOINT                      :высота моста - {HEIGHT}, этого недостаточно для маршрутной точки
 STR_ERROR_BRIDGE_TOO_LOW_FOR_ROAD_WAYPOINT                      :высота моста - {HEIGHT}, этого недостаточно для маршрутной точки
 STR_ERROR_BRIDGE_TOO_LOW_FOR_LOCK                               :высота моста - {HEIGHT}, этого недостаточно для шлюза
+STR_ERROR_BRIDGE_TOO_LOW_FOR_TRAIN_DEPOT                        :депо не поместится под мостом с высотой {HEIGHT}
+STR_ERROR_BRIDGE_TOO_LOW_FOR_ROADVEH_DEPOT                      :гараж не поместится под мостом с высотой {HEIGHT}
+STR_ERROR_BRIDGE_TOO_LOW_FOR_SHIP_DEPOT                         :док не поместится под мостом с высотой {HEIGHT}
+STR_ERROR_BRIDGE_TOO_LOW_FOR_OBJECT                             :объект не поместится под мостом с высотой {HEIGHT}
 
 # Tunnel related errors
 STR_ERROR_CAN_T_BUILD_TUNNEL_HERE                               :Здесь невозможно построить туннель...

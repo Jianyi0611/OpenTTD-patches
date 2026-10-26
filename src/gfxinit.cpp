@@ -390,7 +390,7 @@ static SpriteID GetSpriteIDForClearGround(const ClearGround cg, const Slope slop
 		case ClearGround::Grass:
 			return GetSpriteIDForClearLand(slope, (uint8_t)multi);
 		case ClearGround::Rough:
-			return GetSpriteIDForHillyLand(slope, multi);
+			return GetSpriteIDForRoughLand(slope, multi);
 		case ClearGround::Rocks:
 			return GetSpriteIDForRocks(slope, multi);
 		case ClearGround::Fields:

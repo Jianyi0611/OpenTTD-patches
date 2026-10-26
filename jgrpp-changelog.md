@@ -2,6 +2,31 @@
 
 * * *
 
+### v0.73.4 (2026-10-12)
+* Fix crash which could occur with some extra-zoom and/or 32bpp NewGRFs/basesets.
+* Fix crash editing scheduled dispatch tag conditional orders when no tags were usable.
+* Fix crash which could occur after manually sending ships to a specific depot.
+* Fix reversing at a waypoint or behind a signal being removed if the train was partially in a depot.
+* Fix inconsistent handling of reversing at waypoints when the front of the train had already passed the waypoint.
+* Fix column spacing in departures window when arrival times were enabled.
+* Bulk order list export:
+  * Fix crash exporting from non-group vehicle list windows.
+  * Fix missing or duplicated order lists depending on the number of vehicles in the shared order set.
+* Enable dragging the selected order in order list windows.
+* Bump trunk base from commit af60d6b7cd60c8855febb0847bd66169780dd1ef to commit 12208d12048e747cd5c76bada4c5ddaab573efc4.
+
+### v0.73.3 (2026-09-16)
+* Fix only first 10 items in town action list being clickable.
+* Fix detection of crashed vehicles on signalled tunnels/bridges.
+* Fix width of HH:MM columns in departure board and timetable window with some fonts.
+* Add setting for showing dispatch route ID in departure boards.
+* Add ability to export JSON order lists for all vehicles for each vehicle type.
+* Template-based train replacement: Fix handling of templates longer than the train length limit.
+* Fix save dialog not warning when overwriting order list files.
+* Fix vehicle movement issues after loading some SpringPP savegames.
+* Linux: Fix crash logging version information when SDL IM is present.
+* Bump trunk base from commit 061e5c9cd3373301a9557869144ed767309b3d7a to commit af60d6b7cd60c8855febb0847bd66169780dd1ef.
+
 ### v0.73.2 (2026-08-26)
 * Fix crash which could occur when NewGRFs perform an incorrect sprite replacement.
 * Fix crash which could occur with overlapping use of the give money and join buttons in the company window.

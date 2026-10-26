@@ -11,6 +11,7 @@
 #define GAMELOG_H
 
 #include "newgrf_config.h"
+#include "newgrf_type.h"
 #include <vector>
 
 struct LoggedAction;
@@ -50,14 +51,14 @@ void GamelogSetting(const char *name, int32_t oldval, int32_t newval);
 
 void GamelogGRFUpdate(const GRFConfigList &oldg, const GRFConfigList &newg);
 void GamelogGRFAddList(const GRFConfigList &newg);
-void GamelogGRFRemove(uint32_t grfid);
+void GamelogGRFRemove(GrfID grfid);
 void GamelogGRFAdd(const GRFConfig &newg);
 void GamelogGRFCompatible(const GRFIdentifier &newg);
 
 void GamelogTestRevision();
 void GamelogTestMode();
 
-bool GamelogGRFBugReverse(uint32_t grfid, uint16_t internal_id);
+bool GamelogGRFBugReverse(GrfID grfid, uint16_t internal_id);
 
 void GamelogInfo(const std::vector<LoggedAction> &gamelog_actions, uint32_t *last_ottd_rev, uint8_t *ever_modified, bool *removed_newgrfs);
 const char *GamelogGetLastRevision(const std::vector<LoggedAction> &gamelog_actions);

@@ -91,10 +91,14 @@ static bool CanDetermineTimeTaken(const Order *order, bool travelling)
 	if (order->IsType(OT_CONDITIONAL) || order->IsType(OT_IMPLICIT)) return false;
 	/* No travel time and we have not already finished travelling */
 	if (travelling && !order->IsTravelTimetabled()) return false;
-	/* No wait time but we are loading at this timetabled station */
-	if (!travelling && !order->IsWaitTimetabled() && order->IsType(OT_GOTO_STATION) &&
-			!(order->GetNonStopType() & ONSF_NO_STOP_AT_DESTINATION_STATION)) {
-		return false;
+	if (!travelling && !order->IsWaitTimetabled() && order->IsType(OT_GOTO_STATION)) {
+		/* Stations only stopped at to decouple do not load, so their wait time
+		 * is never measured and timetabled. The dwell there belongs to the
+		 * decoupling operation itself and is predicted as zero, instead of
+		 * aborting the whole arrival/departure prediction at this station. */
+		if (order->GetDecouple() == ODF_DECOUPLE) return true;
+		/* No wait time but we are loading at this timetabled station */
+		if (!(order->GetNonStopType() & ONSF_NO_STOP_AT_DESTINATION_STATION)) return false;
 	}
 
 	return true;
@@ -538,23 +542,24 @@ struct TimetableWindow : GeneralVehicleWindow {
 	{
 		switch (widget) {
 			case WID_VT_ARRIVAL_DEPARTURE_PANEL: {
-				int64_t param;
-				if (_settings_time.time_in_minutes) {
-					param = _settings_time.FromTickMinutes(_settings_time.NowInTickMinutes().ToSameDayClockTime(GetBroadestHourDigitsValue(), (int)GetParamMaxDigits(2))).base();
-				} else if (EconTime::UsingWallclockUnits()) {
-					param = _state_ticks.base() + (TICKS_PER_SECOND * 9999);
-				} else {
-					param = EconTime::MAX_YEAR.base() * DAYS_IN_YEAR;
-				}
-
 				format_buffer buf;
-				auto get_width = [&](StringID str) {
+				auto get_width = [&](StringID str, int64_t param) {
 					buf.clear();
 					AppendStringInPlace(buf, str, param);
 					return GetStringBoundingBox(buf).width;
 				};
-				this->deparr_time_width = get_width(STR_JUST_TT_TIME);
-				this->deparr_abbr_width = std::max(get_width(STR_TIMETABLE_ARRIVAL_ABBREVIATION), get_width(STR_TIMETABLE_DEPARTURE_ABBREVIATION));
+
+				if (_settings_time.time_in_minutes) {
+					this->deparr_time_width = get_width(STR_JUST_TIME_HHMM, (GetBroadestHourDigitsValue() * 100) + GetParamMaxDigits(2));
+				} else if (EconTime::UsingWallclockUnits()) {
+					this->deparr_time_width = get_width(STR_JUST_TT_TIME, _state_ticks.base() + (TICKS_PER_SECOND * 9999));
+				} else {
+					format_buffer_sized<64> date_buf;
+					AppendWidestTinyOrIsoCalendarDate(date_buf, false);
+					this->deparr_time_width = GetStringBoundingBox(date_buf).width;
+				}
+
+				this->deparr_abbr_width = std::max(get_width(STR_TIMETABLE_ARRIVAL_ABBREVIATION, 0), get_width(STR_TIMETABLE_DEPARTURE_ABBREVIATION, 0));
 				size.width = this->deparr_abbr_width + this->deparr_time_width + padding.width;
 				[[fallthrough]];
 			}
@@ -879,6 +884,12 @@ struct TimetableWindow : GeneralVehicleWindow {
 						} else if (order->IsType(OT_IMPLICIT)) {
 							GetStringInPlace(buffer, STR_TIMETABLE_NOT_TIMETABLEABLE);
 							colour = ExtendedTextColour{(i == selected) ? TextColour::Silver : TextColour::Grey, ExtendedTextColourFlag::NoShade};
+						} else if (v != nullptr && v->IsExecutingSchedule() && order == v->orders->GetOrderAt(0)) {
+							/* The leg from the last order of an executed schedule back to
+							 * its first one is never driven: the vehicle returns to its
+							 * home list instead. Show it as standing by, like the other
+							 * legs that carry no timetable time. */
+							GetStringInPlace(buffer, STR_TIMETABLE_NO_TRAVEL);
 						} else if (!order->IsTravelTimetabled()) {
 							if (order->GetTravelTime() > 0) {
 								auto [str, value] = GetTimetableParameters(order->GetTravelTime());

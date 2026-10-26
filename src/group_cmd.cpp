@@ -123,7 +123,10 @@ uint16_t GroupStatistics::GetNumEngines(EngineID engine) const
 		if (!v->IsEngineCountable()) continue;
 
 		GroupStatistics::CountEngine(v, 1);
-		if (v->IsPrimaryVehicle()) GroupStatistics::CountVehicle(v, 1);
+		/* A chain whose primary sits mid-chain has both a front wagon at the head and the
+		 * primary engine returning IsPrimaryVehicle(); count each chain exactly once, at
+		 * its primary. */
+		if (v->IsPrimaryVehicle() && v->Primary() == v) GroupStatistics::CountVehicle(v, 1);
 	}
 
 	for (const Company *c : Company::Iterate()) {
@@ -1119,7 +1122,9 @@ void UpdateTrainGroupID(Train *v)
 {
 	assert(v->IsFrontEngine() || v->IsFreeWagon() || v->IsFrontWagon());
 
-	GroupID new_g = v->IsFrontEngine() ? v->group_id : (GroupID)DEFAULT_GROUP;
+	/* A decoupled engine-less part is a front wagon but still a primary
+	 * vehicle here; keep its group instead of falling back to the default. */
+	GroupID new_g = v->IsPrimaryVehicle() ? v->group_id : (GroupID)DEFAULT_GROUP;
 	/* Never propagate a group that its owner does not own (see IsGroupIDUsableByOwner). */
 	if (!IsGroupIDUsableByOwner(new_g, v->owner)) new_g = DEFAULT_GROUP;
 	/* A consist may mix companies after a cross-company couple. Only the head's

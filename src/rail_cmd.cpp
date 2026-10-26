@@ -260,7 +260,7 @@ void InitRailTypes()
 	for (RailType rt : EnumRange(RAILTYPE_END)) {
 		bool hidden = _railtypes[rt].flags.Test(RailTypeFlag::Hidden);
 		if (hidden) _railtypes_hidden_mask.Set(rt);
-		if (_railtypes[rt].label != 0) {
+		if (!_railtypes[rt].label.Empty()) {
 			_sorted_railtypes.push_back(rt);
 		}
 		size_t accel_type = static_cast<size_t>(_railtypes[rt].acceleration_type);
@@ -312,7 +312,7 @@ void InitRailTypesIndirectCompatibility()
  */
 RailType AllocateRailType(RailTypeLabel label)
 {
-	auto it = std::ranges::find(_railtypes, 0, &RailTypeInfo::label);
+	auto it = std::ranges::find(_railtypes, RailTypeLabel{}, &RailTypeInfo::label);
 	if (it == std::end(_railtypes)) return INVALID_RAILTYPE;
 
 	RailTypeInfo &rti = *it;
@@ -338,12 +338,14 @@ RailType AllocateRailType(RailTypeLabel label)
 	 * before the first (default) rail type. */
 	rti.sorting_order = rt << 4 | 7;
 
-	if (label == 'TELE' || label == 'PIPE' || label == 'WIRE') rti.ctrl_flags.Set(RailTypeCtrlFlag::NoRealisticBraking);
+	if (label == RailTypeLabel{"TELE"} || label == RailTypeLabel{"PIPE"} || label == RailTypeLabel{"WIRE"}) rti.ctrl_flags.Set(RailTypeCtrlFlag::NoRealisticBraking);
 
 	return rt;
 }
 
-static const uint8_t _track_sloped_sprites[14] = {
+/** Lookup table to convert tile's slope into corresponding track sprite offset. */
+static constexpr NonSteepSlopeIndexArray<uint8_t> _track_sloped_sprites = {
+	0xFF, // Dummy value to prevent `index - 1` while accesing.
 	14, 15, 22, 13,
 	 0, 21, 17, 12,
 	23,  0, 18, 20,
@@ -521,7 +523,7 @@ static CommandCost CheckTrackCombination(TileIndex tile, TrackBits to_build, Rai
 
 
 /** Valid TrackBits on a specific (non-steep)-slope without foundation */
-static const TrackBits _valid_tracks_without_foundation[15] = {
+static constexpr NonSteepSlopeIndexArray<TrackBits> _valid_tracks_without_foundation = {
 	TRACK_BIT_ALL,
 	TRACK_BIT_RIGHT,
 	TRACK_BIT_UPPER,
@@ -543,7 +545,7 @@ static const TrackBits _valid_tracks_without_foundation[15] = {
 };
 
 /** Valid TrackBits on a specific (non-steep)-slope with leveled foundation */
-static const TrackBits _valid_tracks_on_leveled_foundation[15] = {
+static constexpr NonSteepSlopeIndexArray<TrackBits> _valid_tracks_on_leveled_foundation = {{{
 	TRACK_BIT_NONE,
 	TRACK_BIT_LEFT,
 	TRACK_BIT_LOWER,
@@ -562,7 +564,7 @@ static const TrackBits _valid_tracks_on_leveled_foundation[15] = {
 	TRACK_BIT_Y | TRACK_BIT_UPPER | TRACK_BIT_RIGHT,
 	TRACK_BIT_ALL,
 	TRACK_BIT_ALL
-};
+}}};
 
 /**
  * Checks if a track combination is valid on a specific slope and returns the needed foundation.
@@ -683,7 +685,7 @@ bool IsValidFlatRailBridgeHeadTrackBits(Slope normalised_slope, DiagDirection br
 	auto test_corner = [&](Corner c) -> bool {
 		if (normalised_slope & SlopeWithOneCornerRaised(c)) return true;
 		Slope effective_slope = normalised_slope | SlopeWithOneCornerRaised(OppositeCorner(c));
-		assert(effective_slope < lengthof(_valid_tracks_on_leveled_foundation));
+		assert(effective_slope < _valid_tracks_on_leveled_foundation.size());
 		return (_valid_tracks_on_leveled_foundation[effective_slope] & tracks) == tracks;
 	};
 	return test_corner(c1) && test_corner(c2);
@@ -3647,7 +3649,7 @@ void DrawTrackDetails(const TileInfo *ti, const RailTypeInfo *rti, const RailGro
 	 * Note: Halftile slopes only have fences on the upper part. */
 	uint num_sprites = 0;
 	PalSpriteID psid{
-		.sprite = GetCustomRailSprite(rti, ti->tile, RailSpriteType::Fences, IsHalftileSlope(ti->tileh) ? TCX_UPPER_HALFTILE : TCX_NORMAL, &num_sprites),
+		.sprite = GetCustomRailSprite(rti, ti->tile, RailSpriteType::Fences, IsHalftileSlope(ti->tileh) ? TileContext::UpperHalftile : TileContext::Normal, &num_sprites),
 		.pal = pal,
 	};
 	if (psid.sprite == 0) {
@@ -3843,8 +3845,8 @@ static void DrawTrackBitsOverlay(TileInfo *ti, TrackBits track, const RailTypeIn
 
 	if (IsValidCorner(halftile_corner) && (draw_half_tile == halftile_corner || draw_half_tile == CORNER_INVALID)) {
 		DrawFoundation(ti, HalftileFoundation(halftile_corner));
-		overlay = GetCustomRailSprite(rti, ti->tile, RailSpriteType::Overlay, TCX_UPPER_HALFTILE);
-		ground = GetCustomRailSprite(rti, ti->tile, RailSpriteType::Ground, TCX_UPPER_HALFTILE);
+		overlay = GetCustomRailSprite(rti, ti->tile, RailSpriteType::Overlay, TileContext::UpperHalftile);
+		ground = GetCustomRailSprite(rti, ti->tile, RailSpriteType::Ground, TileContext::UpperHalftile);
 
 		/* Draw higher halftile-overlay: Use the sloped sprites with three corners raised. They probably best fit the lightning. */
 		Slope fake_slope = SlopeWithThreeCornersRaised(OppositeCorner(halftile_corner));
@@ -3949,7 +3951,7 @@ void DrawTrackBits(TileInfo *ti, TrackBits track, RailType rt, RailGroundType rg
 	} else {
 		if (ti->tileh != SLOPE_FLAT) {
 			/* track on non-flat ground */
-			image = _track_sloped_sprites[ti->tileh - 1] + rti->base_sprites.track_y;
+			image = _track_sloped_sprites[ti->tileh] + rti->base_sprites.track_y;
 		} else {
 			/* track on flat ground */
 			switch (track) {
@@ -4008,14 +4010,14 @@ void DrawTrackBits(TileInfo *ti, TrackBits track, RailType rt, RailGroundType rg
 			if (ti->tileh == SLOPE_FLAT || ti->tileh == SLOPE_ELEVATED) {
 				DrawGroundSprite(rti->base_sprites.single_x, PALETTE_CRASH);
 			} else {
-				DrawGroundSprite(_track_sloped_sprites[ti->tileh - 1] + rti->base_sprites.single_sloped - 20, PALETTE_CRASH);
+				DrawGroundSprite(_track_sloped_sprites[ti->tileh] + rti->base_sprites.single_sloped - 20, PALETTE_CRASH);
 			}
 		}
 		if (pbs & TRACK_BIT_Y) {
 			if (ti->tileh == SLOPE_FLAT || ti->tileh == SLOPE_ELEVATED) {
 				DrawGroundSprite(rti->base_sprites.single_y, PALETTE_CRASH);
 			} else {
-				DrawGroundSprite(_track_sloped_sprites[ti->tileh - 1] + rti->base_sprites.single_sloped - 20, PALETTE_CRASH);
+				DrawGroundSprite(_track_sloped_sprites[ti->tileh] + rti->base_sprites.single_sloped - 20, PALETTE_CRASH);
 			}
 		}
 		if (pbs & TRACK_BIT_UPPER) DrawGroundSprite(rti->base_sprites.single_n, PALETTE_CRASH, nullptr, 0, ti->tileh & SLOPE_N ? -(int)TILE_HEIGHT : 0);
@@ -4029,7 +4031,7 @@ void DrawTrackBits(TileInfo *ti, TrackBits track, RailType rt, RailGroundType rg
 
 		/* Draw higher halftile-overlay: Use the sloped sprites with three corners raised. They probably best fit the lightning. */
 		Slope fake_slope = SlopeWithThreeCornersRaised(OppositeCorner(halftile_corner));
-		image = _track_sloped_sprites[fake_slope - 1] + rti->base_sprites.track_y;
+		image = _track_sloped_sprites[fake_slope] + rti->base_sprites.track_y;
 		pal = PAL_NONE;
 		switch (rgt) {
 			case RailGroundType::Barren: pal = PALETTE_TO_BARE_LAND; break;

@@ -15,7 +15,7 @@
 #include "../safeguards.h"
 
 static const NamedSaveLoad _new_signal_style_mapping_desc[] = {
-	NSLT("grfid",        SLE_VAR(NewSignalStyleMapping, grfid, SLE_UINT32)),
+	NSLT("grfid",        SLE_VAR(NewSignalStyleMapping, grfid, SLE_LABEL)),
 	NSLT("grf_local_id", SLE_VAR(NewSignalStyleMapping, grf_local_id, SLE_UINT8)),
 };
 
@@ -47,7 +47,7 @@ static void Load_NSID()
 		uint count = SlReadUint32();
 		for (uint i = 0; i < count; i++) {
 			NewSignalStyleMapping mapping;
-			mapping.grfid = SlReadUint32();
+			mapping.grfid = UnflattenNewGRFLabel<GrfID>(SlReadUint32());
 			mapping.grf_local_id = SlReadByte();
 			if (i < _new_signal_style_mapping.size()) _new_signal_style_mapping[i] = mapping;
 		}
@@ -55,7 +55,7 @@ static void Load_NSID()
 }
 
 static const ChunkHandler new_signal_chunk_handlers[] = {
-	{ 'NSID', Save_NSID, Load_NSID, nullptr,   nullptr, CH_TABLE },
+	{ 'NSID', Save_NSID, Load_NSID, nullptr,   nullptr, ChunkType::Table },
 };
 
 extern const ChunkHandlerTable _new_signal_chunk_handlers(new_signal_chunk_handlers);

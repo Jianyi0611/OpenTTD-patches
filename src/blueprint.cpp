@@ -475,7 +475,7 @@ uint CopyAreaToBlueprint(TileArea area, Blueprint &blueprint)
 				const Object *object = Object::GetByTile(tile);
 				const ObjectSpec *spec = ObjectSpec::Get(object->type);
 				/* Copy a complete object once; built-in HQ/statue commands have special side effects. */
-				if (object->location.tile != tile || spec->grf_prop.grfid == 0) break;
+				if (object->location.tile != tile || spec->grf_prop.grfid == GrfID{}) break;
 				if (TileX(tile) + object->location.w > TileX(area.tile) + area.w ||
 						TileY(tile) + object->location.h > TileY(area.tile) + area.h) break;
 				blueprint.objects.push_back({offset, {spec->grf_prop.grfid, spec->grf_prop.local_id},
@@ -1120,7 +1120,7 @@ static bool BlueprintOffsetsValid(const Blueprint &bp)
 	}
 
 	for (const BlueprintObject &v : bp.objects) {
-		if (!ok(v.offset) || v.spec.grfid == 0 || v.w == 0 || v.h == 0 || v.w > 15 || v.h > 15 ||
+		if (!ok(v.offset) || v.spec.grfid == GrfID{} || v.w == 0 || v.h == 0 || v.w > 15 || v.h > 15 ||
 				v.offset.x + v.w > bp.width || v.offset.y + v.h > bp.height ||
 				(v.views != 1 && v.views != 2 && v.views != 4) || v.view >= v.views) return false;
 	}
@@ -1366,7 +1366,7 @@ void RecordBlueprintUndoObject(TileIndex tile)
 	if (!_undo_group_open) return;
 	const Object *object = Object::GetByTile(tile);
 	const ObjectSpec *spec = ObjectSpec::Get(object->type);
-	if (spec->grf_prop.grfid == 0) return;
+	if (spec->grf_prop.grfid == GrfID{}) return;
 	_undo_group.objects.push_back({UndoGroupPos(tile), {spec->grf_prop.grfid, spec->grf_prop.local_id},
 			object->view, spec->views, static_cast<uint8_t>(object->location.w), static_cast<uint8_t>(object->location.h)});
 }
@@ -1746,7 +1746,7 @@ void FilterBlueprintUndoData(Blueprint &built, const BlueprintUndoFilters &filte
 /** Resolve an object by its stable GRF identity, independent of the local object index. */
 const ObjectSpec *ResolveBlueprintObject(const BlueprintSpecRef &spec)
 {
-	if (spec.grfid == 0) return nullptr;
+	if (spec.grfid == GrfID{}) return nullptr;
 	return ObjectClass::GetByGrf(spec.grfid, spec.local_id);
 }
 
@@ -1962,7 +1962,7 @@ static bool BlueprintDoCommand(BlueprintCommandState &state, DoCommandFlags flag
 /** Resolve a stable signal identity against the current game's style slots. */
 std::optional<uint8_t> ResolveBlueprintSignalStyle(const BlueprintSpecRef &spec)
 {
-	if (spec.grfid == 0) return 0;
+	if (spec.grfid == GrfID{}) return 0;
 	for (uint8_t i = 0; i < _num_new_signal_styles; ++i) {
 		const auto &mapping = _new_signal_style_mapping[i];
 		if (mapping.grfid == spec.grfid && mapping.grf_local_id == spec.local_id &&
@@ -2018,10 +2018,10 @@ CommandCost CmdPasteBlueprint(DoCommandFlags flags, TileIndex origin, const Blue
 	if (!TraceRestrictProgram::CanAllocateItem(program_count)) return CMD_ERROR;
 	/* Check required styles before changing any landscape or building tracks. */
 	for (const BlueprintStationTile &st : bp.station_tiles) {
-		if (st.spec.grfid != 0 && StationClass::GetByGrf(st.spec.grfid, st.spec.local_id) == nullptr) return CommandCost(STR_BLUEPRINT_ERROR_MISSING_NEWGRF);
+		if (st.spec.grfid != GrfID{} && StationClass::GetByGrf(st.spec.grfid, st.spec.local_id) == nullptr) return CommandCost(STR_BLUEPRINT_ERROR_MISSING_NEWGRF);
 	}
 	for (const BlueprintRoadStop &stop : bp.road_stops) {
-		if (stop.spec.grfid != 0 && RoadStopClass::GetByGrf(stop.spec.grfid, stop.spec.local_id) == nullptr) return CommandCost(STR_BLUEPRINT_ERROR_MISSING_NEWGRF);
+		if (stop.spec.grfid != GrfID{} && RoadStopClass::GetByGrf(stop.spec.grfid, stop.spec.local_id) == nullptr) return CommandCost(STR_BLUEPRINT_ERROR_MISSING_NEWGRF);
 	}
 
 	std::vector<BlueprintStationRect> station_rects = GroupStationTiles(bp);
@@ -2212,7 +2212,7 @@ CommandCost CmdPasteBlueprint(DoCommandFlags flags, TileIndex origin, const Blue
 		if (!tile_valid(rect.offset)) continue;
 		StationClassID station_class = rect.is_waypoint ? STAT_CLASS_WAYP : STAT_CLASS_DFLT;
 		uint16_t station_type = 0;
-		if (rect.spec.grfid != 0) {
+		if (rect.spec.grfid != GrfID{}) {
 			const StationSpec *spec = StationClass::GetByGrf(rect.spec.grfid, rect.spec.local_id);
 			if (spec == nullptr) continue; // Missing GRF: never substitute a different station.
 			station_class = spec->class_index;
@@ -2268,7 +2268,7 @@ CommandCost CmdPasteBlueprint(DoCommandFlags flags, TileIndex origin, const Blue
 		if (!tile_valid(stop.offset)) continue;
 		RoadStopClassID stop_class = stop.type == StationType::RoadWaypoint ? ROADSTOP_CLASS_WAYP : ROADSTOP_CLASS_DFLT;
 		uint16_t stop_type_index = 0;
-		if (stop.spec.grfid != 0) {
+		if (stop.spec.grfid != GrfID{}) {
 			const RoadStopSpec *spec = RoadStopClass::GetByGrf(stop.spec.grfid, stop.spec.local_id);
 			if (spec == nullptr) continue;
 			stop_class = spec->class_index;

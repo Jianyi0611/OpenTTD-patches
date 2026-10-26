@@ -44,7 +44,7 @@ static void Load_WTHR()
 }
 
 extern const ChunkHandler weather_chunk_handlers[] = {
-	{ 'WTHR', Save_WTHR, Load_WTHR, nullptr, nullptr, CH_TABLE },
+	{ 'WTHR', Save_WTHR, Load_WTHR, nullptr, nullptr, ChunkType::Table },
 };
 
 extern const ChunkHandlerTable _weather_chunk_handlers(weather_chunk_handlers);

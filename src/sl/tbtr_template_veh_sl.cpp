@@ -138,7 +138,7 @@ void AfterLoadTemplateVehiclesUpdateProperties()
 		if (tv->Prev() == nullptr) {
 			Backup<CompanyID> cur_company(_current_company, tv->owner, FILE_LINE);
 			StringID err;
-			Train* t = VirtualTrainFromTemplateVehicle(tv, err, (ClientID)0);
+			Train *t = VirtualTrainFromTemplateVehicle(tv, err, (ClientID)0);
 			if (t != nullptr) {
 				uint32_t full_cargo_weight = 0;
 				for (Train *u = t; u != nullptr; u = u->Next()) {
@@ -161,7 +161,7 @@ void AfterLoadTemplateVehiclesUpdateProperties()
 }
 
 extern const ChunkHandler template_vehicle_chunk_handlers[] = {
-	{ 'TMPL', Save_TMPLS, Load_TMPLS, Ptrs_TMPLS, nullptr, CH_TABLE },
+	{ 'TMPL', Save_TMPLS, Load_TMPLS, Ptrs_TMPLS, nullptr, ChunkType::Table },
 };
 
 extern const ChunkHandlerTable _template_vehicle_chunk_handlers(template_vehicle_chunk_handlers);

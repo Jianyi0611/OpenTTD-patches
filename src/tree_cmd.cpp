@@ -78,7 +78,8 @@ static bool CanPlantTreesOnTile(TileIndex tile, bool allow_desert)
 
 	switch (GetTileType(tile)) {
 		case TileType::Water:
-			return !IsBridgeAbove(tile) && IsCoast(tile) && !IsSlopeWithOneCornerRaised(GetTileSlope(tile));
+			/* Consistency with normal rocky tiles, coast with rocks is not eligible for trees. */
+			return !IsBridgeAbove(tile) && GetWaterTileType(tile) == WaterTileType::Coast && !IsSlopeWithOneCornerRaised(GetTileSlope(tile));
 
 		case TileType::Clear:
 			return !IsBridgeAbove(tile) && !IsClearGround(tile, ClearGround::Fields) && !IsClearGround(tile, ClearGround::Rocks) &&
@@ -705,7 +706,8 @@ struct CmdPlantTreeHelper {
 
 	void PlantTrees(TileIndex tile, TreeType tree_to_plant, uint8_t count)
 	{
-		switch (GetTileType(tile)) {
+		const TileType tile_type = GetTileType(tile);
+		switch (tile_type) {
 			case TileType::Trees: {
 				/* no more space for trees? */
 				if (GetTreeCount(tile) == 4) {
@@ -773,22 +775,29 @@ struct CmdPlantTreeHelper {
 				const uint to_plant = std::min<uint>(static_cast<uint>(this->limit), count);
 				this->limit -= static_cast<int>(to_plant);
 
-				if (IsTileType(tile, TileType::Clear)) {
+				bool tile_needs_to_be_cleared = false;
+				if (tile_type == TileType::Clear) {
 					/* Remove fields or rocks. Note that the ground will get barrened */
 					switch (GetClearGround(tile)) {
 						case ClearGround::Fields:
-						case ClearGround::Rocks: {
-							CommandCost ret = Command<Commands::LandscapeClear>::Do(this->flags, tile);
-							if (ret.Failed()) {
-								this->msg = ret.GetErrorMessage();
-								return;
-							}
-							this->cost.AddCost(ret.GetCost());
+						case ClearGround::Rocks:
+							tile_needs_to_be_cleared = true;
 							break;
-						}
 
-						default: break;
+						default:
+							break;
 					}
+				} else if (tile_type == TileType::Water) {
+					tile_needs_to_be_cleared = GetWaterTileType(tile) != WaterTileType::Coast;
+				}
+
+				if (tile_needs_to_be_cleared) {
+					CommandCost ret = Command<Commands::LandscapeClear>::Do(this->flags, tile);
+					if (ret.Failed()) {
+						this->msg = ret.GetErrorMessage();
+						return;
+					}
+					this->cost.AddCost(ret.GetCost());
 				}
 
 				if (_game_mode != GameMode::Editor && Company::IsValidID(_current_company)) {
@@ -1013,7 +1022,7 @@ static void DrawTile_Trees(TileInfo *ti, DrawTileProcParams params)
 		switch (GetTreeGround(ti->tile)) {
 			case TreeGround::Shore: DrawShoreTile(ti->tileh); break;
 			case TreeGround::Grass: DrawClearLandTile(ti, GetTreeDensity(ti->tile)); break;
-			case TreeGround::Rough: DrawHillyLandTile(ti); break;
+			case TreeGround::Rough: DrawRoughLandTile(ti); break;
 			default: DrawGroundSprite(_clear_land_sprites_snow_desert[GetTreeDensity(ti->tile)] + SlopeToSpriteOffset(ti->tileh), PAL_NONE); break;
 		}
 	}
@@ -1346,7 +1355,7 @@ static void TileLoop_Trees(TileIndex tile)
 							const TreeType tree_type = GetTreeType(tile);
 							const TileIndex old_tile = tile;
 
-							tile += TileOffsByDir(static_cast<Direction>(RandomRange(to_underlying(Direction::End))));
+							tile += TileOffsByDir(RandomRange(Direction::End));
 
 							if (!CanPlantTreesOnTile(tile, false)) return;
 

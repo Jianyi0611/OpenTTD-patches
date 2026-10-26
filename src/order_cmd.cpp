@@ -51,6 +51,7 @@
 #include "schdispatch.h"
 #include "timetable_cmd.h"
 #include "train_cmd.h"
+#include "train.h"
 
 #include "table/strings.h"
 
@@ -188,6 +189,7 @@ void Order::Free()
 	this->dest  = 0;
 	this->couple_speed_value1 = this->couple_speed_value2 = 0;
 	this->couple_speed_unit1 = this->couple_speed_unit2 = 1;
+	this->couple_speed_comparator1 = this->couple_speed_comparator2 = 0;
 	DeAllocExtraInfo();
 }
 
@@ -311,6 +313,7 @@ void Order::MakeGoToCouple()
 	this->flags = 0;
 	this->couple_speed_value1 = this->couple_speed_value2 = 0;
 	this->couple_speed_unit1 = this->couple_speed_unit2 = 1;
+	this->couple_speed_comparator1 = this->couple_speed_comparator2 = 0;
 }
 
 /**
@@ -404,6 +407,12 @@ void Order::MakeExecuteSchedule()
 	this->type = OT_EXECUTE_SCHEDULE;
 	this->dest = OrderListID::Invalid();
 	this->flags = 0;
+	/* This order is only a marker: it has no travel or wait time of its own
+	 * (see HasNoTimetableTimes()). Clear any values left behind when another
+	 * order type was converted to this one; automatic separation sums the raw
+	 * travel/wait times, so leftovers would be charged to the cycle. */
+	this->SetTravelTime(0);
+	this->SetWaitTime(0);
 }
 
 /**
@@ -576,6 +585,8 @@ void Order::AssignOrder(const Order &other)
 	this->couple_speed_value2 = other.couple_speed_value2;
 	this->couple_speed_unit1 = other.couple_speed_unit1;
 	this->couple_speed_unit2 = other.couple_speed_unit2;
+	this->couple_speed_comparator1 = other.couple_speed_comparator1;
+	this->couple_speed_comparator2 = other.couple_speed_comparator2;
 
 	if (other.extra != nullptr) {
 		this->AllocExtraInfo();
@@ -758,6 +769,97 @@ bool OrderListIsSomeonesHome(const OrderList *ol)
 		for (uint32_t frame : u->execute_schedule_stack) if (OrderListID{uint16_t(frame)} == ol->index) return true;
 	}
 	return false;
+}
+
+/**
+ * Whether any vehicle owned by another company is currently using \a ol.
+ *
+ * A vehicle uses a list when it is attached to it, when the list is its home
+ * while it is away executing another list, or when the list is suspended
+ * somewhere in its execute-schedule stack.
+ *
+ * @param ol the order list to test
+ * @return true when a vehicle of another company is using the list
+ */
+bool OrderListIsUsedByOtherCompany(const OrderList *ol)
+{
+	for (const Vehicle *v : Vehicle::Iterate()) {
+		if (v->owner == ol->GetCompany()) continue;
+		if (v->orders == ol || v->primary_order == ol->index) return true;
+		for (uint32_t frame : v->execute_schedule_stack) {
+			if (OrderListID{uint16_t(frame)} == ol->index) return true;
+		}
+	}
+	return false;
+}
+
+/**
+ * Get the company that owns an order list for reference-clearing purposes.
+ *
+ * Player-created lists know their owner. Vehicle-owned lists derive it from
+ * their vehicles; a list can temporarily have no vehicle in its shared chain
+ * while they are all away on execute-schedule detours, so also check the home
+ * and suspended-list references.
+ *
+ * @param ol the order list to query
+ * @return the owning company, or #INVALID_OWNER when it cannot be determined
+ */
+static Owner GetOrderListReferenceOwner(const OrderList *ol)
+{
+	if (ol->IsPlayerCreated()) return ol->GetCompany();
+	if (const Vehicle *v = ol->GetFirstSharedVehicle(); v != nullptr) return v->owner;
+	for (const Vehicle *v : Vehicle::Iterate()) {
+		if (v->primary_order == ol->index) return v->owner;
+		for (uint32_t frame : v->execute_schedule_stack) {
+			if (OrderListID{uint16_t(frame)} == ol->index) return v->owner;
+		}
+	}
+	return INVALID_OWNER;
+}
+
+/** Does this decouple mode adopt a player-created schedule? */
+static bool IsScheduleDecoupleMode(OrderDecoupleOrdersFlags mode)
+{
+	return mode == ODOF_EXECUTE_SCHEDULE || mode == ODOF_LOAD_AND_SCHEDULE;
+}
+
+/**
+ * Clear references to \a target in other companies' schedules because it is
+ * being made private. Execute-schedule orders become undefined; decouple
+ * orders revert to keeping their own orders.
+ *
+ * @param target the order list that is about to become private
+ */
+static void ResetForeignScheduleReferences(const OrderList *target)
+{
+	for (OrderList *ol : OrderList::Iterate()) {
+		if (ol == target || ol->IsScheduleGroup()) continue;
+		if (GetOrderListReferenceOwner(ol) == target->GetCompany()) continue;
+
+		bool changed = false;
+		for (Order *order : ol->Orders()) {
+			if (order->IsExecuteScheduleOrder() && order->GetDestination().ToOrderListID() == target->index) {
+				order->SetDestination(OrderListID::Invalid());
+				changed = true;
+			}
+			if (!order->IsType(OT_DECOUPLE)) continue;
+			if (IsScheduleDecoupleMode(order->GetDecoupleFirstOrdersType()) && order->GetDecoupleFirstScheduleID() == target->index) {
+				order->SetDecoupleFirstOrdersType(ODOF_KEEP_ORDERS);
+				order->SetDecoupleFirstScheduleID(OrderListID::Invalid());
+				changed = true;
+			}
+			if (IsScheduleDecoupleMode(order->GetDecoupleSecondOrdersType()) && order->GetDecoupleSecondScheduleID() == target->index) {
+				order->SetDecoupleSecondOrdersType(ODOF_KEEP_ORDERS);
+				order->SetDecoupleSecondScheduleID(OrderListID::Invalid());
+				changed = true;
+			}
+		}
+
+		if (!changed || ol->IsPlayerCreated()) continue;
+		for (Vehicle *v = ol->GetFirstSharedVehicle(); v != nullptr; v = v->NextShared()) {
+			InvalidateVehicleOrder(v, VIWD_MODIFY_ORDERS);
+		}
+	}
 }
 
 void OrderList::FreeChain(bool keep_orderlist)
@@ -1668,10 +1770,38 @@ static void InsertOrderOnStandaloneList(OrderList *ol, Order &&new_o, VehicleOrd
 	InvalidateStandaloneOrderGUIs();
 }
 
+/**
+ * Clear the early check points of couple orders whose location order is gone.
+ * A check point only works while a station/waypoint order earlier in the list
+ * references its location; drop any check point left dangling after edits.
+ * @param ol the order list to repair, may be nullptr.
+ */
+static void ClearDanglingCoupleCheckPoints(OrderList *ol)
+{
+	if (ol == nullptr) return;
+	for (VehicleOrderID ci = 0; ci < ol->GetNumOrders(); ++ci) {
+		Order *couple = ol->GetOrderAt(ci);
+		if (couple == nullptr || !couple->IsType(OT_GOTO_COUPLE) || !couple->HasCoupleCheckPoint()) continue;
+		const StationID station = couple->GetCoupleCheckPoint();
+		bool present = false;
+		for (VehicleOrderID i = 0; i < ci; ++i) {
+			const Order *point = ol->GetOrderAt(i);
+			if (point != nullptr && (point->IsType(OT_GOTO_STATION) || point->IsType(OT_GOTO_WAYPOINT)) &&
+					point->GetDestination().ToStationID() == station) {
+				present = true;
+				break;
+			}
+		}
+		if (!present) couple->SetCoupleCheckPoint(StationID::Invalid());
+	}
+}
+
 /** Delete an order from a standalone order list and fix up conditional jump targets. */
 static void DeleteOrderOnStandaloneList(OrderList *ol, VehicleOrderID sel_ord)
 {
 	ol->DeleteOrderAt(sel_ord);
+
+	ClearDanglingCoupleCheckPoints(ol);
 
 	StandaloneListDeleteUpdateVehicles(ol, sel_ord);
 
@@ -2424,6 +2554,8 @@ static void CancelLoadingDueToDeletedOrder(Vehicle *v)
 void DeleteOrder(Vehicle *v, VehicleOrderID sel_ord)
 {
 	v->orders->DeleteOrderAt(sel_ord);
+
+	ClearDanglingCoupleCheckPoints(v->orders);
 
 	Vehicle *u = v->FirstShared();
 	DeleteOrderWarnings(u);
@@ -4409,7 +4541,13 @@ CommandCost CmdSetOrderListPublic(DoCommandFlags flags, OrderListID list_id, boo
 	CommandCost ret = CheckOwnership(ol->GetCompany());
 	if (ret.Failed()) return ret;
 
+	/* A list in active use by another company's vehicles cannot be hidden from them. */
+	if (!is_public && ol->IsPublic() && OrderListIsUsedByOtherCompany(ol)) {
+		return CommandCost(STR_ERROR_ORDER_LIST_IN_USE_BY_OTHER_COMPANY);
+	}
+
 	if (flags.Test(DoCommandFlag::Execute)) {
+		if (!is_public && ol->IsPublic()) ResetForeignScheduleReferences(ol);
 		ol->SetPublic(is_public);
 		InvalidateStandaloneOrderGUIs();
 	}
@@ -4837,6 +4975,7 @@ void CheckOrders(const Vehicle *v)
 		/* Check the order list */
 		int n_st = 0;
 		bool has_depot_order = false;
+		bool has_execute_schedule_order = false; ///< Any execute-schedule, wait-couple or goto-couple order is present
 
 		for (const Order *order : v->Orders()) {
 			/* Dummy order? */
@@ -4856,6 +4995,11 @@ void CheckOrders(const Vehicle *v)
 			if (order->IsType(OT_GOTO_DEPOT)) {
 				has_depot_order = true;
 			}
+			/* Lists taking part in coupling/dispatching may legitimately have
+			 * few station orders; don't complain about those. */
+			if (order->IsExecuteScheduleOrder() || order->IsType(OT_WAIT_COUPLE) || order->IsType(OT_GOTO_COUPLE)) {
+				has_execute_schedule_order = true;
+			}
 		}
 
 		/* Check if the last and the first order are the same, and the first order is a go to order */
@@ -4868,7 +5012,7 @@ void CheckOrders(const Vehicle *v)
 		}
 
 		/* Do we only have 1 station in our order list? */
-		if (n_st < 2 && message == INVALID_STRING_ID) message = STR_NEWS_VEHICLE_HAS_TOO_FEW_ORDERS;
+		if (n_st < 2 && !has_execute_schedule_order && message == INVALID_STRING_ID) message = STR_NEWS_VEHICLE_HAS_TOO_FEW_ORDERS;
 
 #ifdef WITH_ASSERT
 		if (v->orders != nullptr) v->orders->DebugCheckSanity();
@@ -5458,7 +5602,7 @@ VehicleOrderID ProcessConditionalOrder(const Order *order, const Vehicle *v, Pro
 		case OrderConditionVariable::Age:                 skip_order = OrderConditionCompare(occ, DateDeltaToYearDelta(v->age).base(), value); break;
 		case OrderConditionVariable::RequiresService:     skip_order = OrderConditionCompare(occ, v->NeedsServicing(),               value); break;
 		case OrderConditionVariable::RemainingLifetime:   skip_order = OrderConditionCompare(occ, std::max(DateDeltaToYearDelta(v->max_age - v->age + DAYS_IN_LEAP_YEAR - 1).base(), 0), value); break;
-		case OrderConditionVariable::DrivingBackwards:    skip_order = OrderConditionCompare(occ, v->IsDrivingBackwards(), value); break;
+		case OrderConditionVariable::DrivingBackwards:    skip_order = OrderConditionCompare(occ, v->type == VehicleType::Train && (Train::From(v)->tcache.cached_tflags & TCF_NO_DRIVING_CAB), value); break;
 		case OrderConditionVariable::DecouplePart: {
 			/* Only the front engine carries the decoupled-part marker; any other vehicle type is "not a part". */
 			uint8_t part = 0;
@@ -5751,9 +5895,33 @@ void FlushAdvanceOrderIndexDeferred(const Vehicle *v, bool apply)
 }
 
 /**
+ * An executed schedule is entered at its first order and left again after its
+ * last one; the leg from the last order back to the first is never driven (the
+ * vehicle returns to its home list instead). Timetable the first order's travel
+ * as zero so the schedule's timetable can be complete and automatic separation
+ * can compute a stable cycle, instead of leaving that field unset forever.
+ * The (measured) drive into the first order when the schedule is entered is
+ * deliberately not booked: the schedule is shared between vehicles entering it
+ * from different places, so a measured value would be overwritten constantly.
+ */
+static void BookExecutedScheduleStartTravel(OrderList *ol)
+{
+	if (ol == nullptr || ol->GetNumOrders() == 0) return;
+	Order *first = ol->GetOrderAt(0);
+	if (first == nullptr || first->IsType(OT_CONDITIONAL) || first->HasNoTimetableTimes() || first->IsTravelTimetabled()) return;
+
+	const int total_delta = -first->GetTravelTime();
+	const int timetable_delta = -first->GetTimetabledTravel();
+	first->SetTravelTime(0);
+	first->SetTravelTimetabled(true);
+	ol->UpdateTotalDuration(total_delta);
+	ol->UpdateTimetableDuration(timetable_delta);
+}
+
+/**
  * A vehicle executing another order list finished one full pass of it: return
- * to its immediate caller, or its primary list for the outermost call.
- * Completed or deleted callers are skipped while unwinding the return stack.
+ * to its primary list, no matter how deeply the executed schedule was nested.
+ * Enclosing schedules are abandoned and resume at the remembered position.
  * @note called from the order index wrap-around handling, so the caller must
  *       cope with the vehicle's order list having changed on return.
  */
@@ -5761,18 +5929,11 @@ void Vehicle::ReturnFromExecuteSchedule()
 {
 	OrderList *home = OrderList::GetIfValid(this->primary_order);
 	VehicleOrderID resume = this->primary_order_index;
-	bool nested = false;
-	while (!this->execute_schedule_stack.empty()) {
-		const uint32_t frame = this->execute_schedule_stack.back();
-		this->execute_schedule_stack.pop_back();
-		OrderList *parent = OrderList::GetIfValid(OrderListID{uint16_t(frame)});
-		if (parent == nullptr || (frame >> 16) >= parent->GetNumOrders()) continue;
-		home = parent;
-		resume = frame >> 16;
-		nested = true;
-		break;
-	}
 	OrderList *target = this->orders;
+	/* Finishing any executed schedule returns straight to the primary list,
+	 * no matter how deeply nested the schedule was. Enclosing schedules are
+	 * abandoned; stale return frames from older semantics are dropped. */
+	this->execute_schedule_stack.clear();
 	if (home == nullptr || home == target) {
 		/* The home list is gone (its deletion should have handled this):
 		 * adopt the list we are on as the new home. */
@@ -5786,6 +5947,10 @@ void Vehicle::ReturnFromExecuteSchedule()
 		 * home list has orders again. */
 		return;
 	}
+
+	/* The full pass ends here; make sure the un-driven wrap-around leg of the
+	 * executed schedule stays a timetabled zero. */
+	BookExecutedScheduleStartTravel(target);
 
 	/* Detach from the target list's shared chain. */
 	if (target->IsShared()) {
@@ -5804,14 +5969,17 @@ void Vehicle::ReturnFromExecuteSchedule()
 
 	/* Resume where we left the home list when we jumped away. */
 	if (resume == INVALID_VEH_ORDER_ID || resume >= home->GetNumOrders()) resume = 0;
-	if (!nested) {
-		this->primary_order_index = INVALID_VEH_ORDER_ID;
-		this->primary_order = home->index;
-	}
+	this->primary_order_index = INVALID_VEH_ORDER_ID;
+	this->primary_order = home->index;
 	this->cur_implicit_order_index = resume;
 	this->cur_real_order_index = resume;
 	this->cur_timetable_order_index = INVALID_VEH_ORDER_ID;
 	this->UpdateRealOrderIndex();
+	/* The vehicle now travels from the last station of the executed schedule to
+	 * the resumed order. Point the timetable at that order so the leg is booked
+	 * on arrival; leaving it unset makes UpdateVehicleTimetable() bail out and
+	 * the leg would never be timetabled (the main list would stay incomplete). */
+	this->cur_timetable_order_index = this->cur_real_order_index;
 
 	this->current_order.Free();
 	this->SetDestTile(INVALID_TILE);
@@ -5988,10 +6156,13 @@ bool UpdateOrderDest(Vehicle *v, const Order *order, int conditional_depth, bool
 				bool recursive = target != nullptr && v->IsExecutingSchedule() && target->index == v->primary_order;
 				for (uint32_t frame : v->execute_schedule_stack) if (target != nullptr && OrderListID{uint16_t(frame)} == target->index) recursive = true;
 				if (target != nullptr && target != v->orders && target->GetNumOrders() > 0 && !recursive && v->execute_schedule_stack.size() < 64 && target->IsPlayerCreated() && target->IsVisibleToCompany(v->owner)) {
+					/* Executing the list starts at its first order; the leg from
+					 * its last order back to the first is never driven (see
+					 * BookExecutedScheduleStartTravel). */
+					BookExecutedScheduleStartTravel(target);
 					/* Execute the target order list: switch this vehicle to it (shared list).
 					 * The primary order list is kept as-is; after one full pass of the
-					 * target list the vehicle returns to it and resumes where it left.
-					 * Nested calls preserve their immediate parent in a separate stack. */
+					 * target list the vehicle returns to it and resumes where it left. */
 					OrderList *home = v->orders;
 					if (!v->IsExecutingSchedule()) {
 						/* Step past this execute-schedule order; the resulting position
@@ -6004,10 +6175,10 @@ bool UpdateOrderDest(Vehicle *v, const Order *order, int conditional_depth, bool
 						v->IncrementRealOrderIndex();
 						v->primary_order = home->index;
 						v->primary_order_index = v->cur_real_order_index;
-					} else {
-						const VehicleOrderID resume = v->cur_real_order_index + 1 < home->GetNumOrders() ? v->cur_real_order_index + 1 : INVALID_VEH_ORDER_ID;
-						v->execute_schedule_stack.push_back(home->index.base() | (uint32_t(resume) << 16));
 					}
+					/* A nested execute-schedule order leaves the primary list untouched:
+					 * finishing any executed list returns straight to the primary list
+					 * (see ReturnFromExecuteSchedule), abandoning the enclosing one. */
 
 					/* Remember the home list's dispatch/separation state if it is not
 					 * mirrored by the list itself, so we can restore it when returning. */

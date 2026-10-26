@@ -20,12 +20,12 @@
 
 /** Save and load the mapping between a spec and the NewGRF it came from. */
 static const SaveLoad _newgrf_mapping_desc_old[] = {
-	SLE_VAR(EntityIDMapping, grfid,         SLE_UINT32),
+	SLE_VAR(EntityIDMapping, grfid,         SLE_LABEL),
 	SLE_VAR(EntityIDMapping, entity_id,     SLE_FILE_U8 | SLE_VAR_U16),
 	SLE_VAR(EntityIDMapping, substitute_id, SLE_FILE_U8 | SLE_VAR_U16),
 };
 static const NamedSaveLoad _newgrf_mapping_desc_new[] = {
-	NSL("grfid",         SLE_VAR(EntityIDMapping, grfid,         SLE_UINT32)),
+	NSL("grfid",         SLE_VAR(EntityIDMapping, grfid,         SLE_LABEL)),
 	NSL("entity_id",     SLE_VAR(EntityIDMapping, entity_id,     SLE_UINT16)),
 	NSL("substitute_id", SLE_VAR(EntityIDMapping, substitute_id, SLE_UINT16)),
 };
@@ -39,8 +39,7 @@ void Save_NewGRFMapping(const OverrideManagerBase &mapping)
 	SaveLoadTableData sld = SlTableHeader(_newgrf_mapping_desc_new);
 
 	for (uint i = 0; i < mapping.GetMaxMapping(); i++) {
-		if (mapping.mappings[i].grfid == 0 &&
-		    mapping.mappings[i].entity_id == 0) continue;
+		if (mapping.mappings[i].grfid.Empty() && mapping.mappings[i].entity_id == 0) continue;
 		SlSetArrayIndex(i);
 		SlSetLength(4 + 2 + 2);
 		SlObjectSaveFiltered(const_cast<EntityIDMapping *>(&mapping.mappings[i]), sld);
@@ -82,7 +81,7 @@ static uint8_t _grf_num_params;
 
 static const NamedSaveLoad _grfconfig_desc[] = {
 	NSL("filename",            SLE_SSTR(GRFConfig, filename,         SLE_STR)),
-	NSL("ident.grfid",          SLE_VAR(GRFConfig, ident.grfid,      SLE_UINT32)),
+	NSL("ident.grfid",          SLE_VAR(GRFConfig, ident.grfid,      SLE_LABEL)),
 	NSL("ident.md5sum",         SLE_ARR(GRFConfig, ident.md5sum,     SLE_UINT8,  16)),
 	NSL("version",          SLE_CONDVAR(GRFConfig, version,          SLE_UINT32, SLV_151, SL_MAX_VERSION)),
 	NSL("param",       SLE_CONDVARVEC_X(GRFConfig, param,            SLE_UINT32, SL_MIN_VERSION, SL_MAX_VERSION, SlXvFeatureTest(XSLFTO_AND, XSLFI_NEWGRF_INFO_EXTRA, 2))),
@@ -117,7 +116,7 @@ static void Load_NGRF_common(GRFConfigList &grfconfig)
 		auto c = std::make_unique<GRFConfig>();
 		SlObjectLoadFiltered(c.get(), sld);
 		if (SlXvIsFeaturePresent(XSLFI_NEWGRF_INFO_EXTRA)) {
-			AddGRFTextToList(c->name, 0x7F, c->ident.grfid, false, _grf_name.c_str());
+			AddGRFTextToList(c->name, GRFLanguage::Unspecified, c->ident.grfid, false, _grf_name.c_str());
 		}
 		if (SlXvIsFeatureMissing(XSLFI_NEWGRF_INFO_EXTRA, 2)) {
 			auto last = std::begin(_grf_param) + std::min<size_t>(std::size(_grf_param), _grf_num_params);
@@ -151,7 +150,7 @@ static void Check_NGRF()
 }
 
 static const ChunkHandler newgrf_chunk_handlers[] = {
-	{ 'NGRF', Save_NGRF, Load_NGRF, nullptr, Check_NGRF, CH_TABLE }
+	{ 'NGRF', Save_NGRF, Load_NGRF, nullptr, Check_NGRF, ChunkType::Table }
 };
 
 extern const ChunkHandlerTable _newgrf_chunk_handlers(newgrf_chunk_handlers);

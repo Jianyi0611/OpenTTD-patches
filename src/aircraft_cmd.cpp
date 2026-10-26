@@ -42,6 +42,12 @@
 #include "pathfinder/yapf/yapf.h"
 #include "pathfinder/follow_track.hpp"
 
+#include "core/checksum_func.hpp"
+#include "script/api/script_event_types.hpp"
+
+#include "widgets/vehicle_widget.h"
+
+
 #include "table/strings.h"
 
 #include "safeguards.h"
@@ -290,9 +296,13 @@ TileIndex Aircraft::GetOrderStationLocation(StationID station)
 		/* The airport has no usable terminal for this aircraft (e.g. an airport
 		 * without aprons, or a heliport for a plane): keep the order and mark the
 		 * aircraft as unable to reach its destination (red status bar text + news),
-		 * like other vehicle types, instead of crashing. */
+		 * like other vehicle types, instead of crashing on a missing apron/helipad.
+		 * The shadow's dest_tile (the aircraft's next tile) must only ever be
+		 * changed through UpdateNextTile: writing INVALID_TILE here directly hits
+		 * aircraft in any state (e.g. AS_LANDED mid landing roll, whose
+		 * UpdateAircraftSpeed reads the next tile) and crashes the assert in
+		 * GetAirType. The callers set their own dest_tile from the return value. */
 		this->HandlePathfindingResult(false);
-		this->Next()->dest_tile = INVALID_TILE;
 		return INVALID_TILE;
 	}
 
@@ -749,7 +759,13 @@ static int UpdateAircraftSpeed(Aircraft *v)
 		if (HasBit(v->state, ASB_FLYING_ON_AIRPORT)) {
 			speed_limit = v->IsAircraftOnHold() ? SPEED_LIMIT_HOLD : SPEED_LIMIT_APPROACH;
 		} else if (!v->IsAircraftFlying()){
-			speed_limit = GetAirTypeInfo(GetAirType(v->GetNextTile()))->max_speed;
+			/* Only AS_LANDED reaches this branch (the landing roll): the aircraft
+			 * is on the runway, so use its own tile when the next tile is not
+			 * valid (it may have been invalidated by an airport edit while the
+			 * plane was rolling). */
+			TileIndex tile = v->GetNextTile();
+			if (!IsValidTile(tile) || !IsAirportTile(tile)) tile = v->tile;
+			speed_limit = GetAirTypeInfo(GetAirType(tile))->max_speed;
 		}
 	} else if (v->state == AS_RUNNING) {
 		assert(IsAirportTile(v->tile));
@@ -1444,6 +1460,10 @@ void UpdateAircraftState(Aircraft *v)
 					v->state = AS_START_TAKEOFF;
 					v->UpdateNextTile(v->tile);
 				} else {
+					/* The plane is on the ground but not at a take-off position, e.g.
+					 * the destination changed while it was taxiing to the old terminal.
+					 * Abandon the stale state so the controller reserves a new path. */
+					if (v->state != AS_HANGAR) v->state = AS_IDLE;
 					v->UpdateNextTile(INVALID_TILE);
 				}
 			}
@@ -1748,8 +1768,20 @@ void HandleAircraftTakingoff(Aircraft *v)
 			break;
 
 		case AS_FLYING_LEAVING_AIRPORT: {
-			v->state = AS_FLYING;
-			v->UpdateNextTile(FindClosestLandingTile(v));
+			TileIndex landing_tile = FindClosestLandingTile(v);
+			if (landing_tile != TileIndex{} && IsValidTile(landing_tile)) {
+				v->state = AS_FLYING;
+				v->UpdateNextTile(landing_tile);
+			} else {
+				/* No reachable landing tile (e.g. the runway this aircraft was
+				 * climbing out from was removed and the target airport has no
+				 * usable runway left): do not keep the stale runway-end next
+				 * tile, circle until a destination can be planned again. */
+				v->state = AS_FLYING_NO_DEST;
+				v->next_pos.pos = AP_DEFAULT;
+				v->UpdateNextTile(v->tile);
+				v->next_pos.pos = AP_PLANE_HOLD_START;
+			}
 			break;
 		}
 
@@ -1762,6 +1794,38 @@ void HandleAircraftTakingoff(Aircraft *v)
 TileIndex FindClosestFreeLandingTile(Aircraft *v);
 
 /**
+ * Refresh the target position of a freely flying aircraft, healing the case
+ * where the runway it was heading to was removed from the airport while it
+ * was flying (e.g. during take-off climb-out or while holding): the stale
+ * next tile would otherwise fail the runway assertions in
+ * SetNextAircraftPosition. Re-target instead of asserting.
+ * @param v A freely flying aircraft.
+ */
+static void UpdateAircraftTargetTile(Aircraft *v)
+{
+	TileIndex tile = v->GetNextTile();
+	bool valid = IsValidTile(tile) && IsAirportTile(tile) &&
+			(v->IsHelicopter() || IsRunwayExtreme(tile));
+	if (valid) {
+		v->UpdateNextTile(tile);
+		return;
+	}
+
+	if (v->IsAircraftFreelyFlying()) {
+		AssignLandingTile(v, FindClosestLandingTile(v));
+		return;
+	}
+
+	/* Cannot re-target from this state (e.g. an approaching plane whose
+	 * reservation was somehow lost): give up the approach and circle until
+	 * the controller plans a new target. */
+	v->state = AS_FLYING_NO_DEST;
+	v->next_pos.pos = AP_DEFAULT;
+	v->UpdateNextTile(v->tile);
+	v->next_pos.pos = AP_PLANE_HOLD_START;
+}
+
+/**
  * Handle Aircraft flying outside any airport or keeping a holding pattern
  * on its target airport.
  * @param v Vehicle that is flying towards its next target station, if any.
@@ -1770,20 +1834,45 @@ void HandleAircraftFlying(Aircraft *v)
 {
 	switch (v->state) {
 		case AS_ON_HOLD_WAITING: {
-			bool can_land = !(Station::Get(v->targetairport))->airport.IsClosed();
+			/* Remember the airport the aircraft is currently heading to (its next
+			 * tile): FindClosest(Landing|FreeLanding)Tile may divert it to a
+			 * different airport (e.g. the runway it was holding over was
+			 * removed). A holding aircraft diverted like this must not keep
+			 * holding: it would cruise the whole way at hold speed and claim
+			 * the new runway long before arriving. Restart it as an en-route
+			 * flight (AS_FLYING); it holds again once there.
+			 * Compare the airports of the previous and new landing tiles, not
+			 * the targetairport field: other code rewrites that to the order's
+			 * airport between probes, and re-diverting back to the *same*
+			 * divert airport as before must not trigger a reset. */
+			TileIndex prev_landing = v->GetNextTile();
+			bool prev_is_airport = IsValidTile(prev_landing) && IsAirportTile(prev_landing);
 			if (v->IsHelicopter()) {
 				// revise
 				//if (!IsAirportTile(v->tile) || !IsApron(v->tile)) return;
 				assert(v->IsAircraftFlying());
 				TileIndex landing_tile = INVALID_TILE;
 				Trackdir trackdir = INVALID_TRACKDIR;
+				/* Evaluate the closure of the *final* target: FindClosestFreeLandingTile
+				 * may divert the aircraft to a different airport, and the order's
+				 * airport may be closed while the divert target is open (or vice versa). */
+				bool can_land = !(Station::Get(v->targetairport))->airport.IsClosed();
 				if (can_land) {
 					landing_tile = FindClosestFreeLandingTile(v);
-					can_land = landing_tile != INVALID_TILE;
+					can_land = landing_tile != INVALID_TILE && !(Station::Get(v->targetairport))->airport.IsClosed();
 					if (can_land) {
 						trackdir = GetFreeAirportTrackdir(landing_tile, DiagDirToDiagTrackdir(DirToDiagDir(v->direction)));
 						can_land = trackdir != INVALID_TRACKDIR;
 					}
+				}
+
+				if (landing_tile != INVALID_TILE && IsValidTile(landing_tile) &&
+						(!prev_is_airport || GetStationIndex(landing_tile) != GetStationIndex(prev_landing))) {
+					/* Diverted to another airport while holding: restart as an
+					 * en-route flight towards the new landing tile. */
+					v->state = AS_FLYING;
+					v->UpdateNextTile(landing_tile);
+					break;
 				}
 
 				if (can_land) {
@@ -1799,14 +1888,30 @@ void HandleAircraftFlying(Aircraft *v)
 			} else {
 				assert(IsValidTrackdir(v->trackdir));
 				TileIndex landing_tile = FindClosestLandingTile(v);
-				if (can_land && landing_tile != TileIndex{} && IsValidTile(landing_tile) && CanRunwayBeReserved(landing_tile)) {
+
+				if (landing_tile != TileIndex{} && IsValidTile(landing_tile) &&
+						(!prev_is_airport || GetStationIndex(landing_tile) != GetStationIndex(prev_landing))) {
+					/* Diverted to another airport while holding (e.g. the held
+					 * runway was removed under this aircraft): restart as an
+					 * en-route flight; it enters the hold over the new airport
+					 * on arrival, cruising instead of crawling at hold speed. */
+					AssignLandingTile(v, landing_tile);
+					break;
+				}
+
+				/* Evaluate the closure of the *final* target: FindClosestLandingTile may
+				 * have diverted the aircraft from a closed order airport to an open one;
+				 * using the pre-divert flag keeps it circling forever. */
+				bool can_land = !(Station::Get(v->targetairport))->airport.IsClosed();
+				bool reservable = landing_tile != TileIndex{} && IsValidTile(landing_tile) && CanRunwayBeReserved(landing_tile);
+				if (can_land && landing_tile != TileIndex{} && IsValidTile(landing_tile) && reservable) {
 					assert(IsRunwayStart(landing_tile));
 					v->trackdir = DiagDirToDiagTrackdir(GetRunwayExtremeDirection(landing_tile));
 					SetRunwayReservation(landing_tile, true);
 					v->state = AS_ON_HOLD_APPROACHING;
 					v->UpdateNextTile(landing_tile);
 				} else {
-					v->UpdateNextTile(v->GetNextTile());
+					UpdateAircraftTargetTile(v);
 				}
 			}
 			break;
@@ -1826,12 +1931,12 @@ void HandleAircraftFlying(Aircraft *v)
 					v->state = AS_DESCENDING;
 				}
 			}
-			v->UpdateNextTile(v->GetNextTile());
+			UpdateAircraftTargetTile(v);
 			break;
 
 		case AS_FLYING:
 			v->state = AS_ON_HOLD_WAITING;
-			v->UpdateNextTile(v->GetNextTile());
+			UpdateAircraftTargetTile(v);
 			break;
 
 		case AS_FLYING_NO_DEST:
@@ -1866,7 +1971,17 @@ void HandleAircraftLanding(Aircraft *v)
 			Trackdir trackdir = DiagDirToDiagTrackdir(GetRunwayExtremeDirection(v->tile));
 			Trackdir next_trackdir = GetFreeAirportTrackdir(v->tile, trackdir);
 			if (!IsValidTrackdir(next_trackdir)) {
+				/* No exit from the runway end yet: hold the runway and wait.
+				 * The state stays AS_LANDED, so the runway reservation is kept.
+				 * Zero the speed and stop moving this tick: any movement now
+				 * would push the aircraft off its exact stopping position, and
+				 * HandleAircraftState (which re-arms this wait) only runs while
+				 * the aircraft is exactly on its next position. */
+				v->cur_speed = 0;
+				v->subspeed = 0;
+				v->progress = 0;
 				v->SetWaitTime(AIRCRAFT_CANT_LEAVE_RUNWAY);
+				SetWindowWidgetDirty(WindowClass::VehicleView, v->index, WID_VV_START_STOP);
 				break;
 			}
 
@@ -2024,7 +2139,11 @@ bool HandleAircraftState(Aircraft *v)
 					if (v->targetairport == GetStationIndex(v->tile)) {
 						AircraftEntersTerminal(v);
 					} else {
-						v->state = GetNextAircraftState(*v);
+						/* The destination changed while the aircraft is parked at a
+						 * terminal. Helicopters can take off directly from any apron
+						 * tile; planes must first taxi to a runway start, so let the
+						 * controller reserve that path from an idle state. */
+						v->state = v->IsHelicopter() ? AS_START_TAKEOFF : AS_IDLE;
 						v->UpdateNextTile(INVALID_TILE);
 					}
 					return true;
@@ -2059,6 +2178,13 @@ bool HandleAircraftState(Aircraft *v)
 			return true;
 
 		case AS_START_TAKEOFF:
+			if (!v->IsHelicopter() && !IsRunwayStart(v->tile)) {
+				/* A plane must never be in the take-off state away from a runway start:
+				 * recover by replanning a taxi path instead of using a bogus next tile. */
+				v->state = AS_IDLE;
+				v->UpdateNextTile(INVALID_TILE);
+				return true;
+			}
 			return HandleAircraftReadyToTakeoff(v);
 
 		case AS_TAKEOFF_BEFORE_FLYING:
@@ -2079,7 +2205,10 @@ bool HandleAircraftState(Aircraft *v)
 		case AS_DESCENDING:
 		case AS_LANDED:
 			HandleAircraftLanding(v);
-			return v->IsHelicopter() || v->state == AS_IDLE;
+			/* Also stop moving while the plane is stuck on the runway end
+			 * waiting for an exit (state stays AS_LANDED with a wait time). */
+			return v->IsHelicopter() || v->state == AS_IDLE ||
+					(v->state == AS_LANDED && v->IsWaiting());
 
 		case AS_FLYING_HELICOPTER_LANDING:
 			RaiseLowerHelicopter(v);
@@ -2582,9 +2711,13 @@ bool IsReachableDest(Aircraft *v)
 	if (v->targetairport == StationID::Invalid()) return false;
 
 	assert(Station::IsValidID(v->targetairport));
-	Station *st = Station::Get(v->targetairport);
 
 	TileIndex closest_landing = FindClosestLandingTile(v);
+	/* FindClosestLandingTile may divert the aircraft to a different (usable)
+	 * airport: validate the *final* target, not the order's airport, or a
+	 * grounded diverted aircraft never becomes reachable and strands itself
+	 * on the runway end without ever trying to reserve a taxi path. */
+	Station *st = Station::Get(v->targetairport);
 	if (closest_landing == TileIndex{} || !IsValidTile(closest_landing) || !CanVehicleUseStation(v, st)) {
 		if (!HasBit(v->flags, VAF_CAN_T_LAND)) {
 			SetBit(v->flags, VAF_CAN_T_LAND);
@@ -2914,6 +3047,20 @@ void MoveAircraft(Aircraft *v, const bool nudge_towards_target)
 		}
 
 		gp = GetNewVehiclePos(v);
+
+		if (v->state == AS_LANDED && !IsRunway(gp.new_tile)) {
+			/* The landing roll is about to leave the runway without the
+			 * controller having converted the state (e.g. the runway end
+			 * ahead vanished, or the stop position no longer lines up).
+			 * Stop on the runway and hold it instead of rolling off the
+			 * airport: the runway reservation is still held, and the
+			 * controller re-plans once an exit exists again. */
+			v->cur_speed = 0;
+			v->subspeed = 0;
+			v->progress = 0;
+			v->SetWaitTime(AIRCRAFT_CANT_LEAVE_RUNWAY);
+			return;
+		}
 	} else {
 		/* Aircraft is taxiing on the airport. */
 		assert(v->state == AS_RUNNING);

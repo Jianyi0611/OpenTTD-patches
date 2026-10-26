@@ -358,7 +358,7 @@ static const NamedSaveLoad _town_desc[] = {
 	NSL("", SLE_CONDNULL(4, SLV_3, SLV_85)),                           ///< population, no longer in use
 	NSL("", SLE_CONDNULL(2, SL_MIN_VERSION, SLV_92)),                  ///< num_houses, no longer in use
 
-	NSL("townnamegrfid",   SLE_CONDVAR(Town, townnamegrfid,         SLE_UINT32, SLV_66, SL_MAX_VERSION)),
+	NSL("townnamegrfid",   SLE_CONDVAR(Town, townnamegrfid,         SLE_LABEL, SLV_66, SL_MAX_VERSION)),
 	NSL("townnametype",        SLE_VAR(Town, townnametype,          SLE_UINT16)),
 	NSL("townnameparts",       SLE_VAR(Town, townnameparts,         SLE_UINT32)),
 	NSL("name",            SLE_CONDSTR(Town, name,                  SLE_STR | SLF_ALLOW_CONTROL, 0, SLV_84, SL_MAX_VERSION)),
@@ -506,7 +506,7 @@ static void Load_TOWN()
 		Town *t = Town::CreateAtIndex(TownID(index));
 		SlObjectLoadFiltered(t, slt);
 
-		if (t->townnamegrfid == 0 && !IsInsideMM(t->townnametype, SPECSTR_TOWNNAME_START, SPECSTR_TOWNNAME_END) && GetStringTab(t->townnametype) != TEXT_TAB_OLD_CUSTOM) {
+		if (t->townnamegrfid.Empty() && !IsInsideMM(t->townnametype, SPECSTR_TOWNNAME_START, SPECSTR_TOWNNAME_END) && GetStringTab(static_cast<StringID>(t->townnametype)) != TEXT_TAB_OLD_CUSTOM) {
 			SlErrorCorrupt("Invalid town name generator");
 		}
 
@@ -650,9 +650,9 @@ static ChunkSaveLoadSpecialOpResult Special_TNNC(uint32_t chunk_id, ChunkSaveLoa
 
 /** Chunk handler for towns. */
 static const ChunkHandler town_chunk_handlers[] = {
-	{ 'HIDS', Save_HIDS, Load_HIDS, nullptr,   nullptr, CH_TABLE },
-	{ 'CITY', Save_TOWN, Load_TOWN, Ptrs_TOWN, nullptr, CH_TABLE },
-	{ 'TNNC', Save_TNNC, Load_TNNC, nullptr,   nullptr, CH_RIFF,  Special_TNNC },
+	{ 'HIDS', Save_HIDS, Load_HIDS, nullptr,   nullptr, ChunkType::Table },
+	{ 'CITY', Save_TOWN, Load_TOWN, Ptrs_TOWN, nullptr, ChunkType::Table },
+	{ 'TNNC', Save_TNNC, Load_TNNC, nullptr,   nullptr, ChunkType::Riff,  Special_TNNC },
 };
 
 extern const ChunkHandlerTable _town_chunk_handlers(town_chunk_handlers);

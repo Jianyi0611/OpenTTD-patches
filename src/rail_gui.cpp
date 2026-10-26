@@ -1328,7 +1328,7 @@ public:
 		for (const Station *st : Station::Iterate()) {
 			if (st->owner != _local_company) continue;
 			if (!default_added && StationUsesDefaultType(st)) {
-				items.insert({0, 0, STAT_CLASS_DFLT.base(), 0});
+				items.insert({GrfID{}, 0, STAT_CLASS_DFLT.base(), 0});
 				default_added = true;
 			}
 			for (const auto &sm : st->speclist) {
@@ -2410,7 +2410,7 @@ public:
 		for (const Waypoint *wp : Waypoint::Iterate()) {
 			if (wp->owner != _local_company) continue;
 			if (!default_added && StationUsesDefaultType(wp)) {
-				items.insert({0, 0, STAT_CLASS_WAYP.base(), 0});
+				items.insert({GrfID{}, 0, STAT_CLASS_WAYP.base(), 0});
 				default_added = true;
 			}
 			for (const auto &sm : wp->speclist) {

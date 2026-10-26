@@ -27,18 +27,6 @@
 #include "signal_type.h"
 #include "core/typed_container.hpp"
 
-/** @{
- * Used to validate sizes of "max" value in settings. */
-const size_t MAX_SLE_UINT8 = UINT8_MAX;
-const size_t MAX_SLE_UINT16 = UINT16_MAX;
-const size_t MAX_SLE_UINT32 = UINT32_MAX;
-const size_t MAX_SLE_UINT = UINT_MAX;
-const size_t MAX_SLE_INT8 = INT8_MAX;
-const size_t MAX_SLE_INT16 = INT16_MAX;
-const size_t MAX_SLE_INT32 = INT32_MAX;
-const size_t MAX_SLE_INT = INT_MAX;
-/** @} */
-
 static constexpr uint MAX_SIGNAL_DRAG_DISTANCE = 40;
 
 /** Settings profiles and highscore tables. */
@@ -154,7 +142,7 @@ enum class TrainFlipReversingAllowed : uint8_t {
 struct DifficultySettings {
 	uint8_t  competitor_start_time;                 ///< Unused value, used to load old savegames.
 	uint8_t  competitor_intelligence;               ///< Unused value, used to load old savegames.
-	uint8_t  line_reverse_mode;                     ///< Unused value, used to load old savegames.
+	bool     line_reverse_mode;                     ///< Unused value, used to load old savegames.
 
 	uint8_t  max_no_competitors;                    ///< the number of competitors (AIs)
 	uint16_t competitors_interval;                  ///< the interval (in minutes) between adding competitors
@@ -390,6 +378,7 @@ struct GUISettings : public TimeSettings {
 	bool        departure_show_company;                          ///< whether to show company names with departures
 	bool        departure_show_vehicle_type;                     ///< whether to show vehicle type icons with departures
 	bool        departure_show_vehicle_color;                    ///< whether to show vehicle type icons in silver instead of orange
+	bool        departure_show_schedule_route_id;                ///< whether to show scheduled dispatch route IDs
 	bool        departure_larger_font;                           ///< whether to show the calling at list in a larger font
 	bool        departure_destination_type;                      ///< whether to show destination types for ports and airports
 	bool        departure_smart_terminus;                        ///< whether to only show passenger services
@@ -556,11 +545,12 @@ enum class PlaylistChoice : uint8_t {
 
 /** Settings related to music. */
 struct MusicSettings {
+	static constexpr size_t PLAYLIST_ITEMS = 33; ///< Number of items in a playlist.
 	PlaylistChoice playlist; ///< The playlist (number) to play
 	uint8_t music_vol;    ///< The requested music volume
 	uint8_t effect_vol;   ///< The requested effects volume
-	uint8_t custom_1[33]; ///< The order of the first custom playlist
-	uint8_t custom_2[33]; ///< The order of the second custom playlist
+	std::array<uint8_t, PLAYLIST_ITEMS> custom_1; ///< The order of the first custom playlist
+	std::array<uint8_t, PLAYLIST_ITEMS> custom_2; ///< The order of the second custom playlist
 	bool playing;      ///< Whether music is playing
 	bool shuffle;      ///< Whether to shuffle the music
 };

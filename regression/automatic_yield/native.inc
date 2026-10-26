@@ -77,7 +77,7 @@ void DemoBuild()
 {
     demo_log = fopen((std::string(std::getenv("PXP_DEMO_OUTPUT"))+"/run.log").c_str(),"w");
     _current_company = OWNER_DEITY;
-    DemoRequire(CmdFoundTown(DoCommandFlag::Execute, TileXY(100,15), TSZ_SMALL, false, TL_ORIGINAL, false, 0, "待避演示镇"), "town");
+    DemoRequire(CmdFoundTown(DoCommandFlag::Execute, TileXY(100,15), TownSize::Small, false, TownLayout::Original, false, 0, "待避演示镇"), "town");
     _game_mode = GameMode::Normal;
     Company *company = DoStartupNewCompany(DSNC_NONE);
     company->name = "自动待避教学铁路";

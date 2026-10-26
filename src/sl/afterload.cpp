@@ -86,13 +86,13 @@
 #include "../pathfinder/water_regions.h"
 #include "../tile_cmd.h"
 
+#include "saveload_internal.h"
+#include "saveload_func.h"
 
-#include "../sl/saveload_internal.h"
+#include "../table/strings.h"
 
 #include <signal.h>
 #include <algorithm>
-
-#include "table/strings.h"
 
 #include "../safeguards.h"
 
@@ -427,17 +427,7 @@ static const GRFIdentifier &GetOverriddenIdentifier(const GRFConfig &c)
 }
 
 /** Was the saveload crash because of missing NewGRFs? */
-static bool _saveload_crash_with_missing_newgrfs = false;
-
-/**
- * Did loading the savegame cause a crash? If so,
- * were NewGRFs missing?
- * @return when the saveload crashed due to missing NewGRFs.
- */
-bool SaveloadCrashWithMissingNewGRFs()
-{
-	return _saveload_crash_with_missing_newgrfs;
-}
+bool _saveload_crash_with_missing_newgrfs = false;
 
 /**
  * Signal handler used to give a user a more useful report for crashes during
@@ -475,11 +465,11 @@ static void CDECL HandleSavegameLoadCrash(int signum)
 		for (const auto &c : _grfconfig) {
 			if (c->flags.Test(GRFConfigFlag::Compatible)) {
 				const GRFIdentifier &replaced = GetOverriddenIdentifier(*c);
-				buffer.format("NewGRF {:08X} (checksum {}) not found.\n  Loaded NewGRF \"{}\" (checksum {}) with same GRF ID instead.\n",
-						std::byteswap(c->ident.grfid), c->original_md5sum, c->filename, replaced.md5sum);
+				buffer.format("NewGRF {} (checksum {}) not found.\n  Loaded NewGRF \"{}\" (checksum {}) with same GRF ID instead.\n",
+						c->ident.grfid, c->original_md5sum, c->filename, replaced.md5sum);
 			}
 			if (c->status == GRFStatus::NotFound) {
-				buffer.format("NewGRF {:08X} ({}) not found; checksum {}.\n", std::byteswap(c->ident.grfid), c->filename, c->ident.md5sum);
+				buffer.format("NewGRF {} ({}) not found; checksum {}.\n", c->ident.grfid, c->filename, c->ident.md5sum);
 			}
 		}
 	} else {
@@ -686,6 +676,49 @@ void IterateVehicleAndOrderListOrders(F func)
 }
 
 /**
+ * Whether the airport tiles of the game are stored in the original format, i.e. with the airport
+ * tile gfx in m5 instead of in m4.
+ *
+ * Savegames written by upstream OpenTTD or by another patch pack use that format, and those
+ * cannot be told apart from our own savegames by their savegame version or by their extended
+ * version information: other patch packs use the same savegame container, the same savegame
+ * version number and a compatible extended version chunk (JGRPP does). The tile data itself is
+ * however unambiguous: the multi-tile format never stores the tile types which the original
+ * format produces when its gfx ids are read as tile types, and it never stores an infrastructure
+ * tile which refers to a sprite outside of the infrastructure sprite range.
+ *
+ * @return true iff the airport tiles have to be converted from the original format.
+ */
+static bool AirportsUseLegacyTileFormat()
+{
+	for (TileIndex t(0); t < Map::Size(); t++) {
+		if (!IsTileType(t, TileType::Station) || !IsAirportTile(t)) continue;
+
+		const AirportTileType att = GetAirportTileType(t);
+		switch (att) {
+			case ATT_WAITING_POINT:
+				/* Never stored in the multi-tile format, only a gfx id read as a tile type. */
+				return true;
+
+			case ATT_INFRASTRUCTURE_NO_CATCH:
+			case ATT_INFRASTRUCTURE_WITH_CATCH: {
+				if (!HasAirtypeGfx(t)) break;
+				const uint at = GetTileAirportGfx(t);
+				if (att == ATT_INFRASTRUCTURE_NO_CATCH && (at < ATTG_NO_CATCH_FLAG || at >= ATTG_END)) return true;
+				if (att == ATT_INFRASTRUCTURE_WITH_CATCH && at > ATTG_WITH_CATCH_BUILDING_TERMINAL) return true;
+				break;
+			}
+
+			default:
+				/* Tile types 9 and 11 do not exist. */
+				if (att == static_cast<AirportTileType>(9) || att == static_cast<AirportTileType>(11)) return true;
+				break;
+		}
+	}
+	return false;
+}
+
+/**
  * Whether the savegame predates the multi-tile airports and the new aircraft controller.
  * Savegames written by this patch pack store the legacy aircraft position unless they use the new
  * aircraft controller; savegames from upstream do not use the patch pack tables, so use the
@@ -694,8 +727,22 @@ void IterateVehicleAndOrderListOrders(F func)
  */
 static bool IsSavegameBeforeMultitileAirports()
 {
-	if (SlXvGetUpstreamVersion() != SL_MIN_VERSION) return DidLoadLegacyAircraftData();
-	return IsSavegameVersionBefore(SLV_CUSTOM_SUBSIDY_DURATION);
+	/* Savegames written by this patch pack store their extended version information; savegames
+	 * written by upstream OpenTTD or by another patch pack do not. Those never had the multi-tile
+	 * airport format, and their savegame version cannot be used for this decision, as other patch
+	 * packs can use the same savegame version number as this patch pack does (JGRPP 0.72 does).
+	 * Older versions of this patch pack that also lack the extended version information predate
+	 * the multi-tile airports as well. */
+	if (SlXvGetUpstreamVersion() == SL_MIN_VERSION) return true;
+
+	/* The extended version information is not conclusive either, as other patch packs write a
+	 * compatible chunk. The tiles themselves are: when they are not in the multi-tile format,
+	 * the savegame was not written by this patch pack. */
+	if (AirportsUseLegacyTileFormat()) return true;
+
+	/* Savegames with the extended version information also store whether they use the new
+	 * aircraft controller, which was introduced together with the multi-tile airports. */
+	return DidLoadLegacyAircraftData();
 }
 
 /**
@@ -988,7 +1035,7 @@ bool AfterLoadGame()
 		}
 
 		for (Town *t : Town::Iterate()) {
-			t->name = CopyFromOldName(t->townnametype);
+			t->name = CopyFromOldName(static_cast<StringID>(t->townnametype));
 			if (!t->name.empty()) t->townnametype = SPECSTR_TOWNNAME_START + _settings_game.game_creation.town_name;
 		}
 	}
@@ -1762,17 +1809,17 @@ bool AfterLoadGame()
 		for (RoadType rt : EnumRange(ROADTYPE_END)) {
 			const RoadTypeInfo *rti = GetRoadTypeInfo(rt);
 			if (RoadTypeIsRoad(rt)) {
-				if (rti->label == 'ROAD') {
+				if (rti->label == RoadTypeLabel{"ROAD"}) {
 					road_types[0] = rt;
-				} else if (rti->label == 'ELRD') {
+				} else if (rti->label == RoadTypeLabel{"ELRD"}) {
 					road_types[1] = rt;
 				} else if (next_road_type < 31) {
 					road_types[next_road_type++] = rt;
 				}
 			} else {
-				if (rti->label == 'RAIL') {
+				if (rti->label == RoadTypeLabel{"RAIL"}) {
 					tram_types[0] = rt;
-				} else if (rti->label == 'ELRL') {
+				} else if (rti->label == RoadTypeLabel{"ELRL"}) {
 					tram_types[1] = rt;
 				} else if (next_tram_type < 31) {
 					tram_types[next_tram_type++] = rt;
@@ -2812,18 +2859,19 @@ bool AfterLoadGame()
 
 	if (IsSavegameVersionBefore(SLV_113)) {
 		/* allow_town_roads is added, set it if town_layout wasn't TL_NO_ROADS */
-		if (_settings_game.economy.town_layout == 0) { // was TL_NO_ROADS
+		uint8_t old_town_layout = to_underlying(_settings_game.economy.town_layout);
+		if (old_town_layout == 0) { // was TL_NO_ROADS
 			_settings_game.economy.allow_town_roads = false;
-			_settings_game.economy.town_layout = TL_BETTER_ROADS;
+			_settings_game.economy.town_layout = TownLayout::BetterRoads;
 		} else {
 			_settings_game.economy.allow_town_roads = true;
-			_settings_game.economy.town_layout = static_cast<TownLayout>(_settings_game.economy.town_layout - 1);
+			_settings_game.economy.town_layout = static_cast<TownLayout>(old_town_layout - 1);
 		}
 
 		/* Initialize layout of all towns. Older versions were using different
 		 * generator for random town layout, use it if needed. */
 		for (Town *t : Town::Iterate()) {
-			if (_settings_game.economy.town_layout != TL_RANDOM) {
+			if (_settings_game.economy.town_layout != TownLayout::Random) {
 				t->layout = _settings_game.economy.town_layout;
 				continue;
 			}
@@ -3162,8 +3210,15 @@ bool AfterLoadGame()
 		}
 	}
 
+	/* Savegames which predate the multi-tile airports (including savegames of upstream or of
+	 * other patch packs) do not have the custom airport setting, so it is off for them. Their
+	 * airports are converted into custom airports while their tiles are migrated, which is the
+	 * only form in which the migrated tiles stay consistent, so enable the feature for them. */
+	const bool legacy_airport_tiles = IsSavegameBeforeMultitileAirports();
+	if (legacy_airport_tiles) _settings_game.station.allow_modify_airports = true;
+
 	/* Data structure on airport has changed. */
-	if (IsSavegameBeforeMultitileAirports()) {
+	if (legacy_airport_tiles) {
 		/* Old saves stored the airport tile gfx in m5; move it to m4 and
 		 * rebuild the tiles from the airport specs. */
 		for (TileIndex t(0); t < Map::Size(); t++) {
@@ -3173,13 +3228,18 @@ bool AfterLoadGame()
 			Tile(t).m5() = 0;
 		}
 		AfterLoadSetAirportTileTypes();
+		if (ConvertAirportsToCustomEnabled()) LogAirportConversionSummary("Loading the game");
 	} else {
+		const bool convert_airports = ConvertAirportsToCustomEnabled();
 		for (Station *st : Station::Iterate()) {
+			/* With the custom airport feature enabled, airports are converted into custom
+			 * airports as well. This also drops the NewGRF airport graphics of the tiles. */
+			if (convert_airports && st->ConvertAirportToCustom(true)) continue;
 			st->UpdateAirportDataStructure();
 		}
+		if (convert_airports) LogAirportConversionSummary("Loading the game");
 	}
-
-	if (IsSavegameBeforeMultitileAirports()) {
+	if (legacy_airport_tiles) {
 		/* Delete already crashed zeppelins. */
 		DeleteCrashedZeppelins();
 
@@ -3620,6 +3680,9 @@ bool AfterLoadGame()
 				u->direction = ReverseDir(u->direction);
 			}
 		}
+		for (Vehicle *v : Vehicle::Iterate()) {
+			v->vehicle_flags.Reset(VehicleFlag::DrivingBackwards);
+		}
 
 		/* Update the setting for train flipping. */
 		_settings_game.difficulty.train_flip_reverse_allowed = _settings_game.difficulty.line_reverse_mode ? TrainFlipReversingAllowed::EndOfLineOnly : TrainFlipReversingAllowed::All;
@@ -3673,7 +3736,7 @@ bool AfterLoadGame()
 	}
 	if (!SlXvIsFeaturePresent(XSLFI_IMPROVED_BREAKDOWNS, 3)) {
 		for (Vehicle *v : Vehicle::Iterate()) {
-			switch(v->type) {
+			switch (v->type) {
 				case VehicleType::Train:
 				case VehicleType::Road:
 					v->breakdown_chance_factor = 128;
@@ -3694,16 +3757,9 @@ bool AfterLoadGame()
 		}
 	}
 	if (!SlXvIsFeaturePresent(XSLFI_IMPROVED_BREAKDOWNS, 4)) {
-		for (Vehicle *v : Vehicle::Iterate()) {
-			switch(v->type) {
-				case VehicleType::Aircraft:
-					if (v->breakdown_type == BREAKDOWN_AIRCRAFT_SPEED && v->breakdown_severity == 0) {
-						v->breakdown_severity = std::max(1, std::min(v->vcache.cached_max_speed >> 4, 255));
-					}
-					break;
-
-				default:
-					break;
+		for (Aircraft *v : Aircraft::Iterate()) {
+			if (v->breakdown_type == BREAKDOWN_AIRCRAFT_SPEED && v->breakdown_severity == 0) {
+				v->breakdown_severity = std::max(1, std::min(v->vcache.cached_max_speed >> 4, 255));
 			}
 		}
 	}
@@ -4232,7 +4288,7 @@ bool AfterLoadGame()
 
 	if (IsSavegameVersionBefore(SLV_TOWN_CARGOGEN)) {
 		/* Ensure the original cargo generation mode is used */
-		_settings_game.economy.town_cargogen_mode = TCGM_ORIGINAL;
+		_settings_game.economy.town_cargogen_mode = TownCargoGenMode::Original;
 	}
 
 	if (IsSavegameVersionBefore(SLV_SERVE_NEUTRAL_INDUSTRIES)) {
