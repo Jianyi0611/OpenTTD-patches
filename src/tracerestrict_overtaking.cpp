@@ -88,6 +88,7 @@ constexpr size_t MAX_ROUTE_NODES = 256;
 /* A condition or marker may ask several related questions (free siding,
  * evacuation, and route length). Share a budget across those searches. */
 constexpr size_t MAX_PROBE_NODES_PER_EVALUATION = 1024;
+constexpr size_t COMPLEX_APPROACH_EXTRA_NODES = 512;
 constexpr uint SAME_SPEED_PASSENGER_GAP = 16; ///< Maximum clear gap behind a freight train, in route tiles.
 constexpr uint SHORT_STATION_STOP_TICKS = 256; ///< Never hold traffic indefinitely for station work.
 size_t probe_budget_remaining = 0;
@@ -176,9 +177,20 @@ public:
 			ResetPlatformInfoCache();
 		}
 	}
+	/** Multiple Mains and outlets require extra candidate-route proofs. Keep
+	 * the ordinary allowances and single-Main behaviour, but leave bounded
+	 * room for parking after those optional classification queries. */
+	void UseArea(const Area &area)
+	{
+		if (probe_depth == 0 && area.main_count > 1 && area.clear_count > 1 && !extended) {
+			probe_budget_remaining += COMPLEX_APPROACH_EXTRA_NODES;
+			extended = true;
+		}
+	}
 	~AutoYieldProbeBudget() { probe_budget_remaining = previous; }
 private:
 	size_t previous;
+	bool extended = false;
 };
 
 /** A soft preference must leave room for the authoritative exit/claim checks. */
@@ -307,7 +319,7 @@ bool IsSplitPredictionTarget(const Train *v, TileIndex tile);
 /** Bounded, read-only path proof. Ordinary restrictions and PBS ownership still apply.
  * Unknown/budget exhausted means no proof, never permission to force a train.
  * departing is used only for a hypothetical evacuation, never for admission. */
-std::optional<uint> RouteToRole(const Area &area, const Train *v, TileIndex start, Trackdir start_td, AutoYieldRole target, bool free_path, std::optional<TraceRestrictRefId> exact_ref = std::nullopt, bool *search_incomplete = nullptr, const Train *departing = nullptr, std::optional<TraceRestrictRefId> *matched_ref = nullptr, std::optional<TraceRestrictRefId> excluded_ref = std::nullopt, bool require_clearance = false, bool signals_only = false, const Train *yielding_reservation = nullptr, bool before_main = false)
+std::optional<uint> RouteToRole(const Area &area, const Train *v, TileIndex start, Trackdir start_td, AutoYieldRole target, bool free_path, std::optional<TraceRestrictRefId> exact_ref = std::nullopt, bool *search_incomplete = nullptr, const Train *departing = nullptr, std::optional<TraceRestrictRefId> *matched_ref = nullptr, std::optional<TraceRestrictRefId> excluded_ref = std::nullopt, bool require_clearance = false, bool signals_only = false, const Train *yielding_reservation = nullptr, bool before_main = false, std::optional<std::pair<uint, TraceRestrictRefId>> *nearest_main = nullptr)
 {
 	if (search_incomplete != nullptr) *search_incomplete = false;
 	if (matched_ref != nullptr) matched_ref->reset();
@@ -338,6 +350,7 @@ std::optional<uint> RouteToRole(const Area &area, const Train *v, TileIndex star
 		}
 		if (AtRole(area, current.tile, current.td, target)) {
 			const auto ref = MakeTraceRestrictRefId(current.tile, TrackdirToTrack(current.td));
+			if (nearest_main != nullptr && target == AutoYieldRole::Main && !*nearest_main) *nearest_main = std::pair{current.distance, ref};
 			if ((!exact_ref || *exact_ref == ref) && (!excluded_ref || *excluded_ref != ref)) {
 				/* Try the other branches if this parallel Main has no proven
 				 * free departure; a third usable main must not be overlooked. */
@@ -1089,21 +1102,19 @@ std::vector<MainApproach> GetMainApproaches(const Area &area, const Train *focus
 		}
 		bool incomplete = false;
 		std::optional<TraceRestrictRefId> main;
-		auto distance = RouteToRole(area, train, train->GetMovingFront()->tile, train->GetMovingFront()->GetVehicleTrackdir(), AutoYieldRole::Main, false, std::nullopt, &incomplete, nullptr, &main);
+		std::optional<std::pair<uint, TraceRestrictRefId>> nearest;
+		const auto requested = area.main_count > 1 && train == focus ? focus_main : std::nullopt;
+		/* Find the nearest Main and this candidate in one BFS. Restarting at
+		 * the head for the candidate repeats the entire approach and can leave
+		 * too little budget to admit an otherwise safe, empty siding. */
+		auto distance = RouteToRole(area, train, train->GetMovingFront()->tile, train->GetMovingFront()->GetVehicleTrackdir(),
+				AutoYieldRole::Main, false, requested, &incomplete, nullptr, &main,
+				std::nullopt, false, false, nullptr, false, requested ? &nearest : nullptr);
+		bool detour = distance && nearest && main != nearest->second;
+		/* An unresolved requested branch keeps the original nearest-Main
+		 * classification. Budget exhaustion does not prove it unreachable. */
+		if (!distance && nearest) { distance = nearest->first; main = nearest->second; incomplete = false; }
 		Debug(yapf, 7, "AutoYield area={} approach={} distance={} incomplete={} budget={}", area.id, train->index, distance.value_or(UINT_MAX), incomplete, probe_budget_remaining);
-		bool detour = false;
-		/* Most candidates are already the nearest Main: keep their original
-		 * single scan. An optional second proof is needed only for a different
-		 * candidate, and a missing proof preserves the original classification. */
-		if (distance && area.main_count > 1 && train == focus && focus_main && main != focus_main) {
-			std::optional<TraceRestrictRefId> candidate;
-			if (auto candidate_distance = RouteToRole(area, train, train->GetMovingFront()->tile, train->GetMovingFront()->GetVehicleTrackdir(),
-					AutoYieldRole::Main, false, focus_main, nullptr, nullptr, &candidate)) {
-				distance = candidate_distance;
-				main = candidate;
-				detour = true;
-			}
-		}
 		/* Keep unknown membership for later reevaluation, but do not promote
 		 * a failed route proof into a confirmed follower. */
 		if (distance || incomplete) {
@@ -2899,6 +2910,7 @@ static void RefreshAutoYieldMainReservation(const Area &area, Train *v)
 	const Train *front = v->GetMovingFront();
 	if (!IsPlainRailTile(front->tile)) return;
 	AutoYieldProbeBudget budget;
+	budget.UseArea(area);
 	const PBSTileInfo end = FollowTrainReservation(v, nullptr, FollowTrainReservationFlag::OkayUnused);
 	Debug(yapf, 7, "AutoYield area={} train={} refresh-front={} end={} end-direction={}", area.id, v->index, front->tile, end.tile, uint(end.trackdir));
 	if (!IsValidTile(end.tile) || end.tile == front->tile || !IsValidTrackdir(end.trackdir)) return;
@@ -3237,6 +3249,7 @@ bool EvaluateAutoYield(const Train *v, uint16_t id, AutoYieldCondition condition
 	AutoYieldProbeBudget budget;
 	const Area *area = FindArea(v, id);
 	if (!_settings_game.vehicle.automatic_yield || area == nullptr || !Active(v) || !area->detection->IsOccupant(v->index)) return false;
+	budget.UseArea(*area);
 	bool result = false;
 	switch (condition) {
 		case AutoYieldCondition::Faster:
@@ -3287,6 +3300,7 @@ void ExecuteAutoYield(const Train *v, const TraceRestrictProgramInput &input, Tr
 	if (!_settings_game.vehicle.automatic_yield || !Active(v, role == AutoYieldRole::Approach)) return;
 	const Area *area = FindArea(v, id);
 	if (area == nullptr) return;
+	budget.UseArea(*area);
 	if (role != AutoYieldRole::Approach && !area->detection->IsOccupant(v->index)) return;
 	std::optional<EvacuationPlan> station_turnover;
 	if (role == AutoYieldRole::Exit && area->has_platform && YieldWaitInProgress(*area, v)) {

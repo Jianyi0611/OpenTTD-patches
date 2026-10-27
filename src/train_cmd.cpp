@@ -3282,9 +3282,11 @@ static void ReverseTrainChainOrder(Train *v)
  * ReverseTrainSwapVehicles does, keeping the internal chain order intact, so
  * the "rear follows front" / "articulated parts follow base" invariants are
  * preserved and the new chain front of such a block is always a legal chain
- * head (front dual-headed part / articulated base). The per-vehicle
- * VehicleRailFlag::Flipped sprite-orientation flag is toggled for every
- * vehicle so each renders with its pre-flip facing.
+ * head (front dual-headed part / articulated base). Only single-vehicle
+ * blocks toggle VehicleRailFlag::Flipped to retain their previous facing.
+ * Articulated blocks keep their NewGRF-defined per-part sprite orientation:
+ * their positions have been mirrored, so retaining each old drawing direction
+ * would put asymmetric ends and cabs on the wrong end of the block.
  * @param v First vehicle of the chain to reverse.
  */
 static void ReverseTrainNoSwapVehicles(Train *v)
@@ -3372,14 +3374,10 @@ static void ReverseTrainNoSwapVehicles(Train *v)
 			r--;
 		}
 
-		/* Every vehicle of the flipped chain renders with its original facing
-		 * again by toggling the per-vehicle sprite orientation flag: in-place
-		 * reversed vehicles (single-vehicle blocks, odd-block middles) as well
-		 * as pairwise-swapped block members, whose UpdateStatusAfterSwap below
-		 * also ends up reversing their direction. Train::GetImage then picks
-		 * the sprite for the pre-flip direction, keeping the visual appearance
-		 * (same mechanism as the depot "turn vehicle around" command). */
-		for (Train *u : block) u->flags.Flip(VehicleRailFlag::Flipped);
+		/* The depot's single-vehicle sprite flip is not legal for articulated
+		 * units. Their native physical reversal must retain the original
+		 * per-part flags, including any set by NewGRF build callbacks. */
+		if (block.size() == 1) block[0]->flags.Flip(VehicleRailFlag::Flipped);
 
 		if (block.size() > 1) {
 			/* The vehicles changed place, fully update them. */
@@ -6028,6 +6026,27 @@ static bool IsCouplePartnerOf(const Train *consist, const Train *other)
 	return false;
 }
 
+/** A cut can leave the departing head and the waiting split part on one tile.
+ * The waiting part can already have cleared JustDecoupled while retaining its
+ * same-direction departure obligation. Only exclude a whole vehicle strictly
+ * behind the departing end, on the same straight platform track and level.
+ * Tile sharing alone is never proof that a vehicle ahead can be passed. */
+bool IsDecoupledPartBehindDeparture(const Train *consist, const Train *part)
+{
+	const Train *front = consist->GetMovingFront();
+	if (!consist->flags.Test(VehicleRailFlag::JustDecoupled) ||
+			!part->Primary()->flags.Test(VehicleRailFlag::SameDirDecouplePending) ||
+			front->tile != part->tile || !IsRailStationTile(front->tile) ||
+			front->track != part->track || front->z_pos != part->z_pos ||
+			!IsDiagonalDirection(front->GetMovingDirection())) return false;
+	const TileIndexDiffC delta = TileIndexDiffCByDir(front->GetMovingDirection());
+	const int dx = part->x_pos - front->x_pos, dy = part->y_pos - front->y_pos;
+	const int along = dx * delta.x + dy * delta.y;
+	const int across = dx * delta.y - dy * delta.x;
+	const int separation = CeilDiv(front->gcache.cached_veh_length + part->gcache.cached_veh_length, 2);
+	return across == 0 && along <= -separation;
+}
+
 /**
  * Whether another consist is standing between us and the platform exit, that is, on the part of
  * our own platform we are about to travel along.
@@ -6061,6 +6080,7 @@ static bool IsPlatformAheadOccupied(const Train *consist)
 		for (const Train *u : VehiclesOnTile<VehicleType::Train>(tile)) {
 			if (u->Primary() == consist->Primary()) continue;
 			if (IsCouplePartnerOf(consist, u)) continue;
+			if (IsDecoupledPartBehindDeparture(consist, u)) continue;
 			/* The partner of a just-performed decouple necessarily shares the tile
 			 * around the cut with us; it does not stand in our way. Restrict the
 			 * exemption to that cut tile: once we have turned around to follow the
@@ -7805,12 +7825,12 @@ static Direction FlippedDirection(const Train *v)
 			if (t == v) index = static_cast<uint>(chain.size());
 			chain.push_back(t);
 		}
-		return chain[chain.size() - 1 - index]->direction;
+		return ReverseDir(chain[chain.size() - 1 - index]->direction);
 	}
 	for (const auto &block : BuildReversalBlocks(const_cast<Train *>(head))) {
 		for (uint i = 0; i < block.size(); i++) {
 			if (block[i] != v) continue;
-			return block.size() == 1 ? ReverseDir(v->direction) : block[block.size() - 1 - i]->direction;
+			return ReverseDir(block[block.size() - 1 - i]->direction);
 		}
 	}
 	return v->direction;
@@ -7828,13 +7848,11 @@ static void TrialReverseChainOrder(Train *head)
 	if (ChainFlipsBySwap(head)) return;
 
 	std::vector<std::vector<Train *>> blocks = BuildReversalBlocks(head);
-	/* Mirror the sprite-orientation toggles the real
-	 * ReverseTrainNoSwapVehicles() applies (every vehicle of the flipped
-	 * chain), so a NewGRF reading the reversed state (variable 0x48) sees the
-	 * same values as after the real flip. The guard's destructor restores the
-	 * flags. */
+	/* Mirror the real singleton sprite flips. Articulated blocks preserve
+	 * their per-part NewGRF orientation, just as in the physical reversal.
+	 * The guard's destructor restores the trial flags. */
 	for (const auto &block : blocks) {
-		for (Train *t : block) t->flags.Flip(VehicleRailFlag::Flipped);
+		if (block.size() == 1) block[0]->flags.Flip(VehicleRailFlag::Flipped);
 	}
 	std::vector<Train *> order;
 	for (auto it = blocks.rbegin(); it != blocks.rend(); ++it) {
@@ -8049,9 +8067,11 @@ static bool TryTrainCouple(Train *v, Train *u)
 /** Direction of travel (facing of a forward-driving vehicle) from a pixel delta. */
 static Direction DirectionFromDelta(int dx, int dy)
 {
-	if (dx > 0) return dy > 0 ? Direction::SE : (dy < 0 ? Direction::NE : Direction::E);
-	if (dx < 0) return dy > 0 ? Direction::SW : (dy < 0 ? Direction::NW : Direction::W);
-	return dy > 0 ? Direction::S : Direction::N;
+	/* World x/y are rotated relative to the viewport direction names; match
+	 * TileIndexDiffCByDir rather than treating them as screen coordinates. */
+	if (dx > 0) return dy > 0 ? Direction::S : (dy < 0 ? Direction::W : Direction::SW);
+	if (dx < 0) return dy > 0 ? Direction::E : (dy < 0 ? Direction::N : Direction::NE);
+	return dy > 0 ? Direction::SE : Direction::NW;
 }
 
 static void MoveTrainToPosition(Train *v, int x, int y)
@@ -8072,6 +8092,11 @@ static void MoveTrainToPosition(Train *v, int x, int y)
 		 * Adopt the track bit and direction that match how we just moved. */
 		if (abs(x - v->x_pos) <= (int)TILE_SIZE && abs(y - v->y_pos) <= (int)TILE_SIZE) {
 			Direction motion_dir = DirectionFromDelta(x - v->x_pos, y - v->y_pos);
+			/* Spacing can move a vehicle back along its track. That correction
+			 * is not a reversal: keep the consist's original running orientation
+			 * while adapting its track axis to the destination tile. */
+			const TileIndexDiffC forward = TileIndexDiffCByDir(v->GetMovingDirection());
+			if ((x - v->x_pos) * forward.x + (y - v->y_pos) * forward.y < 0) motion_dir = ReverseDir(motion_dir);
 			TrackBits desired = TrackToTrackBits(TrackdirToTrack(DiagDirToDiagTrackdir(DirToDiagDir(motion_dir))));
 			TrackBits available = TrackdirBitsToTrackBits(GetTileTrackdirBits(tile, TransportType::Rail, 0));
 			TrackBits match = available & desired;

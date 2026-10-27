@@ -123,6 +123,106 @@ protected:
 	}
 };
 
+TEST_CASE_METHOD(TrainDecoupleFixture, "Decouple - a pending partner is excluded only when its whole body is behind the departing front")
+{
+	const Direction moving = GENERATE(Direction::NE, Direction::SE, Direction::SW, Direction::NW);
+	const bool backwards = GENERATE(false, true);
+	AllocateMap(64, 64);
+	auto cleanup = scope_guard([] { DeallocateMap(); });
+	Train *front = MakeTrain(), *partner = MakeTrain();
+	const TileIndex tile = TileXY(20, 20);
+	const TileIndexDiffC delta = TileIndexDiffCByDir(moving);
+	const Axis axis = DiagDirToAxis(DirToDiagDir(moving));
+	const TrackBits track = axis == Axis::X ? TRACK_BIT_X : TRACK_BIT_Y;
+	MakeRailStation(tile, OWNER_NONE, StationID{0}, axis, 0, RAILTYPE_RAIL);
+	front->SetFrontEngine(); partner->SetFrontEngine();
+	front->tile = partner->tile = tile; front->track = partner->track = track;
+	front->direction = backwards ? ReverseDir(moving) : moving;
+	front->vehicle_flags.Set(VehicleFlag::DrivingBackwards, backwards);
+	partner->direction = ReverseDir(moving);
+	front->flags.Set(VehicleRailFlag::JustDecoupled);
+	partner->flags.Set(VehicleRailFlag::SameDirDecouplePending);
+	front->gcache.cached_veh_length = partner->gcache.cached_veh_length = 2;
+	front->x_pos = 20 * TILE_SIZE + (delta.x < 0 ? 4 : delta.x > 0 ? 12 : 8);
+	front->y_pos = 20 * TILE_SIZE + (delta.y < 0 ? 4 : delta.y > 0 ? 12 : 8);
+	front->z_pos = partner->z_pos = 0;
+	partner->x_pos = front->x_pos - 11 * delta.x;
+	partner->y_pos = front->y_pos - 11 * delta.y;
+	bool behind = true;
+	SECTION("the asymmetric split flags and a physically separated rear") {}
+	SECTION("a foreign part ahead still blocks") {
+		front->x_pos = 20 * TILE_SIZE + (delta.x < 0 ? 12 : delta.x > 0 ? 4 : 8);
+		front->y_pos = 20 * TILE_SIZE + (delta.y < 0 ? 12 : delta.y > 0 ? 4 : 8);
+		partner->x_pos = front->x_pos + 11 * delta.x;
+		partner->y_pos = front->y_pos + 11 * delta.y;
+		behind = false;
+	}
+	SECTION("an overlapping part remains protected") {
+		partner->x_pos = front->x_pos - delta.x;
+		partner->y_pos = front->y_pos - delta.y;
+		behind = false;
+	}
+	SECTION("an odd length rounds the required separation upwards") {
+		partner->gcache.cached_veh_length = 3;
+		partner->x_pos = front->x_pos - 2 * delta.x;
+		partner->y_pos = front->y_pos - 2 * delta.y;
+		behind = false;
+	}
+	SECTION("another rail axis cannot use the exception") { partner->track = track == TRACK_BIT_X ? TRACK_BIT_Y : TRACK_BIT_X; behind = false; }
+	SECTION("an offset parallel vehicle is not on the same rail line") { partner->x_pos += delta.y; partner->y_pos -= delta.x; behind = false; }
+	SECTION("another height cannot use the exception") { partner->z_pos++; behind = false; }
+	SECTION("a different tile cannot use the origin exception") { partner->tile = TileXY(21, 20); behind = false; }
+	SECTION("an unrelated ordinary stopped train remains protected") { partner->flags.Reset(VehicleRailFlag::SameDirDecouplePending); behind = false; }
+	SECTION("a departed train cannot keep using the exception") { front->flags.Reset(VehicleRailFlag::JustDecoupled); behind = false; }
+	SECTION("the exception is unavailable on ordinary rail") { MakeRailNormal(tile, OWNER_NONE, track, RAILTYPE_RAIL); behind = false; }
+	SECTION("a curve is left to the native blocker") { front->direction = backwards ? Direction::W : Direction::E; behind = false; }
+	const auto before_front = front->flags, before_partner = partner->flags;
+	const auto before_direction = front->direction;
+	GameRandomSeedChecker random;
+	CHECK(IsDecoupledPartBehindDeparture(front, partner) == behind);
+	CHECK(front->flags == before_front); CHECK(partner->flags == before_partner);
+	CHECK(front->direction == before_direction); CHECK(random.Check());
+}
+
+#include "coupling_trial_orientation.inc"
+
+TEST_CASE_METHOD(TrainDecoupleFixture, "Train relocation - crossing a tile during spacing preserves rail and physical facing")
+{
+	AllocateMap(64, 64);
+	ResetVehicleHash();
+	auto cleanup = scope_guard([]() { _vehicle_pool.CleanPool(); ResetVehicleHash(); DeallocateMap(); });
+	Train *train = MakeTrain();
+	train->SetFrontEngine();
+	train->owner = CompanyID{0};
+	train->direction = GENERATE(Direction::NE, Direction::SE, Direction::SW, Direction::NW);
+	train->track = (train->direction == Direction::NE || train->direction == Direction::SW) ? TRACK_BIT_X : TRACK_BIT_Y;
+	train->vehicle_flags.Set(VehicleFlag::DrivingBackwards, GENERATE(false, true));
+	train->flags.Set(VehicleRailFlag::Flipped);
+	const bool forward_adjustment = GENERATE(false, true);
+	const TileIndexDiffC motion = TileIndexDiffCByDir(train->GetMovingDirection());
+	const int step_x = motion.x * (forward_adjustment ? 1 : -1);
+	const int step_y = motion.y * (forward_adjustment ? 1 : -1);
+	train->x_pos = step_x == 0 ? 10 * TILE_SIZE + 8 : 11 * TILE_SIZE - (step_x > 0 ? 1 : 0);
+	train->y_pos = step_y == 0 ? 10 * TILE_SIZE + 8 : 11 * TILE_SIZE - (step_y > 0 ? 1 : 0);
+	train->tile = TileVirtXY(train->x_pos, train->y_pos);
+	const TileIndex destination = TileVirtXY(train->x_pos + step_x, train->y_pos + step_y);
+	for (TileIndex tile : {train->tile, destination}) MakeRailNormal(tile, train->owner, TRACK_BIT_X | TRACK_BIT_Y, RAILTYPE_RAIL);
+	train->UpdatePosition();
+	const Direction facing = train->direction;
+	const TrackBits track = train->track;
+	const Trackdir td = train->GetVehicleTrackdir();
+	const auto flags = train->flags;
+	GameRandomSeedChecker random;
+	TrainMoveToPosition(train, train->x_pos + step_x, train->y_pos + step_y);
+	CHECK(train->tile == destination);
+	CHECK(train->direction == facing);
+	CHECK(train->track == track);
+	CHECK(train->GetVehicleTrackdir() == td);
+	CHECK(train->flags == flags);
+	CHECK(ValidateVehicleTileHash(train));
+	CHECK(random.Check());
+}
+
 TEST_CASE_METHOD(TrainDecoupleFixture, "Transport - batch fill preserves per-part rounding, cargo filters and live transport changes")
 {
 	AutoRestoreBackup weight0(CargoSpec::Get(0)->weight, uint8_t{32});
@@ -5441,6 +5541,42 @@ TEST_CASE_METHOD(AutomaticYieldStationRouteFixture,"Automatic yield station cont
 #include "auto_yield_outlet_candidates.inc"
 #include "auto_yield_mixed_platform.inc"
 #include "auto_yield_depot_reservation.inc"
+
+TEST_CASE_METHOD(AutomaticYieldFixture, "PBS reservation - a split partner behind cannot block departure but a part ahead still does")
+{
+	const bool towards_ne = GENERATE(false, true);
+	const bool ahead = GENERATE(false, true);
+	AutoRestoreBackup braking(_settings_game.vehicle.train_braking_model, uint8_t{TBM_ORIGINAL});
+	Place(slow, 23, 10); Place(fast, 23, 10); Place(medium, 45, 10);
+	Station *station = Station::Create(slow->tile);
+	station->owner = _current_company;
+	station->facilities = {StationFacility::Train};
+	station->train_station = TileArea(station->xy, 1, 1);
+	station->rect.BeforeAddTile(station->xy, StationRect::ADD_FORCE);
+	MakeRailStation(station->xy, _current_company, station->index, Axis::X, 0, RAILTYPE_RAIL);
+	SB(_m[TileXY(12, 10)].m5, 6, 2, to_underlying(RailTileType::Signals));
+	SetPresentSignals(TileXY(12, 10), SignalAlongTrackdir(TRACKDIR_X_NE));
+	SetSignalType(TileXY(12, 10), TRACK_X, SignalType::Path);
+	slow->current_order.MakeDummy(); fast->current_order.MakeDummy();
+	slow->flags.Set(VehicleRailFlag::JustDecoupled);
+	fast->flags.Set(VehicleRailFlag::SameDirDecouplePending);
+	slow->direction = towards_ne ? Direction::NE : Direction::SW;
+	fast->direction = ReverseDir(slow->direction);
+	slow->gcache.cached_veh_length = fast->gcache.cached_veh_length = 2;
+	const int delta = towards_ne ? -1 : 1;
+	slow->x_pos = 23 * TILE_SIZE + ((ahead == towards_ne) ? 12 : 4);
+	fast->x_pos = slow->x_pos + (ahead ? 11 : -11) * delta;
+	for (uint x = 13; x <= 32; x++) REQUIRE(TryReserveRailTrack(TileXY(x, 10), TRACK_X));
+	const auto origin = FollowTrainReservation(slow);
+	REQUIRE(origin.okay);
+	REQUIRE(origin.tile == TileXY(towards_ne ? 13 : 32, 10));
+	GameRandomSeedChecker random;
+	CHECK(FindForeignTrainOnReservation(slow) == (ahead ? fast : nullptr));
+	CHECK(((TryPathReserveWithResultFlags(slow, true, false) & TPRRF_RESERVATION_OK) != 0) == !ahead);
+	CHECK(slow->flags.Test(VehicleRailFlag::Stuck) == ahead);
+	CHECK(random.Check());
+	for (Train *train : {slow, fast, medium}) CHECK(ValidateVehicleTileHash(train));
+}
 
 /** A goto-couple train directly behind an unclaimed waiting partner. */
 class CoupleBlockingPartnerFixture : public TrainDecoupleFixture {

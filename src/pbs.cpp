@@ -1018,6 +1018,7 @@ Train *FindForeignTrainOnReservation(const Train *v)
 					 * Parts still entering or leaving keep ordinary track bits
 					 * and must continue to block the reservation. */
 					if (u->track == TRACK_BIT_DEPOT) continue;
+					if (IsDecoupledPartBehindDeparture(v, u)) continue;
 					/* A just-decoupled partner necessarily shares the tile
 					 * around the cut with us (see IsPlatformAheadOccupied); it
 					 * does not stand in our way on that first tile, and the

@@ -118,6 +118,7 @@ bool TrainFitStation(const Train *v);
 StationID GetTrainCouplingStation(const Train *v);
 void TrainMoveToPosition(Train *v, int x, int y);
 bool IsCoupleArrangementValid(Train *v_phys, Train *u_phys);
+bool IsDecoupledPartBehindDeparture(const Train *consist, const Train *part);
 
 /** First rule which rejects a train as a coupling candidate. */
 enum class CoupleCandidateResult : uint8_t {
