@@ -6983,8 +6983,8 @@ public:
 					this->selected_order = -1;
 					this->UpdateButtonState();
 				}
-				if (from_order == to_order && from_order < this->vehicle->GetNumOrders() && EuclideanDistanceSquared(pt, this->drag_start_pt) <= 40 && (MicrosecondsRealtimeTicks() - this->drag_start_time_us) < 250000) {
-					const Order *order = this->vehicle->GetOrder(from_order);
+				if (from_order == to_order && from_order < this->NumOrders() && EuclideanDistanceSquared(pt, this->drag_start_pt) <= 40 && (MicrosecondsRealtimeTicks() - this->drag_start_time_us) < 250000) {
+					const Order *order = this->OrderAt(from_order);
 					if (order != nullptr && order->IsType(OT_LABEL) && order->GetLabelSubType() == OLST_TEXT) {
 						if (this->IsWidgetActiveInLayout(WID_O_TEXT_LABEL)) this->OnClick({}, WID_O_TEXT_LABEL, 1);
 					}
