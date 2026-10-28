@@ -37,6 +37,7 @@
 #include "newgrf_debug.h"
 #include "framerate_type.h"
 #include "tracerestrict.h"
+#include "tracerestrict_early_route.h"
 #include "tbtr_template_vehicle_func.h"
 #include "autoreplace_func.h"
 #include "engine_func.h"
@@ -362,6 +363,9 @@ uint16_t GetTrainVehicleMaxSpeed(const Train *u, const RailVehicleInfo &rvi_u, c
 
 void Train::ConsistChanged(ConsistChangeFlags allowed_changes)
 {
+	/* Formation changes invalidate only the plan, never the owned PBS path.
+	 * Save/load length reconstruction must preserve a joining client's plan. */
+	if (allowed_changes.Test(ConsistChangeFlag::Length) && allowed_changes.Test(ConsistChangeFlag::Capacity)) this->early_route.clear();
 	uint16_t max_speed = UINT16_MAX;
 
 	dbg_assert(this->IsFrontEngine() || this->IsFreeWagon() || this->IsFrontWagon());
@@ -5625,7 +5629,18 @@ static void TryLongReserveChooseTrainTrackFromReservationEnd(Train *v, bool no_r
  * @param flags ChooseTrainTrackFlags flags
  * @return The track the train should take and the result flags
  */
+static ChooseTrainTrackResult ChooseTrainTrackImpl(Train *consist, TileIndex tile, DiagDirection enterdir, TrackBits tracks, ChooseTrainTrackFlags flags, ChooseTrainTrackLookAheadState lookahead_state);
+
 static ChooseTrainTrackResult ChooseTrainTrack(Train *consist, const TileIndex tile, const DiagDirection enterdir, TrackBits tracks, ChooseTrainTrackFlags flags, ChooseTrainTrackLookAheadState lookahead_state)
+{
+	const Train *front = consist->GetMovingFront();
+	AutoYieldNativeRouteScope route_scope(consist, front->tile, front->GetVehicleTrackdir());
+	const auto result = ChooseTrainTrackImpl(consist, tile, enterdir, tracks, flags, lookahead_state);
+	route_scope.Finish(result.ctt_flags & CTTRF_RESERVATION_MADE);
+	return result;
+}
+
+static ChooseTrainTrackResult ChooseTrainTrackImpl(Train *consist, const TileIndex tile, const DiagDirection enterdir, TrackBits tracks, ChooseTrainTrackFlags flags, ChooseTrainTrackLookAheadState lookahead_state)
 {
 	Track best_track = INVALID_TRACK;
 	bool do_track_reservation = _settings_game.pf.reserve_paths || (flags & CTTF_FORCE_RES);

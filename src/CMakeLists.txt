@@ -635,6 +635,8 @@ add_files(
     tracerestrict.cpp
     tracerestrict_overtaking.cpp
     tracerestrict_overtaking.h
+    tracerestrict_early_route.cpp
+    tracerestrict_early_route.h
     tracerestrict.h
     tracerestrict_backup.h
     tracerestrict_cmd.h

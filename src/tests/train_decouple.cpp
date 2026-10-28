@@ -50,6 +50,7 @@
 extern std::string _savegame_format;
 extern bool ValidateVehicleTileHash(const Vehicle *v);
 extern void UpdateVehicleTileHash(Vehicle *v, bool remove);
+extern const Order *_choose_train_track_saved_current_order;
 
 /** Capture a real savegame to verify the network snapshot's binary representation. */
 struct CoupleSnapshotCapture : SaveFilter {
@@ -1570,6 +1571,8 @@ protected:
 		UpdateAutoYieldAreas();
 	}
 };
+
+#include "early_rail_route.inc"
 
 TEST_CASE_METHOD(AutomaticYieldFixture, "Automatic yield - ordinary slot associates signals and only lane claims are hidden")
 {

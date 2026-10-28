@@ -1571,6 +1571,20 @@ bool TrainReservationPassesThroughTile(const Train *v, TileIndex search_tile, Tr
 	return found;
 }
 
+/** Test an exact directed point on the continuous reservation ahead of the train. */
+bool TrainReservationPassesThroughTrackdir(const Train *v, TileIndex search_tile, Trackdir search_trackdir)
+{
+	if (v == nullptr || !IsValidTile(search_tile) || !IsValidTrackdir(search_trackdir)) return false;
+	bool found = false;
+	const Train *moving_front = v->GetMovingFront();
+	FollowReservationEnumerate(v->owner, v->GetIndirectCompatibleRailTypes(), moving_front->tile, moving_front->GetVehicleTrackdir(), FRF_NONE, [&](TileIndex tile, Trackdir trackdir) -> bool {
+		if (tile != search_tile || trackdir != search_trackdir) return false;
+		found = true;
+		return true;
+	});
+	return found;
+}
+
 /**
  * Determine whether a certain track on a tile is a safe position to end a path.
  *

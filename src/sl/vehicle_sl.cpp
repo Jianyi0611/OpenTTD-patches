@@ -1270,6 +1270,8 @@ NamedSaveLoadTable GetVehicleDescription(VehicleType vt)
 		NSL("critical_breakdown_count", SLE_CONDVAR_X(Train, critical_breakdown_count,  SLE_UINT8,                   SL_MIN_VERSION, SL_MAX_VERSION, SlXvFeatureTest(XSLFTO_AND, XSLFI_IMPROVED_BREAKDOWNS, 2))),
 
 		NSLT_STRUCT<TrainLookaheadStateStructHandler>("lookahead"),
+		NSL("early_route", SLE_CONDVARVEC_X(Train, early_route, SLE_UINT32, SL_MIN_VERSION, SL_MAX_VERSION, SlXvFeatureTest(XSLFTO_AND, XSLFI_AUTO_YIELD_ROUTE_PLAN, 1))),
+		NSL("early_route_area", SLE_CONDVAR_X(Train, early_route_area, SLE_UINT16, SL_MIN_VERSION, SL_MAX_VERSION, SlXvFeatureTest(XSLFTO_AND, XSLFI_AUTO_YIELD_ROUTE_PLAN, 1))),
 	};
 
 	static const NamedSaveLoad _roadveh_desc[] = {

@@ -215,6 +215,8 @@ struct Train final : public GroundVehicle<Train, VehicleType::Train> {
 	Train *other_multiheaded_part = nullptr;
 
 	std::unique_ptr<TrainReservationLookAhead> lookahead{};
+	std::vector<uint32_t> early_route; ///< Saved native multi-outlet route decision; never a PBS reservation.
+	uint16_t early_route_area = UINT16_MAX; ///< Active detector context survives plan invalidation until actual tail-clear/cancellation.
 
 	/* Coupling-approach state (persisted via XSLFI_COUPLE_CLAIM_STATE): the
 	 * physical end vehicle of the consist we are approaching, resolved by the

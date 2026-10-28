@@ -177,6 +177,7 @@ int AdvanceTrainReservationLookaheadEnd(const Train *v, int lookahead_end_positi
 void SetTrainReservationLookaheadEnd(Train *v);
 void FillTrainReservationLookAhead(Train *v);
 bool TrainReservationPassesThroughTile(const Train *v, TileIndex search_tile, Track search_track = INVALID_TRACK);
+bool TrainReservationPassesThroughTrackdir(const Train *v, TileIndex search_tile, Trackdir search_trackdir);
 bool IsSafeWaitingPosition(const Train *v, TileIndex tile, Trackdir trackdir, bool include_line_end, bool forbid_90deg = false);
 
 struct TraceRestrictProgram;

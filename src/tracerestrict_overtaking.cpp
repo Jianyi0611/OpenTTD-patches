@@ -5,6 +5,7 @@
 /** @file tracerestrict_overtaking.cpp Automatic registration and siding claims reuse rollback-capable slot transactions. */
 #include "stdafx.h"
 #include "tracerestrict_overtaking.h"
+#include "tracerestrict_early_route.h"
 #include "tracerestrict_backup.h"
 #include "train.h"
 #include "cargotype.h"
@@ -77,6 +78,7 @@ std::map<AreaKey, Area> areas;
  * track edits need no invalidation because the lookup contains no track data. */
 std::map<std::pair<uint, uint>, std::set<AreaKey>> coordination_index;
 bool dirty = true;
+bool multiple_outlets = false; ///< Rebuilt with the saved marker registry, never client-local layout history.
 uint probe_depth = 0;
 /* Keep each path restriction evaluation bounded. Larger areas degrade to
  * ordinary signal behaviour instead of making route search expensive. */
@@ -822,6 +824,21 @@ const SplitRouteProof *GetSplitRouteProof(const Area &area, const Train *v, Tile
 	const Train *front = v->GetMovingFront();
 	TileIndex tile = start == INVALID_TILE ? front->tile : start;
 	Trackdir td = start == INVALID_TILE ? front->GetVehicleTrackdir() : start_td;
+	if (area.clear_count > 1) {
+		YapfRailRoute selected;
+		if (AutoYieldGetNativeRoute(v, area.id, tile, td, selected)) {
+			bool first_step = true;
+			for (const auto &step : selected.path) {
+				if (!first_step) distance += 1 + step.wormhole_tiles;
+				first_step = false;
+				if (!append(step.tile, TrackToTrackBits(TrackdirToTrack(step.trackdir)), step.trackdir)) return &proof;
+			}
+			proof.clearance = MakeTraceRestrictRefId(selected.path.back().tile, TrackdirToTrack(selected.path.back().trackdir));
+			proof.complete = true;
+			std::sort(proof.tiles.begin(), proof.tiles.end(), [](const SplitRouteTile &a, const SplitRouteTile &b) { return a.tile < b.tile; });
+			return &proof;
+		}
+	}
 	const auto prediction = GetPredictionOrders(v);
 	/* Loading proves the station was reached, not which way a conditional
 	 * departure will go. Retain body conflicts and existing obligations. */
@@ -1955,7 +1972,8 @@ bool FreeLane(const Area &area, const Train *v, bool approaching, bool ordinary_
 			check_candidate_destination = true;
 		}
 	}
-	const auto candidate_clearance = [&](TraceRestrictRefId ref, const Binding &binding) -> std::optional<TraceRestrictRefId> {
+	const auto candidate_clearance = [&](TraceRestrictRefId ref, const Binding &binding, bool &departure_proven) -> std::optional<TraceRestrictRefId> {
+		departure_proven = false;
 		if (!check_candidate_destination) return required_clearance;
 		const auto prediction = GetPredictionOrders(v);
 		/* Mixed-station admission can satisfy the current stop before its
@@ -2021,6 +2039,11 @@ bool FreeLane(const Area &area, const Train *v, bool approaching, bool ordinary_
 					Debug(yapf, 7, "AutoYield area={} train={} lane={} outlet={} destination-probe={} nodes={} remaining={}", area.id, v->index, ref, outlet, *reachable, used, destination_probe_remaining);
 				}
 				if (reachable.value_or(false)) {
+					/* This exact local departure was just proved above. Repeating
+					 * it can exhaust admission's budget and hide a usable siding.
+					 * It does not prove a free PBS departure; those callers must
+					 * still perform their occupancy/reservation check below. */
+					departure_proven = true;
 					goal->clearance = outlet;
 					return outlet;
 				}
@@ -2051,8 +2074,10 @@ bool FreeLane(const Area &area, const Train *v, bool approaching, bool ordinary_
 				Debug(yapf, 7, "AutoYield area={} train={} lane={} rejected=ingress-or-reservation budget={}", area.id, v->index, ref, probe_budget_remaining);
 				continue;
 			}
-			const auto clearance = candidate_clearance(ref, *binding);
+			bool departure_proven = false;
+			const auto clearance = candidate_clearance(ref, *binding, departure_proven);
 			if (check_candidate_destination && !clearance) continue;
+			if (!require_free_departure && departure_proven) return true;
 			if (RouteToRole(area, v, GetTraceRestrictRefIdTileIndex(ref), binding->td, AutoYieldRole::Clear, require_free_departure, clearance,
 					nullptr, nullptr, nullptr, std::nullopt, false, !require_free_departure)) return true;
 			Debug(yapf, 7, "AutoYield area={} train={} lane={} rejected=departure-or-reservation budget={}", area.id, v->index, ref, probe_budget_remaining);
@@ -2067,8 +2092,10 @@ bool FreeLane(const Area &area, const Train *v, bool approaching, bool ordinary_
 			Debug(yapf, 7, "AutoYield area={} train={} lane={} rejected=parking length={} required={} budget={}", area.id, v->index, ref, length.value_or(0), v->gcache.cached_total_length + TILE_SIZE, probe_budget_remaining);
 			continue;
 		}
-		const auto clearance = candidate_clearance(ref, *binding);
+		bool departure_proven = false;
+		const auto clearance = candidate_clearance(ref, *binding, departure_proven);
 		if (check_candidate_destination && !clearance) continue;
+		if (!require_free_departure && departure_proven) return true;
 		if (RouteToRole(area, v, GetTraceRestrictRefIdTileIndex(ref), binding->td, AutoYieldRole::Clear, require_free_departure, clearance,
 				nullptr, nullptr, nullptr, std::nullopt, false, !require_free_departure)) return true;
 		Debug(yapf, 7, "AutoYield area={} train={} lane={} rejected=departure-or-reservation budget={}", area.id, v->index, ref, probe_budget_remaining);
@@ -2634,6 +2661,10 @@ void AutoYieldSlotVacated(TraceRestrictSlotID slot_id, VehicleID vehicle)
 		}
 		return;
 	}
+	if (const Train *train = GetTrain(vehicle); train != nullptr && train->early_route.size() > 1 && train->early_route[1] == slot_id.base()) {
+		const_cast<Train *>(train)->early_route.clear(); // Actual detector cancellation/tail-clear, never a dry run.
+	}
+	if (const Train *train = GetTrain(vehicle); train != nullptr && train->early_route_area == slot_id.base()) const_cast<Train *>(train)->early_route_area = UINT16_MAX;
 	if (dirty) {
 		/* Edits can invalidate cached pointers. Cancellation still releases its
 		 * saved lane claims before the next registry rebuild. */
@@ -2674,6 +2705,7 @@ void UpdateAutoYieldSlotSignals(const TraceRestrictSlot *slot)
 
 void UpdateAutoYieldAreas()
 {
+	multiple_outlets = false;
 	areas.clear();
 	coordination_index.clear();
 	std::map<AreaKey, std::vector<SignalReference>> condition_dependants;
@@ -2796,6 +2828,7 @@ void UpdateAutoYieldAreas()
 			if (slot->occupants.empty()) targets->Clear();
 		}
 		area.enabled = true;
+		multiple_outlets |= area.clear_count > 1;
 		for (const auto &binding : area.bindings) {
 			if (binding.role == AutoYieldRole::Approach) continue;
 			const TileIndex tile = GetTraceRestrictRefIdTileIndex(binding.ref);
@@ -3246,6 +3279,7 @@ void AutoYieldGameTick()
 
 bool EvaluateAutoYield(const Train *v, uint16_t id, AutoYieldCondition condition, bool invert)
 {
+	if (AutoYieldRouteQuerySuppresses(id)) return false;
 	AutoYieldProbeBudget budget;
 	const Area *area = FindArea(v, id);
 	if (!_settings_game.vehicle.automatic_yield || area == nullptr || !Active(v) || !area->detection->IsOccupant(v->index)) return false;
@@ -3265,6 +3299,7 @@ bool EvaluateAutoYield(const Train *v, uint16_t id, AutoYieldCondition condition
 
 void ExecuteAutoYield(const Train *v, const TraceRestrictProgramInput &input, TraceRestrictProgramResult &out, uint16_t id, AutoYieldRole role, bool &ignore_pathfinder_penalty)
 {
+	if (AutoYieldRouteQuerySuppresses(id)) return;
 	AutoYieldProbeBudget budget;
 	if (v == nullptr) return;
 	struct DecisionLog {
@@ -3300,6 +3335,9 @@ void ExecuteAutoYield(const Train *v, const TraceRestrictProgramInput &input, Tr
 	if (!_settings_game.vehicle.automatic_yield || !Active(v, role == AutoYieldRole::Approach)) return;
 	const Area *area = FindArea(v, id);
 	if (area == nullptr) return;
+	if (role == AutoYieldRole::Approach && (input.input_flags.Test(TraceRestrictProgramInputFlag::NativeRouteChoice) || input.permitted_slot_operations != TRPISP_NONE)) {
+		AutoYieldStageNativeRoute(v, input.tile, input.trackdir, id, input.permitted_slot_operations != TRPISP_NONE);
+	}
 	budget.UseArea(*area);
 	if (role != AutoYieldRole::Approach && !area->detection->IsOccupant(v->index)) return;
 	std::optional<EvacuationPlan> station_turnover;
@@ -3475,3 +3513,27 @@ void ExecuteAutoYield(const Train *v, const TraceRestrictProgramInput &input, Tr
 		if (!station_departure && MustWait(*area, v) && (station_turnover ? station_turnover->departing : Evacuation(*area).departing) != v) out.flags |= TRPRF_WAIT_AT_PBS;
 	}
 }
+
+bool GetAutoYieldRouteArea(const Train *v, uint16_t id, AutoYieldRouteArea &result)
+{
+	/* Pure metadata lookup must also work inside a read-only route proof.
+	 * FindArea's recursion barrier protects decisions, not registry metadata. */
+	if (v == nullptr || dirty) return false;
+	const TraceRestrictSlot *slot = TraceRestrictSlot::GetIfValid(id);
+	if (slot == nullptr || slot->automatic_yield_area != 0 || slot->vehicle_type != VehicleType::Train) return false;
+	const auto found = areas.find({CompanyID{slot->owner}, id});
+	const Area *area = found == areas.end() ? nullptr : &found->second;
+	/* This extension deliberately never changes a single-outlet area's route
+	 * selection, priority, reservations or detector lifecycle. */
+	if (area == nullptr || !area->enabled || area->clear_count < 2) return false;
+	result.slot = id; result.clears.clear();
+	result.registered = area->detection != nullptr && area->detection->IsOccupant(v->index);
+	result.signature = 2166136261u;
+	for (const auto &binding : area->bindings) {
+		for (uint32_t value : {uint32_t(binding.ref), uint32_t(binding.role), uint32_t(binding.td), uint32_t(binding.platform), uint32_t(binding.speed_cap), uint32_t(binding.registration), uint32_t(area->percent)}) result.signature = (result.signature ^ value) * 16777619u;
+		if (binding.role == AutoYieldRole::Clear) result.clears.emplace_back(GetTraceRestrictRefIdTileIndex(binding.ref), binding.td);
+	}
+	return result.clears.size() > 1;
+}
+
+bool AutoYieldRouteAreasAvailable() { return !dirty && multiple_outlets; }

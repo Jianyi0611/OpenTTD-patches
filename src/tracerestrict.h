@@ -876,6 +876,7 @@ DECLARE_ENUM_AS_BIT_SET(TraceRestrictProgramInputSlotPermissions)
 enum class TraceRestrictProgramInputFlag : uint8_t {
 	PassedStop,             ///< Train has passed stop
 	InvertDrivingDirection, ///< Invert whether train is considered to be driving backwards
+	NativeRouteChoice,      ///< Authoritative native rail route selection; not a reachability query.
 };
 using TraceRestrictProgramInputFlags = EnumBitSet<TraceRestrictProgramInputFlag, uint8_t>;
 
