@@ -16,6 +16,7 @@ MODES = [
     "two-through", "two-front", "two-tail", "three-through", "through-upper", "stop-main", "stop-upper",
     "stop-reselect-order", "stop-conditional", "stop-side-effect", "stable-two-paths",
     "blocked-reselect", "new-siding", "wrong-outlet-siding", "multi-main", "shared-platform",
+    "split-short", "split-long", "split-three", "split-change-fast", "stop-independent", "stop-split-change", "split-distant-target", "split-alternative", "split-crossing", "split-crossing-edit",
 ]
 
 
@@ -43,7 +44,7 @@ def main():
         command = next(item["command"] for item in commands if item["file"].replace("\\", "/").endswith("/src/openttd.cpp"))
         compiler = command[:command.index(" -D")].strip().strip('"')
         source = (repo / "src/openttd.cpp").read_text(encoding="utf-8")
-        source = source.replace('#include "safeguards.h"', f'#include "{here.as_posix()}/native.h"\nvoid EarlyRouteDrivingTick();\n#include "safeguards.h"', 1)
+        source = source.replace('#include "safeguards.h"', f'#include "{here.as_posix()}/native.h"\n#include "pathfinder/yapf/yapf.h"\nvoid EarlyRouteDrivingTick();\n#include "safeguards.h"', 1)
         source = source.replace("void StateGameLoop()\n{", "void StateGameLoop()\n{\n EarlyRouteDrivingTick();", 1)
         source += f'\n#include "{here.as_posix()}/native.inc"\n#include "{here.as_posix()}/early_route_driving.inc"\n'
         cpp, obj = output / "driver.cpp", output / "driver.obj"
@@ -80,6 +81,8 @@ def main():
         subprocess.run([compiler, "-O3", "-mwindows", "-fstack-protector", "@" + str(rsp), "-o", str(exe)], cwd=build, check=True)
         revision = (build / "generated/rev.cpp").read_text(encoding="utf-8")
         identity = re.search(r'_openttd_revision_simulation_hash\[\] = "([^"]*)"', revision).group(1)
+        if args.objects_from:
+            identity = json.loads((args.objects_from.resolve() / "build-identity.json").read_text(encoding="utf-8"))["simulation_hash"]
         (output / "build-identity.json").write_text(json.dumps({"simulation_hash": identity,
             "observer_sha256": hashlib.sha256(exe.read_bytes()).hexdigest(),
             "driver_sha256": hashlib.sha256(cpp.read_bytes()).hexdigest(),
@@ -101,13 +104,17 @@ def main():
                 raise SystemExit("Unknown marker style: " + style)
             folder = output / (mode + "-" + style)
             folder.mkdir(exist_ok=True)
+            case_config = output / "regression.cfg"
+            if mode == "split-distant-target":
+                case_config = folder / "regression.cfg"
+                case_config.write_text(config.replace("map_x = 8", "map_x = 12") + "\n[construction]\nclear_frame_burst = 65535\n", encoding="utf-8")
             for reload in [False] if args.no_reload else [False, True]:
                 env = dict(env_base, PXP_STRICT="early-route-" + mode, PXP_EARLY_MODE=mode, PXP_DEMO_OUTPUT=str(folder))
                 if args.debug_yapf:
                     env["PXP_EARLY_TRACE"] = "1"
                 if style == "exit":
                     env["PXP_DEMO_EXIT_ONLY"] = "1"
-                argv = [str(exe), "-v", "null:until_exit", "-s", "null", "-m", "null", "-x", "-X", "-Q", "-c", str(output / "regression.cfg")]
+                argv = [str(exe), "-v", "null:until_exit", "-s", "null", "-m", "null", "-x", "-X", "-Q", "-c", str(case_config)]
                 if reload:
                     env["PXP_STRICT_RELOAD"] = "1"
                     argv += ["-g", str(folder / "strict-waiting.sav")]

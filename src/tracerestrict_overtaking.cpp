@@ -122,6 +122,8 @@ struct SplitRouteProof {
 	std::optional<TraceRestrictRefId> clearance;
 	std::vector<SplitRouteTile> tiles;
 	bool complete = false; ///< Reached this area's boundary or the active mandatory target.
+	bool native_selected = false; ///< A valid actual route, not the union of possible outlets.
+	Trackdir clearance_td = INVALID_TRACKDIR; ///< Direction of the actual selected outlet, not a guessed map heading.
 };
 std::array<SplitRouteProof, MAX_PARTICIPANTS + 1> split_proof_cache;
 size_t split_proof_count = 0;
@@ -805,14 +807,23 @@ const SplitRouteProof *GetSplitRouteProof(const Area &area, const Train *v, Tile
 	}
 	if (split_proof_count == split_proof_cache.size()) return nullptr;
 	auto &proof = split_proof_cache[split_proof_count++];
-	proof.area = &area; proof.train = v; proof.clearance.reset(); proof.tiles.clear(); proof.complete = false;
+	proof.area = &area; proof.train = v; proof.clearance.reset(); proof.tiles.clear(); proof.complete = false; proof.native_selected = false; proof.clearance_td = INVALID_TRACKDIR;
 	AutoYieldPreferenceBudget preference_budget;
 	AutoRestoreBackup guard(probe_depth, probe_depth + 1);
+	const Train *front = v->GetMovingFront();
+	TileIndex tile = start == INVALID_TILE ? front->tile : start;
+	Trackdir td = start == INVALID_TILE ? front->GetVehicleTrackdir() : start_td;
+	YapfRailRoute selected;
+	const bool actual_route = area.clear_count > 1 && AutoYieldGetNativeRoute(v, area.id, tile, td, selected);
 	uint distance = 0;
 	const auto append = [&](TileIndex tile, TrackBits tracks, Trackdir td, bool body = false) {
-		if (probe_budget_remaining == 0 || split_probe_remaining == 0 || proof.tiles.size() == MAX_ROUTE_NODES ||
+		if ((!actual_route && probe_budget_remaining == 0) || split_probe_remaining == 0 || proof.tiles.size() == MAX_ROUTE_NODES ||
 				!IsValidTile(tile) || tracks == TRACK_BIT_NONE || (tracks & ~TRACK_BIT_ALL) != TRACK_BIT_NONE) return false;
-		probe_budget_remaining--; split_probe_remaining--;
+		/* Reading an already selected corridor is not a topology search. Use
+		 * the existing shared footprint cap even if optional search is spent;
+		 * neither cap is raised, and unknown paths still require search budget. */
+		if (!actual_route) probe_budget_remaining--;
+		split_probe_remaining--;
 		proof.tiles.push_back({tile, tracks, td, distance, body});
 		return true;
 	};
@@ -821,23 +832,19 @@ const SplitRouteProof *GetSplitRouteProof(const Area &area, const Train *v, Tile
 	for (const Train *part = v->First(); part != nullptr; part = part->Next()) {
 		if (!append(part->tile, part->track, part->GetVehicleTrackdir(), true)) return &proof;
 	}
-	const Train *front = v->GetMovingFront();
-	TileIndex tile = start == INVALID_TILE ? front->tile : start;
-	Trackdir td = start == INVALID_TILE ? front->GetVehicleTrackdir() : start_td;
-	if (area.clear_count > 1) {
-		YapfRailRoute selected;
-		if (AutoYieldGetNativeRoute(v, area.id, tile, td, selected)) {
-			bool first_step = true;
-			for (const auto &step : selected.path) {
-				if (!first_step) distance += 1 + step.wormhole_tiles;
-				first_step = false;
-				if (!append(step.tile, TrackToTrackBits(TrackdirToTrack(step.trackdir)), step.trackdir)) return &proof;
-			}
-			proof.clearance = MakeTraceRestrictRefId(selected.path.back().tile, TrackdirToTrack(selected.path.back().trackdir));
-			proof.complete = true;
-			std::sort(proof.tiles.begin(), proof.tiles.end(), [](const SplitRouteTile &a, const SplitRouteTile &b) { return a.tile < b.tile; });
-			return &proof;
+	if (actual_route) {
+		bool first_step = true;
+		for (const auto &step : selected.path) {
+			if (!first_step) distance += 1 + step.wormhole_tiles;
+			first_step = false;
+			if (!append(step.tile, TrackToTrackBits(TrackdirToTrack(step.trackdir)), step.trackdir)) return &proof;
 		}
+		proof.clearance = MakeTraceRestrictRefId(selected.path.back().tile, TrackdirToTrack(selected.path.back().trackdir));
+		proof.complete = true;
+		proof.native_selected = true;
+		proof.clearance_td = selected.path.back().trackdir;
+		std::sort(proof.tiles.begin(), proof.tiles.end(), [](const SplitRouteTile &a, const SplitRouteTile &b) { return a.tile < b.tile; });
+		return &proof;
 	}
 	const auto prediction = GetPredictionOrders(v);
 	/* Loading proves the station was reached, not which way a conditional
@@ -935,6 +942,7 @@ struct CommonConflict {
 	bool directed = false;
 	bool right_occupied = false;
 	bool opposing = false;
+	bool same_directed_track = false; ///< Actual following rail, distinct from intersecting switch movements.
 };
 
 std::optional<CommonConflict> FindCommonConflict(const Area &area, const Train *left, const Train *right)
@@ -944,11 +952,13 @@ std::optional<CommonConflict> FindCommonConflict(const Area &area, const Train *
 	std::map<TileIndex, std::vector<const SplitRouteTile *>> index;
 	for (const auto &node : b->tiles) index[node.tile].push_back(&node);
 	std::optional<CommonConflict> result;
+	bool same_directed_track = false;
 	for (const auto &node : a->tiles) {
 		auto found = index.find(node.tile);
 		if (found == index.end()) continue;
 		for (const auto *other : found->second) {
 			if ((node.tracks & other->tracks) == TRACK_BIT_NONE && !TracksOverlap(node.tracks | other->tracks)) continue;
+			same_directed_track |= IsValidTrackdir(node.td) && node.td == other->td;
 			const bool directed = IsValidTrackdir(node.td) && IsValidTrackdir(other->td) &&
 					(node.td == other->td || TrackdirToExitdir(node.td) == TrackdirToExitdir(other->td));
 			if (!result || std::tie(node.distance, node.tile) < std::tie(result->left_distance, result->tile)) {
@@ -964,6 +974,7 @@ std::optional<CommonConflict> FindCommonConflict(const Area &area, const Train *
 			}
 		}
 	}
+	if (result) result->same_directed_track = same_directed_track;
 	return result;
 }
 
@@ -1085,7 +1096,17 @@ std::vector<MainApproach> GetMainApproaches(const Area &area, const Train *focus
 	 * earlier slot occupants can consume even its own route proof. Unknown
 	 * followers cannot create a confirmed overtaking conflict. */
 	std::optional<AutoYieldPreferenceBudget> classification_budget;
-	if (focus != nullptr) classification_budget.emplace(MAX_PROBE_NODES_PER_EVALUATION / 2, MAX_ROUTE_NODES);
+	if (focus != nullptr) {
+		/* A single bottleneck with several ordinary parking alternatives can spend its
+		 * approach allowance on the shared feeder before finding the express.
+		 * Reuse part of the parking reserve for that proof, without raising the
+		 * evaluation or classification caps. Keep ordinary one-siding and
+		 * multi-outlet and scheduled-platform recognition budgets unchanged. */
+		const size_t parking_reserve = !area.has_platform && area.main_count == 1 && area.clear_count == 1 && area.lanes.size() > 1 &&
+				probe_budget_remaining > MAX_ROUTE_NODES ?
+				MAX_ROUTE_NODES / 2 : MAX_ROUTE_NODES;
+		classification_budget.emplace(MAX_PROBE_NODES_PER_EVALUATION / 2, parking_reserve);
+	}
 	const auto append = [&](const Train *train) {
 		if (!Active(train)) return;
 		const bool serving = ServingPlatform(area, train);
@@ -1620,6 +1641,38 @@ OutletProof ProveOutlet(const Area &area, const Train *v)
  * continues to protect crossings, opposing moves and unresolved route choices. */
 YieldConflict ClassifyYieldConflict(const Area &area, const Train *a, const Train *b)
 {
+	/* Resolve committed multi-outlet routes before spending the optional
+	 * allowance on all possible topology branches. Otherwise that older
+	 * forecast can exhaust the budget and preserve a saved wait as Unknown
+	 * even after the express's whole body has cleared the last shared rail.
+	 * Different exits alone prove nothing: compare tracks and bodies too.
+	 * Single-outlet and unresolved routes keep the existing classification. */
+	if (area.clear_count > 1) {
+		const auto *ap = GetSplitRouteProof(area, a), *bp = GetSplitRouteProof(area, b);
+		if (ap != nullptr && bp != nullptr && ap->native_selected && bp->native_selected) {
+			const auto resource = FindCommonConflict(area, a, b);
+			Debug(yapf, 7, "AutoYield area={} train={} other={} selected-routes={}/{} resource={} reason={}",
+					area.id, a->index, b->index, *ap->clearance, *bp->clearance,
+					resource ? resource->tile : INVALID_TILE, resource ? "shared-track-or-body" : "actual-corridors-disjoint");
+			if (resource) Debug(yapf, 7, "AutoYield area={} train={} other={} tracks={} distance={}/{} body={} targets={}/{}",
+					area.id, a->index, b->index, to_underlying(resource->tracks), resource->left_distance,
+					resource->right_distance, resource->right_occupied, a->dest_tile, b->dest_tile);
+			if (!resource) return YieldConflict::Independent;
+			/* Two actual routes to distinct outlets may only cross through
+			 * different tracks of a switch. A common exit direction on that tile
+			 * is not following the same rail. Leave such transient interlocking
+			 * exclusively to PBS, rather than retaining an overtaking dependency.
+			 * A later shared directed rail (including a remerge) keeps the original
+			 * decision, as do equal/unknown outlets and incomplete route evidence. */
+			if (ap->clearance != bp->clearance && !resource->same_directed_track &&
+					IsValidTrackdir(ap->clearance_td) && IsValidTrackdir(bp->clearance_td) &&
+					TrackdirToExitdir(ap->clearance_td) == TrackdirToExitdir(bp->clearance_td)) {
+				Debug(yapf, 7, "AutoYield area={} train={} other={} independent-departures=native-switch-crossing-only PBS-authority=1", area.id, a->index, b->index);
+				return YieldConflict::Independent;
+			}
+			return resource->directed ? YieldConflict::SharedDirectedResource : YieldConflict::CrossingResource;
+		}
+	}
 	const auto left = ProveOutlet(area, a), right = ProveOutlet(area, b);
 	if (left.complete && right.complete && left.ref && left.ref == right.ref) return YieldConflict::SharedDirectedResource;
 	/* An exhaustively ineligible forward corridor (e.g. incompatible rails
@@ -1646,6 +1699,8 @@ YieldConflict ClassifyYieldConflict(const Area &area, const Train *a, const Trai
 		for (const auto &node : ap->tiles) if (IsValidTrackdir(node.td)) prefix.emplace(node.tile, node.td);
 		for (const auto &node : bp->tiles) if (prefix.contains({node.tile, node.td})) return YieldConflict::SharedDirectedResource;
 	}
+	Debug(yapf, 7, "AutoYield area={} train={} other={} reason=unresolved-route targets={}/{} budget={}",
+			area.id, a->index, b->index, a->dest_tile, b->dest_tile, probe_budget_remaining);
 	return YieldConflict::Unknown;
 }
 
@@ -1928,6 +1983,25 @@ bool MustWait(const Area &area, const Train *v, bool *fully_known = nullptr)
 		 * remote express. Integer travel estimates include body clearance and
 		 * a departure margin; PBS remains the authority for actual admission. */
 		if (!HasYieldObligation(area, v, faster[i]->index) && !YieldWaitInProgress(area, v) && CanClearBefore(area, v, faster[i])) continue;
+		/* Two confirmed split routes can share the chosen throat even though
+		 * another legal route to this same destination avoids it. Keep the wait
+		 * for this search; only a later fresh native search may try exclusions.
+		 * Equal/unknown outlets and single-outlet following keep their policy. */
+		if (area.clear_count > 1 && HasLaneClaim(area, v) && AutoYieldMayRequestSplitAlternative(v, area.id)) {
+			const auto *own = GetSplitRouteProof(area, v), *other = GetSplitRouteProof(area, faster[i]);
+			if (own != nullptr && other != nullptr && own->native_selected && other->native_selected && own->clearance != other->clearance) {
+				std::vector<std::pair<TileIndex, Trackdir>> blocked;
+				for (const auto &step : own->tiles) {
+					if (step.body || !IsValidTrackdir(step.td)) continue;
+					for (const auto &obstacle : other->tiles) if (step.tile == obstacle.tile &&
+							((step.tracks & obstacle.tracks) != TRACK_BIT_NONE || TracksOverlap(step.tracks | obstacle.tracks))) {
+						blocked.emplace_back(step.tile, step.td); break;
+					}
+					if (blocked.size() > 64) break;
+				}
+				AutoYieldRequestSplitAlternative(v, area.id, blocked);
+			}
+		}
 		return true;
 	}
 	return false;
@@ -2744,7 +2818,11 @@ void UpdateAutoYieldAreas()
 			area.detection = slot;
 			const AutoYieldRole role = item.GetType() == TRIT_AUTO_YIELD_CLEAR ? AutoYieldRole::Clear : static_cast<AutoYieldRole>(item.GetAuxField());
 			const bool platform = IsAutoYieldLaneRole(role) && (iter.Secondary() & AUTO_YIELD_PLATFORM);
-			area.bindings.push_back({ref, role, td, platform, role == AutoYieldRole::Approach ? uint16_t(iter.Secondary() & 0xFFFF) : uint16_t{0}, GetAutoYieldRegistration(iter.Secondary())});
+			/* Clear is a single-word instruction. Its successor (or memory past
+			 * the program) is not configuration and must never enter the area
+			 * signature. Registration is meaningful only for Approach. */
+			const auto registration = role == AutoYieldRole::Approach ? GetAutoYieldRegistration(iter.Secondary()) : AutoYieldRegistration::Reservation;
+			area.bindings.push_back({ref, role, td, platform, role == AutoYieldRole::Approach ? uint16_t(iter.Secondary() & 0xFFFF) : uint16_t{0}, registration});
 			area.has_platform |= platform;
 			if (role == AutoYieldRole::Approach) area.percent = std::max<uint16_t>(area.percent, GetAutoYieldPercent(iter.Secondary()));
 		}
@@ -3453,6 +3531,16 @@ void ExecuteAutoYield(const Train *v, const TraceRestrictProgramInput &input, Tr
 			} else out.flags |= TRPRF_WAIT_AT_PBS;
 		} else if (!area->detection->OccupyDryRun(v->index)) out.flags |= TRPRF_WAIT_AT_PBS;
 	} else if (role == AutoYieldRole::Main) {
+		/* A Main before the selected platform's inlet is an approach resource,
+		 * not the stopping train's bypass. Denying it to divert into that same
+		 * downstream platform denies every valid station route. Leave this
+		 * prefix to PBS; the platform Exit still checks all real dependencies.
+		 * Only a completed multi-outlet native stop plan proves this case. */
+		if (area->clear_count > 1 && area->has_platform && v->current_order.IsType(OT_GOTO_STATION) &&
+				AutoYieldNativeStopNeedsApproach(v, id, input.tile, input.trackdir)) {
+			Debug(yapf, 7, "AutoYield area={} train={} main={} priority=native-PBS reason=selected-platform-approach", id, v->index, input.tile);
+			return;
+		}
 		if (PrioritisePassengerExit(*area, v)) {
 			out.flags |= TRPRF_WAIT_AT_PBS | TRPRF_PBS_RES_END_WAIT;
 			return;

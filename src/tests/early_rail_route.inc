@@ -211,6 +211,38 @@ TEST_CASE_METHOD(EarlyRailRouteFixture, "Native early rail route - bounded plans
 	CHECK(GetReservedTrackbits(TileXY(14, 12)) == TRACK_BIT_NONE);
 }
 
+TEST_CASE_METHOD(EarlyRailRouteFixture, "Native split route - a completed distant goal can export only its selected local corridor")
+{
+	const auto whole = YapfTrainPlanRoute(slow, slow->tile, TRACKDIR_X_SW, 256);
+	REQUIRE(whole.complete);
+	const auto capped = YapfTrainPlanRoute(slow, slow->tile, TRACKDIR_X_SW, 256, {}, INVALID_TILE, INVALID_TRACKDIR, 10);
+	REQUIRE_FALSE(capped.complete);
+	REQUIRE(capped.reason == YapfRailRouteReason::RouteLimit);
+	GameRandomSeedChecker random;
+	const Order order = slow->current_order;
+	const auto prefix = YapfTrainPlanRoute(slow, slow->tile, TRACKDIR_X_SW, 256, {}, INVALID_TILE, INVALID_TRACKDIR, 10,
+			std::nullopt, [](TileIndex tile, Trackdir td) { return tile == TileXY(8, 10) && td == TRACKDIR_X_SW; });
+	REQUIRE(prefix.complete);
+	REQUIRE_FALSE(prefix.path.empty());
+	CHECK(prefix.path.back().tile == TileXY(8, 10));
+	CHECK(prefix.cost == whole.cost); // The real destination was searched, not replaced with a nearby marker.
+	CHECK(prefix.nodes == whole.nodes);
+	CHECK(slow->current_order.Equals(order)); CHECK(random.Check());
+	for (const auto &step : prefix.path) CHECK(GetReservedTrackbits(step.tile) == TRACK_BIT_NONE);
+	SECTION("a boundary on the wrong direction is not evidence") {
+		const auto wrong = YapfTrainPlanRoute(slow, slow->tile, TRACKDIR_X_SW, 256, {}, INVALID_TILE, INVALID_TRACKDIR, 10,
+				std::nullopt, [](TileIndex tile, Trackdir td) { return tile == TileXY(8, 10) && td == TRACKDIR_X_NE; });
+		CHECK_FALSE(wrong.complete); CHECK(wrong.path.empty());
+	}
+	SECTION("a reachable prefix cannot substitute for an unreachable real target") {
+		MakeClear(TileXY(33, 10), ClearGround::Grass, 0);
+		YapfNotifyTrackLayoutChange(INVALID_TILE, INVALID_TRACK);
+		const auto blocked = YapfTrainPlanRoute(slow, slow->tile, TRACKDIR_X_SW, 256, {}, INVALID_TILE, INVALID_TRACKDIR, 10,
+				std::nullopt, [](TileIndex tile, Trackdir td) { return tile == TileXY(8, 10) && td == TRACKDIR_X_SW; });
+		CHECK_FALSE(blocked.complete); CHECK(blocked.path.empty());
+	}
+}
+
 TEST_CASE_METHOD(EarlyRailRouteFixture, "Native early rail route - bridge arcs cannot be confused with the ground below")
 {
 	MakeRailBridgeRamp(TileXY(12, 12), _current_company, 0, DiagDirection::SW, RAILTYPE_RAIL, false);

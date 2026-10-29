@@ -92,6 +92,9 @@ TEST_CASE_METHOD(EarlyStopRouteFixture, "Native early stop route - known continu
 	AutoYieldNativeRouteScope scope(slow, slow->tile, TRACKDIR_X_SW);
 	Stage();
 	REQUIRE(AutoYieldHasNativeRoute(slow));
+	CHECK(AutoYieldNativeStopNeedsApproach(slow, membership->index.base(), TileXY(3, 10), TRACKDIR_X_SW));
+	CHECK_FALSE(AutoYieldNativeStopNeedsApproach(slow, membership->index.base(), TileXY(18, 12), TRACKDIR_X_SW));
+	CHECK_FALSE(AutoYieldNativeStopNeedsApproach(slow, membership->index.base(), TileXY(18, 10), TRACKDIR_X_SW));
 	CHECK_FALSE(AutoYieldNativeRouteAllows(slow, TileXY(13, 10), TRACKDIR_X_SW));
 	CHECK(AutoYieldNativeRouteAllows(slow, TileXY(13, 12), TRACKDIR_X_SW));
 	const auto selected = CurrentRoute();
@@ -106,6 +109,126 @@ TEST_CASE_METHOD(EarlyStopRouteFixture, "Native early stop route - known continu
 	CHECK(slow->cur_real_order_index == 0); CHECK(slow->cur_implicit_order_index == 0);
 	for (const auto &step : selected.path) CHECK(GetReservedTrackbits(step.tile) == TRACK_BIT_NONE);
 	CHECK(random.Check()); CHECK(TraceRestrictSlot::ValidateVehicleIndex());
+}
+
+TEST_CASE_METHOD(EarlyStopRouteFixture, "Native split alternative - exclusions only affect one fresh decision and never owned PBS")
+{
+	const uint16_t slot=membership->index.base();
+	const std::vector<std::pair<TileIndex,Trackdir>> blocked{{TileXY(6,10),TRACKDIR_X_SW}};
+	CHECK_FALSE(AutoYieldMayRequestSplitAlternative(slow,slot));
+	CHECK_FALSE(AutoYieldRequestSplitAlternative(slow,slot,blocked));
+	GameRandomSeedChecker random;
+	AutoYieldNativeRouteScope scope(slow,slow->tile,TRACKDIR_X_SW);
+	Stage(); REQUIRE(AutoYieldHasNativeRoute(slow));
+	REQUIRE(AutoYieldMayRequestSplitAlternative(slow,slot));
+	YapfRailRoute chosen;
+	REQUIRE(AutoYieldGetNativeRoute(slow,slot,TileXY(3,10),TRACKDIR_X_SW,chosen));
+	REQUIRE(std::any_of(chosen.path.begin(),chosen.path.end(),[&](const auto &step){return std::pair{step.tile,step.trackdir}==blocked.front();}));
+	SECTION("recording evidence does not change the active search graph") {
+		REQUIRE(AutoYieldNativeRouteAllows(slow,TileXY(6,10),TRACKDIR_X_SW));
+		REQUIRE(AutoYieldRequestSplitAlternative(slow,slot,blocked));
+		CHECK(AutoYieldNativeRouteAllows(slow,TileXY(6,10),TRACKDIR_X_SW));
+		CHECK_FALSE(AutoYieldMayRequestSplitAlternative(slow,slot));
+		CHECK_FALSE(AutoYieldRequestSplitAlternative(slow,slot,blocked));
+		REQUIRE(scope.ReplanForSplit());
+		CHECK_FALSE(AutoYieldNativeRouteAllows(slow,TileXY(6,10),TRACKDIR_X_SW));
+		CHECK(AutoYieldNativeRouteAllows(slow,TileXY(7,10),TRACKDIR_X_SW));
+		AutoYieldNativeRouteDenied(slow,TileXY(7,10),TRACKDIR_X_SW);
+		CHECK(AutoYieldNativeRouteAllows(slow,TileXY(7,10),TRACKDIR_X_SW)); // The retry's filter stays frozen.
+		CHECK_FALSE(scope.ReplanForSplit());
+		scope.Finish(false);
+		CHECK(slow->early_route.empty());
+	}
+	SECTION("a legal committed prefix cannot be excluded") {
+		for(uint x=2;x<=6;x++)REQUIRE(TryReserveRailTrack(TileXY(x,10),TRACK_X));
+		REQUIRE(TrainReservationPassesThroughTrackdir(slow,TileXY(6,10),TRACKDIR_X_SW));
+		CHECK_FALSE(AutoYieldRequestSplitAlternative(slow,slot,blocked));
+		CHECK_FALSE(scope.ReplanForSplit());
+		for(uint x=2;x<=6;x++)CHECK(GetReservedTrackbits(TileXY(x,10))==TRACK_BIT_X);
+	}
+	SECTION("foreign area, absent path and over-budget evidence are rejected") {
+		CHECK_FALSE(AutoYieldRequestSplitAlternative(slow,slot+1,blocked));
+		CHECK_FALSE(AutoYieldRequestSplitAlternative(slow,slot,{{TileXY(30,30),TRACKDIR_X_SW}}));
+		CHECK_FALSE(AutoYieldRequestSplitAlternative(slow,slot,std::vector<std::pair<TileIndex,Trackdir>>(65,blocked.front())));
+		CHECK_FALSE(scope.ReplanForSplit());
+	}
+	CHECK(random.Check()); CHECK(slow->early_route.empty());
+}
+
+TEST_CASE_METHOD(EarlyStopRouteFixture, "Native early stop route - legacy detector membership restores missing planning context without publishing a query")
+{
+	const bool registered = GENERATE(false, true);
+	Place(slow, 7, 10); // Already beyond Approach, before the legal platform fork.
+	if (registered) REQUIRE(membership->Occupy(slow));
+	REQUIRE(slow->early_route.empty()); REQUIRE(slow->early_route_area == UINT16_MAX);
+	const auto occupants = membership->occupants;
+	GameRandomSeedChecker random;
+	{
+		AutoYieldNativeRouteScope scope(slow, slow->tile, TRACKDIR_X_SW);
+		scope.PrepareFromContext(slow->tile, TRACKDIR_X_SW);
+		CHECK(AutoYieldHasNativeRoute(slow) == registered);
+		if (registered) {
+			YapfRailRoute route;
+			REQUIRE(AutoYieldGetNativeRoute(slow, membership->index.base(), slow->tile, TRACKDIR_X_SW, route));
+			CHECK(route.path.back().tile == TileXY(27, 12));
+		}
+		scope.Finish(false);
+	}
+	CHECK(slow->early_route.empty()); CHECK(slow->early_route_area == UINT16_MAX);
+	CHECK(membership->occupants == occupants); CHECK(GetReservedTrackbits(slow->tile) == TRACK_BIT_NONE);
+	CHECK(random.Check()); CHECK(TraceRestrictSlot::ValidateVehicleIndex());
+}
+
+TEST_CASE_METHOD(EarlyStopRouteFixture, "Native early route area - single-word clearance never reads the next instruction as registration")
+{
+	for (uint row : {10u, 12u}) {
+		auto *program = GetTraceRestrictProgram(MakeTraceRestrictRefId(TileXY(27, row), TRACK_X), false);
+		REQUIRE(program != nullptr);
+		TraceRestrictInstructionItem penalty{}; penalty.SetType(TRIT_PF_PENALTY); penalty.SetValue(0);
+		program->items.push_back(penalty.AsProgramItem()); REQUIRE(program->Validate().Succeeded());
+	}
+	InvalidateAutoYieldAreas(); UpdateAutoYieldAreas();
+	AutoYieldRouteArea original; REQUIRE(GetAutoYieldRouteArea(slow, membership->index.base(), original));
+	const uint registration_bits = GENERATE(1u, 2u, 3u);
+	auto *program = GetTraceRestrictProgram(MakeTraceRestrictRefId(TileXY(27, 12), TRACK_X), false);
+	TraceRestrictInstructionItem penalty{program->items.back().base()}; penalty.SetValue(registration_bits << 10);
+	program->items.back() = penalty.AsProgramItem(); REQUIRE(program->Validate().Succeeded());
+	InvalidateAutoYieldAreas(); UpdateAutoYieldAreas();
+	AutoYieldRouteArea rebuilt; REQUIRE(GetAutoYieldRouteArea(slow, membership->index.base(), rebuilt));
+	CHECK(rebuilt.clears == original.clears);
+	CHECK(rebuilt.signature == original.signature);
+}
+
+TEST_CASE_METHOD(EarlyStopRouteFixture, "Native early route legacy context - success alone publishes the recovered route")
+{
+	Place(slow, 7, 10); REQUIRE(membership->Occupy(slow)); REQUIRE(TryReserveRailTrack(slow->tile, TRACK_X));
+	bool found = false; PBSTileInfo target;
+	{
+		AutoYieldNativeRouteScope scope(slow, slow->tile, TRACKDIR_X_SW);
+		scope.PrepareFromContext(slow->tile, TRACKDIR_X_SW);
+		YapfTrainChooseTrack(slow, TileXY(8, 10), DiagDirection::SW, GetTrackBits(TileXY(8, 10)), found, true, &target, nullptr);
+		REQUIRE(found); REQUIRE(target.okay); scope.Finish(true);
+	}
+	CHECK(slow->early_route_area == membership->index.base()); CHECK_FALSE(slow->early_route.empty());
+	CHECK(TrainReservationPassesThroughTrackdir(slow, TileXY(13, 12), TRACKDIR_X_SW));
+	CHECK(TraceRestrictSlot::ValidateVehicleIndex());
+}
+
+TEST_CASE_METHOD(EarlyStopRouteFixture, "Native early route legacy context - multiple registered areas never choose an arbitrary one")
+{
+	Place(slow, 7, 10); REQUIRE(membership->Occupy(slow));
+	auto *other = TraceRestrictSlot::Create(_current_company); other->max_occupancy = 16;
+	for (uint row : {20u, 22u}) for (uint x = 1; x <= 40; x++) MakeRailNormal(TileXY(x, row), _current_company, TRACK_BIT_X, RAILTYPE_RAIL);
+	for (auto [x, row, role] : {std::tuple{3u, 20u, AutoYieldRole::Approach}, {10u, 20u, AutoYieldRole::Main},
+			{18u, 22u, AutoYieldRole::Exit}, {27u, 20u, AutoYieldRole::Clear}, {27u, 22u, AutoYieldRole::Clear}}) Marker(x, row, role, other->index.base());
+	REQUIRE(other->Occupy(slow));
+	AutoYieldRouteArea first, second;
+	REQUIRE(GetAutoYieldRouteArea(slow, membership->index.base(), first)); REQUIRE(first.registered);
+	REQUIRE(GetAutoYieldRouteArea(slow, other->index.base(), second)); REQUIRE(second.registered);
+	AutoYieldNativeRouteScope scope(slow, slow->tile, TRACKDIR_X_SW);
+	scope.PrepareFromContext(slow->tile, TRACKDIR_X_SW);
+	CHECK_FALSE(AutoYieldHasNativeRoute(slow)); CHECK(slow->early_route_area == UINT16_MAX); CHECK(slow->early_route.empty());
+	CHECK(TraceRestrictSlot::ValidateVehicleIndex());
 }
 
 TEST_CASE_METHOD(EarlyStopRouteFixture, "Native early stop route - unresolved side effects preserve a valid current stop without inventing an exit")
@@ -123,6 +246,7 @@ TEST_CASE_METHOD(EarlyStopRouteFixture, "Native early stop route - unresolved si
 	const Order before = slow->current_order;
 	GameRandomSeedChecker random;
 	AutoYieldNativeRouteScope scope(slow, slow->tile, TRACKDIR_X_SW); Stage();
+	CHECK_FALSE(AutoYieldNativeStopNeedsApproach(slow, membership->index.base(), TileXY(3, 10), TRACKDIR_X_SW));
 	const auto selected = CurrentRoute();
 	REQUIRE(selected.complete); CHECK(Has(selected, TileXY(13, 10)));
 	CHECK(AutoYieldNativeRouteAllows(slow, TileXY(27, 10), TRACKDIR_X_SW));
@@ -226,6 +350,19 @@ TEST_CASE_METHOD(EarlyStopRouteFixture, "Native early stop route - actual native
 	CHECK((GetReservedTrackbits(TileXY(8, 10)) & TRACK_BIT_RIGHT) != TRACK_BIT_NONE);
 	CHECK((GetReservedTrackbits(TileXY(13, 12)) & TRACK_BIT_X) != TRACK_BIT_NONE);
 	const auto saved = slow->early_route;
+	SECTION("a new leg after Main retains its proved continuous platform approach") {
+		slow->early_route.clear();
+		const auto reservation = GetReservedTrackbits(TileXY(8, 10));
+		AutoYieldNativeRouteScope scope(slow, TileXY(8, 11), TRACKDIR_Y_SE);
+		AutoYieldStageNativeRoute(slow, TileXY(8, 11), TRACKDIR_Y_SE, membership->index.base(), true);
+		REQUIRE(AutoYieldHasNativeRoute(slow));
+		YapfRailRoute full;
+		REQUIRE(AutoYieldGetNativeRoute(slow, membership->index.base(), slow->tile, TRACKDIR_X_SW, full));
+		CHECK(full.path.front().tile == slow->tile); CHECK(full.path.back().tile == TileXY(27, 12));
+		CHECK(AutoYieldNativeStopNeedsApproach(slow, membership->index.base(), TileXY(3, 10), TRACKDIR_X_SW));
+		CHECK_FALSE(AutoYieldNativeStopNeedsApproach(slow, membership->index.base(), TileXY(18, 10), TRACKDIR_X_SW));
+		CHECK(GetReservedTrackbits(TileXY(8, 10)) == reservation);
+	}
 	SECTION("a registry rebuild keeps the same decision") {
 		ResetAutoYieldAreas(); UpdateAutoYieldAreas();
 		AutoYieldNativeRouteScope scope(slow, slow->tile, TRACKDIR_X_SW);
@@ -250,6 +387,7 @@ TEST_CASE_METHOD(EarlyStopRouteFixture, "Native early stop route - actual native
 		const auto before = GetReservedTrackbits(TileXY(13, 12));
 		AutoYieldNativeRouteScope scope(slow, slow->tile, TRACKDIR_X_SW);
 		CHECK_FALSE(AutoYieldHasNativeRoute(slow));
+		CHECK_FALSE(AutoYieldNativeStopNeedsApproach(slow, membership->index.base(), TileXY(3, 10), TRACKDIR_X_SW));
 		CHECK(GetReservedTrackbits(TileXY(13, 12)) == before);
 	}
 	SECTION("native lookahead at an unrelated order cannot reuse the old conflict proof") {
@@ -309,6 +447,17 @@ TEST_CASE_METHOD(EarlyStopRouteFixture, "Native early stop route - actual native
 		const auto before = GetReservedTrackbits(TileXY(13, 12));
 		AutoYieldInvalidateNativeRoutes(TileXY(14, 13));
 		CHECK(slow->early_route.empty()); CHECK(GetReservedTrackbits(TileXY(13, 12)) == before);
+		const auto owned = FollowTrainReservation(slow, nullptr, FollowTrainReservationFlag::OkayUnused);
+		const auto order = slow->current_order;
+		REQUIRE(slow->early_route_area == membership->index.base());
+		AutoYieldNativeRouteScope restore(slow, slow->tile, TRACKDIR_X_SW);
+		restore.PrepareFromContext(owned.tile, owned.trackdir);
+		/* Restoring proof before the PBS quick check is not a committed route. */
+		CHECK(slow->early_route.empty());
+		CHECK(slow->current_order.Equals(order));
+		const auto unchanged = FollowTrainReservation(slow, nullptr, FollowTrainReservationFlag::OkayUnused);
+		CHECK(unchanged.tile == owned.tile); CHECK(unchanged.trackdir == owned.trackdir);
+		CHECK(GetReservedTrackbits(TileXY(13, 12)) == before);
 	}
 	SECTION("unrelated layout edits preserve the plan") {
 		AutoYieldInvalidateNativeRoutes(TileXY(58, 55));

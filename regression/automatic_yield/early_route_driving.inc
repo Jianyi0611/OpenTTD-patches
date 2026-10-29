@@ -6,16 +6,24 @@
 namespace {
 uint early_tick = 0, early_held = 0, early_pass_held = 0, early_expected_row = 40;
 uint early_first_plan_x = UINT_MAX, early_plan_changes = 0;
+uint early_independent_checks = 0;
+uint early_recheck_waits = 0;
 bool early_entered = false, early_waited = false, early_tail_clear = false, early_resumed = false;
 bool early_saved = false, early_started_fast = false, early_loaded = false, early_loaded_next = false;
 bool early_edited = false, early_plan_seen = false, early_seen_detector = false;
 bool early_plan_after_edit = false, early_seen_upper_clear = false, early_current_stop_had_plan = false;
 bool early_deferred_context = false, early_resolved_plan = false;
+bool early_alternative_used = false, early_alternative_early = false;
+bool early_crossing_checked = false;
 std::vector<uint32_t> early_previous_plan;
 StationID early_stop = StationID::Invalid(), early_main_goal = StationID::Invalid(), early_upper_goal = StationID::Invalid();
 TraceRestrictSlot *early_auxiliary_slot = nullptr;
 
 std::string_view EarlyMode() { return std::getenv("PXP_EARLY_MODE"); }
+bool EarlySplitMode(std::string_view mode) { return mode.starts_with("split-"); }
+bool EarlyCrossingMode(std::string_view mode) { return mode=="split-crossing"||mode=="split-crossing-edit"; }
+uint EarlyLastShared(std::string_view mode) { return mode=="split-long"||mode=="split-change-fast"?110:EarlyCrossingMode(mode)?81:82; }
+uint EarlyFinishX() { return EarlyMode()=="split-distant-target"?2366:246; }
 bool EarlyNeedsWait(std::string_view mode)
 {
  return mode=="two-through"||mode=="two-front"||mode=="two-tail"||mode=="three-through"||mode=="through-upper"||mode=="stable-two-paths"||mode=="new-siding"||mode=="wrong-outlet-siding"||mode=="multi-main"||mode=="shared-platform";
@@ -64,6 +72,21 @@ void EarlyUpperOutlet(uint fork_x = 110, uint row = 25, uint clear_x = 125)
  DemoSignal(clear_x,row,AutoYieldRole::Clear);DemoSignal(180,row);DemoSignal(210,row);DemoSignal(230,row);
  early_upper_goal=GetStationIndex(TileXY(235,row));
 }
+void EarlyAlternativeOutlet()
+{
+ /* A short route rejoins Main at80 and diverges at82. The longer free
+  * route stays entirely south of Main, using76,60 and100,55 to reach the
+  * identical goal. Native costs and vehicle specifications are unchanged. */
+ DemoRail(82,40,TRACK_RIGHT);for(uint y=41;y<55;y++)DemoRail(82,y,TRACK_Y);DemoRail(82,55,TRACK_LEFT);
+ for(uint x=83;x<=245;x++)DemoRail(x,55,TRACK_X);
+ DemoRequire(CmdBuildRailStation(DoCommandFlag::Execute,TileXY(235,55),RAILTYPE_RAIL,Axis::X,1,6,StationClassID{0},0,StationID::Invalid(),false),"alternative split goal");
+ DemoRequire(CmdBuildTrainDepot(DoCommandFlag::Execute,TileXY(246,55),RAILTYPE_RAIL,DiagDirection::NE),"alternative split final depot");
+ DemoSignal(125,55,AutoYieldRole::Clear);DemoSignal(180,55);DemoSignal(230,55);
+ early_upper_goal=GetStationIndex(TileXY(235,55));
+ DemoRail(76,42,TRACK_RIGHT);for(uint y=43;y<60;y++)DemoRail(76,y,TRACK_Y);DemoRail(76,60,TRACK_LEFT);
+ for(uint x=77;x<100;x++)DemoRail(x,60,TRACK_X);DemoRail(100,60,TRACK_UPPER);
+ for(uint y=56;y<60;y++)DemoRail(100,y,TRACK_Y);DemoRail(100,55,TRACK_LOWER);
+}
 void EarlyIndependentPlatforms()
 {
  LayoutUpper();
@@ -104,7 +127,7 @@ void EarlyBuild()
     * next PF can prove its route without returning through the detector. */
    DemoRail(110,40,TRACK_UPPER);for(uint y=26;y<40;y++)DemoRail(110,y,TRACK_Y);DemoRail(110,25,TRACK_LOWER);
   }
-  if(mode=="stop-reselect-order") {
+  if(mode=="stop-reselect-order"||mode=="stop-split-change") {
    /* Realistic braking may already own the approach through x=53 when
     * the first plan becomes observable. Keep the actual platform choice
     * ahead of that prefix, so changing the next order tests legal replanning
@@ -114,12 +137,26 @@ void EarlyBuild()
    DemoRail(60,40,TRACK_UPPER);DemoRail(60,39,TRACK_Y);DemoRail(60,38,TRACK_LOWER);
   }
   early_expected_row=mode=="stop-main"?40:EarlyUnknown(mode)?40:38;
-  const StationID next=mode=="stop-main"||mode=="stop-reselect-order"?early_main_goal:early_upper_goal;
+  const StationID next=mode=="stop-main"||mode=="stop-reselect-order"||mode=="stop-split-change"?early_main_goal:early_upper_goal;
   const TileIndex finish=mode=="stop-main"?TileXY(246,40):TileXY(246,25);
   EarlyReplaceOrders(demo_slow,early_stop,next,finish,mode);
  }else{
-  EarlyUpperOutlet();
-  if(mode=="three-through") {
+  if(mode=="split-alternative")EarlyAlternativeOutlet();
+  else EarlyUpperOutlet(mode=="split-crossing-edit"?82:EarlySplitMode(mode)?EarlyLastShared(mode):110);
+  /* split-crossing turns into the throat at80 and out again at81: two
+   * adjacent switch curves, no actual same-direction straight Main rail.
+   * Orthogonal cross-line priority remains covered by the untouched core tests. */
+  if(mode=="split-distant-target") {
+   for(uint y:{25u,40u}) {
+    DemoRequire(CmdLandscapeClear(DoCommandFlag::Execute,TileXY(246,y)),"extend empty distant destination line");
+    for(uint x=246;x<2366;x++)DemoRail(x,y,TRACK_X);
+    DemoRequire(CmdBuildRailStation(DoCommandFlag::Execute,TileXY(2350,y),RAILTYPE_RAIL,Axis::X,1,6,StationClassID{0},0,StationID::Invalid(),false),"distant real native goal");
+    DemoRequire(CmdBuildTrainDepot(DoCommandFlag::Execute,TileXY(2366,y),RAILTYPE_RAIL,DiagDirection::NE),"distant native destination depot");
+   }
+   early_main_goal=GetStationIndex(TileXY(2350,40));early_upper_goal=GetStationIndex(TileXY(2350,25));
+   TopologyReplaceOrders(demo_fast,early_main_goal,TileXY(EarlyFinishX(),40));
+  }
+  if(mode=="three-through"||mode=="split-three") {
    DemoRail(110,40,TRACK_RIGHT);for(uint y=41;y<55;y++)DemoRail(110,y,TRACK_Y);DemoRail(110,55,TRACK_LEFT);
    for(uint x=111;x<=245;x++)DemoRail(x,55,TRACK_X);
    DemoRequire(CmdBuildRailStation(DoCommandFlag::Execute,TileXY(235,55),RAILTYPE_RAIL,Axis::X,1,6,StationClassID{0},0,StationID::Invalid(),false),"third outlet goal");
@@ -132,6 +169,10 @@ void EarlyBuild()
   if(mode=="through-upper") {
    TopologyReplaceOrders(demo_slow,early_upper_goal,TileXY(246,25));TopologyReplaceOrders(demo_fast,early_upper_goal,TileXY(246,25));
    if(demo_slow->cur_implicit_order_index!=0)DemoRequire(CmdSkipToOrder(DoCommandFlag::Execute,demo_slow->index,VehicleOrderID{0}),"activate upper branch");
+  }
+  if(EarlySplitMode(mode)&&mode!="split-change-fast") {
+   TopologyReplaceOrders(demo_slow,early_upper_goal,TileXY(EarlyFinishX(),mode=="split-alternative"?55:25));
+   if(demo_slow->cur_implicit_order_index!=0)DemoRequire(CmdSkipToOrder(DoCommandFlag::Execute,demo_slow->index,VehicleOrderID{0}),"activate independent upper departure");
   }
   if(mode=="wrong-outlet-siding") {
    LayoutUpper();
@@ -166,6 +207,11 @@ bool EarlyTailPast(const Train *train,uint x)
 }
 void EarlyFail(const char *reason)
 {
+ if(EarlySplitMode(EarlyMode()))for(const auto *train:{demo_slow,demo_fast}){
+  const auto *front=train->GetMovingFront();YapfRailRoute route;
+  const bool known=AutoYieldGetNativeRoute(train,demo_slot->index.base(),front->tile,front->GetVehicleTrackdir(),route);
+  fprintf(demo_log,"SPLIT FAILURE_PROOF train=%u order=%u target=%u index=%u native=%u words=%zu steps=%zu end=%u,%u front_td=%u\n",train->index.base(),uint(train->current_order.GetType()),train->current_order.GetDestination().base(),uint(train->cur_real_order_index),known,train->early_route.size(),route.path.size(),route.path.empty()?0:TileX(route.path.back().tile),route.path.empty()?0:TileY(route.path.back().tile),uint(front->GetVehicleTrackdir()));
+ }
  fprintf(demo_log,"FAIL early %s tick=%u slow=%u,%u/%u order=%u idx=%u plan=%zu fast=%u,%u/%u\n",reason,early_tick,TileX(demo_slow->tile),TileY(demo_slow->tile),demo_slow->cur_speed,uint(demo_slow->current_order.GetType()),uint(demo_slow->cur_real_order_index),demo_slow->early_route.size(),TileX(demo_fast->tile),TileY(demo_fast->tile),demo_fast->cur_speed);fflush(demo_log);exit(202);
 }
 void EarlyReservationLog(const char *event)
@@ -207,17 +253,22 @@ void EarlyRouteDrivingTick()
   for(auto *train:Train::Iterate())if(train->IsPrimaryVehicle()){if(train->unitnumber==1)demo_slow=train;else if(train->unitnumber==2)demo_fast=train;}
   for(auto *slot:TraceRestrictSlot::Iterate())if(slot->automatic_yield_area==0&&slot->name=="示例路签：正线与待避线共用")demo_slot=slot;
   if(!demo_slow||!demo_fast||!demo_slot)exit(203);
-  early_main_goal=GetStationIndex(TileXY(235,40));early_upper_goal=GetStationIndex(TileXY(235,25));
+  const uint goal_x=mode=="split-distant-target"?2350:235;
+  early_main_goal=GetStationIndex(TileXY(goal_x,40));early_upper_goal=GetStationIndex(TileXY(goal_x,mode=="split-alternative"?55:25));
   early_stop=scheduled?GetStationIndex(TileXY(69,mode=="shared-platform"?42:40)):StationID::Invalid();
   early_expected_row=mode=="stop-main"?40:EarlyUnknown(mode)?40:38;
-  early_started_fast=waiting;early_saved=true;early_edited=mode=="new-siding"||mode=="blocked-reselect"||mode=="stop-reselect-order";
-  early_entered=waiting&&(TileY(demo_slow->tile)==42||TileY(demo_slow->tile)==44);early_loaded=scheduled&&demo_slow->last_station_visited==early_stop;
+  early_started_fast=waiting||EarlySplitMode(mode)||mode=="stop-independent"||mode=="stop-split-change";early_saved=true;early_edited=mode=="split-crossing-edit"||mode=="new-siding"||mode=="blocked-reselect"||mode=="stop-reselect-order"||mode=="stop-split-change"||mode=="split-change-fast";
+  early_entered=(waiting||EarlySplitMode(mode))&&(TileY(demo_slow->tile)==42||TileY(demo_slow->tile)==44);early_loaded=scheduled&&demo_slow->last_station_visited==early_stop;
+  /* This checkpoint is on the exclusive directed connector from the siding,
+   * after its entrance. Reconstruct entry from that physical saved position,
+   * rather than requiring the resumed train to enter the siding a second time. */
+  if(mode=="split-alternative"&&TileX(demo_slow->tile)==76&&TileY(demo_slow->tile)>42&&TileY(demo_slow->tile)<=60)early_entered=true;
   early_plan_seen=!demo_slow->early_route.empty();_pause_mode={};_debug_levels[size_t(DebugLevelID::yapf)]=3;
   fprintf(demo_log,"EARLY RELOAD bytes=%zu actual_row=%u actual_order=%u\n",demo_slow->early_route.size(),TileY(demo_slow->tile),uint(demo_slow->current_order.GetType()));
   EarlyCheckpointPlan(true);
  }
  early_tick++;demo_tick=early_tick;
- if(std::getenv("PXP_EARLY_TRACE"))_debug_levels[size_t(DebugLevelID::yapf)]=(early_tick>=700&&early_tick<=1150)?7:3;
+ if(std::getenv("PXP_EARLY_TRACE"))_debug_levels[size_t(DebugLevelID::yapf)]=((early_tick>=700&&early_tick<=1150)||(EarlySplitMode(mode)&&early_tick<=2200))?7:3;
  const uint x=TileX(demo_slow->tile),row=TileY(demo_slow->tile);
  if(std::getenv("PXP_EARLY_TRACE")&&early_tick>=700&&early_tick<=1150&&early_tick%32==0){
   const bool need=EvaluateAutoYield(demo_slow,demo_slot->index.base(),AutoYieldCondition::NeedsSiding);
@@ -242,11 +293,24 @@ void EarlyRouteDrivingTick()
   }else fprintf(demo_log,"EARLY PLAN_INVALIDATED %u x=%u row=%u\n",early_tick,x,row);
   early_previous_plan=demo_slow->early_route;
  }
- if(!reload&&waiting&&!early_started_fast&&early_tick==(mode=="shared-platform"?900u:400u)){
+ if(!reload&&(waiting||EarlySplitMode(mode)||mode=="stop-independent"||mode=="stop-split-change")&&!early_started_fast&&early_tick==(mode=="shared-platform"?900u:mode=="stop-split-change"?800u:400u)){
   early_started_fast=true;DemoRequire(CmdStartStopVehicle(DoCommandFlag::Execute,demo_fast->index,true),"start early-route express");fprintf(demo_log,"EARLY START_FAST %u\n",early_tick);
  }
+ if(!reload&&!early_edited&&mode=="split-crossing-edit"&&early_plan_seen&&x<45){
+  const auto owned=FollowTrainReservation(demo_slow,nullptr,FollowTrainReservationFlag::OkayUnused);
+  if(GetReservedTrackbits(TileXY(81,40))!=TRACK_BIT_NONE||GetReservedTrackbits(TileXY(82,40))!=TRACK_BIT_NONE)EarlyFail("edited split already has native PBS reservation");
+  for(uint y=26;y<40;y++)DemoRequire(CmdRemoveSingleRail(DoCommandFlag::Execute,TileXY(82,y),TRACK_Y),"remove old empty split connector");
+  DemoRequire(CmdRemoveSingleRail(DoCommandFlag::Execute,TileXY(82,40),TRACK_UPPER),"remove old empty split switch");
+  DemoRequire(CmdRemoveSingleRail(DoCommandFlag::Execute,TileXY(82,25),TRACK_LOWER),"remove old empty split curve");
+  DemoRail(81,40,TRACK_UPPER);for(uint y=26;y<40;y++)DemoRail(81,y,TRACK_Y);
+  DemoRail(81,25,TRACK_LOWER);DemoRail(82,25,TRACK_X);
+  if(!demo_slow->early_route.empty())EarlyFail("real switch edit retained obsolete native route");
+  const auto after=FollowTrainReservation(demo_slow,nullptr,FollowTrainReservationFlag::OkayUnused);
+  if(owned.tile!=after.tile||owned.trackdir!=after.trackdir)EarlyFail("switch edit changed an unrelated owned PBS prefix");
+  early_edited=true;fprintf(demo_log,"SPLIT SWITCH_EDIT %u old_fork=82 new_fork=81 plan_invalidated=1 native_prefix_preserved=1\n",early_tick);
+ }
  if(!reload&&!early_edited&&mode=="new-siding"&&x>=25&&x<45){EarlyReservationLog("before_new_lane");LayoutThird();AutoYieldSettingsChanged();early_edited=true;fprintf(demo_log,"EARLY NEW_LANE %u row=44 legal_commands=1\n",early_tick);EarlyReservationLog("after_new_lane");}
- if(!reload&&!early_edited&&mode=="stop-reselect-order"&&early_plan_seen&&x<45){
+ if(!reload&&!early_edited&&(mode=="stop-reselect-order"||mode=="stop-split-change")&&early_plan_seen&&x<45){
   EarlyReservationLog("before_order_change");
   const auto platform_fork_bits=GetReservedTrackbits(TileXY(60,40));
   fprintf(demo_log,"EARLY ORDER_EDIT_WINDOW %u actual_platform_fork=60,40 reserved_mask=%u owned_prefix_unchanged=1\n",early_tick,uint(platform_fork_bits));
@@ -256,13 +320,21 @@ void EarlyRouteDrivingTick()
   early_edited=true;fprintf(demo_log,"EARLY ORDER_CHANGE %u x=%u target=upper\n",early_tick,x);
   EarlyReservationLog("after_order_change");
  }
+ if(!reload&&!early_edited&&mode=="split-change-fast"&&row==42&&x>=54&&TileX(demo_fast->tile)<100){
+  const auto reserved=GetReservedTrackbits(TileXY(110,40));
+  if(reserved!=TRACK_BIT_NONE)EarlyFail("express split already reserved before lawful route change");
+  DemoRequire(CmdDeleteOrder(DoCommandFlag::Execute,OrderTargetType::Vehicle,demo_fast->index.base(),0),"change express outlet");
+  DemoRequire(CmdInsertOrder(DoCommandFlag::Execute,InsertOrderCmdData(demo_fast->index,VehicleOrderID{0},EarlyStationOrder(early_upper_goal))),"express independent upper outlet");
+  DemoRequire(CmdSkipToOrder(DoCommandFlag::Execute,demo_fast->index,VehicleOrderID{0}),"activate changed express order");
+  early_edited=true;fprintf(demo_log,"SPLIT EXPRESS_ORDER_CHANGE %u fork_unreserved=1 native_reservations_untouched=1\n",early_tick);
+ }
  if(!reload&&!early_edited&&mode=="blocked-reselect"&&early_plan_seen&&x<45){
   EarlyReservationLog("before_exit_layout_change");
   DemoRequire(CmdRemoveSingleRail(DoCommandFlag::Execute,TileXY(120,40),TRACK_X),"remove unreserved old exit connector");
   early_edited=true;fprintf(demo_log,"EARLY NATIVE_EXIT_DISCONNECTED %u x=%u removed=120,40 alternate_exit=upper native_reservations_untouched=1\n",early_tick,x);
   EarlyReservationLog("after_exit_layout_change");
  }
- if(waiting&&!early_entered&&(row==42||row==44)&&x>=54&&x<74){
+ if((waiting||EarlySplitMode(mode))&&!early_entered&&(row==42||row==44)&&x>=54&&x<74){
   early_entered=true;fprintf(demo_log,"EARLY ENTER %u row=%u\n",early_tick,row);
   if(mode=="new-siding"&&row!=44)EarlyFail("new legal lane not selected");
  }
@@ -274,13 +346,43 @@ void EarlyRouteDrivingTick()
   if(mode!="shared-platform"&&row!=early_expected_row)EarlyFail("native arrival used incompatible platform");
  }
  const bool after_stop=!scheduled||(early_loaded&&!demo_slow->current_order.IsAnyLoadingType());
+ bool shared_tail_clear=early_started_fast;
+ for(const Train *part=demo_fast;part;part=part->Next())if(TileX(part->tile)<=EarlyLastShared(mode)&&TileY(part->tile)==40)shared_tail_clear=false;
+ if(EarlySplitMode(mode)&&mode!="split-alternative"&&!EarlyCrossingMode(mode)&&shared_tail_clear&&row==42&&x>=72){
+  if(!early_tail_clear){early_tail_clear=true;fprintf(demo_log,"SPLIT LAST_SHARED_TAIL_CLEAR %u fork=%u fast=%u,%u\n",early_tick,EarlyLastShared(mode),TileX(demo_fast->tile),TileY(demo_fast->tile));}
+  /* Native route extension can defer a read-only decision for this tick.
+   * The acceptance gate is actual departure before the unrelated area's
+   * boundary, not a single intermediate predicate returning false. */
+  if(EvaluateAutoYield(demo_slow,demo_slot->index.base(),AutoYieldCondition::MustWait))early_recheck_waits++;
+  else early_independent_checks++;
+  if(demo_slow->cur_speed&&!early_resumed){early_resumed=true;fprintf(demo_log,"SPLIT INDEPENDENT_RESUME %u fast_before_area_clear=%u\n",early_tick,TileX(demo_fast->tile)<125);if(TileX(demo_fast->tile)>=125)EarlyFail("departure waited for the entire unrelated exit corridor");}
+ }
+ if(EarlyCrossingMode(mode)&&row==42&&x>=69&&x<=74&&demo_slot->IsOccupant(demo_fast->index)) {
+  if(EvaluateAutoYield(demo_slow,demo_slot->index.base(),AutoYieldCondition::MustWait))EarlyFail("crossing-only independent exits retain a PXP overtaking dependency");
+  if(TileX(demo_fast->tile)<80)early_crossing_checked=true;
+  early_independent_checks++;
+ }
+ if(mode=="split-alternative"&&((x==76&&row>42)||(row==60&&x>=76&&x<=100))){
+  if(!early_alternative_used){
+   early_alternative_used=true;early_alternative_early=TileX(demo_fast->tile)<125;
+   fprintf(demo_log,"SPLIT ALTERNATIVE_USED %u slow=%u,%u fast=%u,%u before_unrelated_clear=%u\n",early_tick,x,row,TileX(demo_fast->tile),TileY(demo_fast->tile),early_alternative_early);
+  }
+  if(demo_slot->IsOccupant(demo_fast->index)&&demo_fast->cur_speed){
+   if(EvaluateAutoYield(demo_slow,demo_slot->index.base(),AutoYieldCondition::MustWait))EarlyFail("new independent path retains the old throat obligation");
+   early_independent_checks++;
+  }
+ }
+ if((mode=="stop-independent"||mode=="stop-split-change")&&early_started_fast&&TileX(demo_fast->Last()->tile)>60&&row==38&&x>=69&&after_stop&&demo_slot->IsOccupant(demo_fast->index)){
+  if(EvaluateAutoYield(demo_slow,demo_slot->index.base(),AutoYieldCondition::MustWait))EarlyFail("independent platform departure has an unrelated express obligation");
+  early_independent_checks++;
+ }
  if(EarlyUnknown(mode)&&after_stop&&x<50)EarlyFail("resolved future order returned through the old detector");
  if(EarlyUnknown(mode)&&after_stop&&!early_resolved_plan&&demo_slow->current_order.IsType(OT_GOTO_STATION)&&
    demo_slow->current_order.GetDestination()!=early_stop&&!demo_slow->early_route.empty()) {
   if(demo_slow->early_route_area!=demo_slot->index.base()||early_seen_upper_clear||(row==25&&x>=125))EarlyFail("resolved future route was not replanned before clearance");
   early_resolved_plan=true;fprintf(demo_log,"EARLY RESOLVED_PLAN %u area=%u words=%zu order=%u index=%u\n",early_tick,demo_slow->early_route_area,demo_slow->early_route.size(),uint(demo_slow->current_order.GetType()),uint(demo_slow->cur_real_order_index));
  }
- if(waiting&&early_entered&&after_stop&&(row==42||row==44)&&x>=72&&demo_slow->cur_speed==0){
+ if((waiting||EarlySplitMode(mode))&&early_entered&&after_stop&&(row==42||row==44)&&x>=72&&demo_slow->cur_speed==0){
   if(!early_waited){early_waited=true;fprintf(demo_log,"EARLY EXIT_WAIT %u row=%u\n",early_tick,row);}
   for(const Train *part=demo_slow;part;part=part->Next())if(TileY(part->tile)!=row||TileX(part->tile)<=50)EarlyFail("tail has not cleared inlet");
   early_held++;
@@ -292,21 +394,27 @@ void EarlyRouteDrivingTick()
  }
  if(waiting&&early_waited&&early_tail_clear&&demo_slow->cur_speed&&!early_resumed){early_resumed=true;fprintf(demo_log,"EARLY RESUME %u\n",early_tick);}
  if(row==25&&x>=125&&x<=130&&!early_seen_upper_clear){early_seen_upper_clear=true;fprintf(demo_log,"EARLY ACTUAL_UPPER_CLEAR %u\n",early_tick);}
- if(!reload&&!early_saved&&((waiting&&early_held>=2)||(scheduled&&early_loaded&&demo_slow->current_order.IsAnyLoadingType())||(!waiting&&!scheduled&&early_edited&&x>115))){EarlyCheckpointPlan(false);DemoSave("strict-waiting");early_saved=true;}
- const StationID final_goal=(mode=="through-upper"||(scheduled&&mode!="stop-main"&&mode!="shared-platform"))?early_upper_goal:early_main_goal;
+ if(!reload&&!early_saved&&(((waiting||EarlySplitMode(mode))&&early_held>=2)||(mode=="split-alternative"&&early_alternative_used)||(EarlyCrossingMode(mode)&&early_crossing_checked)||(scheduled&&early_loaded&&demo_slow->current_order.IsAnyLoadingType())||(!waiting&&!scheduled&&early_edited&&!EarlySplitMode(mode)&&x>115))){EarlyCheckpointPlan(false);DemoSave("strict-waiting");early_saved=true;}
+ const StationID final_goal=(mode=="through-upper"||(EarlySplitMode(mode)&&mode!="split-change-fast")||(scheduled&&mode!="stop-main"&&mode!="shared-platform"))?early_upper_goal:early_main_goal;
  if(demo_slow->current_order.IsAnyLoadingType()&&demo_slow->last_station_visited==final_goal&&!early_loaded_next){early_loaded_next=true;fprintf(demo_log,"EARLY FINAL_STOP %u row=%u goal=%u\n",early_tick,row,final_goal.base());}
  if(early_loaded_next&&EarlyResourceEmpty(demo_slow)){
   if(!early_saved)EarlyFail("missing real save checkpoint");
   if(!reload&&!EarlyUnknown(mode)&&(!early_plan_seen||early_first_plan_x>=50))EarlyFail("native plan was not established before inlet fork");
   if(waiting&&(!early_entered||!early_waited||early_held<2||!early_tail_clear||!early_resumed||!early_pass_held))EarlyFail("missing full enter wait pass resume sequence");
+  if(EarlySplitMode(mode)&&mode!="split-alternative"&&!EarlyCrossingMode(mode)&&(!early_entered||!early_waited||!early_tail_clear||!early_resumed))EarlyFail("missing shared-junction wait and independent departure sequence");
+  if(EarlyCrossingMode(mode)&&(!early_entered||!early_crossing_checked))EarlyFail("missing live crossing-only departure check before express reaches junction");
+  if(mode=="split-alternative"&&(!early_entered||!early_alternative_used||!early_alternative_early))EarlyFail("legal independent split route not actually used before unrelated express clearance");
+  if((mode=="stop-independent"||mode=="stop-split-change")&&!early_started_fast)EarlyFail("independent express never started");
+  if((EarlySplitMode(mode)||mode=="stop-independent"||mode=="stop-split-change")&&!early_independent_checks)EarlyFail("no live independent express overlap checked");
   if(scheduled&&!early_loaded)EarlyFail("mandatory stop skipped");
   if(EarlyUnknown(mode)&&(!early_deferred_context||!early_resolved_plan||!early_seen_upper_clear))EarlyFail("missing deferred context and later actual native replanning");
   if((mode=="new-siding"||mode=="blocked-reselect"||mode=="stop-reselect-order")&&!early_edited)EarlyFail("runtime edit not executed");
   if(!reload&&(mode=="new-siding"||mode=="blocked-reselect"||mode=="stop-reselect-order")&&!early_plan_after_edit)EarlyFail("valid route plan was not rebuilt after runtime edit");
+  if(mode=="split-crossing-edit"&&(!early_edited||(!reload&&!early_plan_after_edit)))EarlyFail("modified split route not rebuilt and actually executed");
   if(mode=="blocked-reselect"&&!early_seen_upper_clear)EarlyFail("native route did not use the legal alternate exit");
-  fprintf(demo_log,"STRICT PASS early=%.*s reload=%u plan_before_fork=%u first_plan_x=%u plan_changes=%u entered=%u waited=%u held=%u express_while_held=%u actual_tail_clear=%u resumed=%u station_stop=%u correct_next_goal=1 resources_released=1\n",int(mode.size()),mode.data(),reload,early_plan_seen,early_first_plan_x,early_plan_changes,early_entered,early_waited,early_held,early_pass_held,early_tail_clear,early_resumed,early_loaded);fflush(demo_log);_exit_game=true;
+  fprintf(demo_log,"STRICT PASS early=%.*s reload=%u plan_before_fork=%u first_plan_x=%u plan_changes=%u entered=%u waited=%u held=%u express_while_held=%u actual_tail_clear=%u resumed=%u station_stop=%u correct_next_goal=1 resources_released=1 independent_live_checks=%u\n",int(mode.size()),mode.data(),reload,early_plan_seen,early_first_plan_x,early_plan_changes,early_entered,early_waited,early_held,early_pass_held,early_tail_clear,early_resumed,early_loaded,early_independent_checks);fflush(demo_log);_exit_game=true;
  }
  if(early_tick%512==0)fprintf(demo_log,"EARLY TRACE %u slow=%u,%u/%u order=%u idx=%u plan=%zu fast=%u,%u/%u held=%u\n",early_tick,x,row,demo_slow->cur_speed,uint(demo_slow->current_order.GetType()),uint(demo_slow->cur_real_order_index),demo_slow->early_route.size(),TileX(demo_fast->tile),TileY(demo_fast->tile),demo_fast->cur_speed,early_held);
- if(early_tick>24000)EarlyFail("native run timeout");
+ if(early_tick>(mode=="split-distant-target"?60000u:24000u))EarlyFail("native run timeout");
  fflush(demo_log);
 }

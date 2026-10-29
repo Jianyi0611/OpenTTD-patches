@@ -61,6 +61,37 @@ Train *DemoTrain(EngineID engine, const std::string &name, StationID station, Ti
     fprintf(demo_log, "TRAIN id=%u number=%u speed=%u length=%u engine=%u\n",train->index.base(),train->unitnumber,train->GetDisplayMaxSpeed(),train->gcache.cached_total_length,engine.base());
     return train;
 }
+/* Actual native plans are also valid evidence after the reroute fixture adds
+ * its second outlet. This is stricter than comparing exit IDs: include every
+ * body part and crossing track, and reject incomplete/unknown plans. */
+bool DemoSelectedCorridorsIndependent(const Train *left, const Train *right)
+{
+    YapfRailRoute a,b;
+    const auto route=[&](const Train *v,YapfRailRoute &out){
+        const auto *front=v->GetMovingFront();
+        if(AutoYieldGetNativeRoute(v,demo_slot->index.base(),front->tile,front->GetVehicleTrackdir(),out))return true;
+        /* This fixture started as a single-outlet area. Its already parked
+         * train legitimately has no stored multi-outlet plan yet. Query the
+         * native continuation from its actual owned endpoint without reserving
+         * anything, and prepend only that continuous, unchanged PBS prefix. */
+        const auto end=FollowTrainReservation(v,nullptr,FollowTrainReservationFlag::OkayUnused);
+        std::vector<std::pair<TileIndex,Trackdir>> prefix;
+        if(!GetTrainReservationPathTo(v,end.tile,end.trackdir,256,prefix))return false;
+        for(size_t i=1;i<prefix.size();i++)if(DistanceManhattan(prefix[i-1].first,prefix[i].first)!=1)return false;
+        auto future=YapfTrainPlanRoute(v,end.tile,end.trackdir,256);if(!future.complete)return false;
+        std::vector<YapfRailRouteStep> joined;
+        for(size_t i=0;i+1<prefix.size();i++)joined.push_back({prefix[i].first,prefix[i].second});
+        joined.insert(joined.end(),future.path.begin(),future.path.end());future.path=std::move(joined);out=std::move(future);return true;
+    };
+    if(!route(left,a)||!route(right,b))return false;
+    std::map<TileIndex,TrackBits> tracks;
+    for(const auto &step:a.path)tracks[step.tile]|=TrackToTrackBits(TrackdirToTrack(step.trackdir));
+    for(const Train *part=left->First();part;part=part->Next())tracks[part->tile]|=part->track;
+    const auto overlap=[&](TileIndex tile,TrackBits bits){const auto i=tracks.find(tile);return i!=tracks.end()&&((i->second&bits)!=TRACK_BIT_NONE||TracksOverlap(i->second|bits));};
+    for(const auto &step:b.path)if(overlap(step.tile,TrackToTrackBits(TrackdirToTrack(step.trackdir))))return false;
+    for(const Train *part=right->First();part;part=part->Next())if(overlap(part->tile,part->track))return false;
+    return true;
+}
 void DemoSave(const char *name)
 {
     AutoRestoreBackup pause(_pause_mode, _pause_mode);
@@ -318,6 +349,7 @@ void EmergencyStrictTick() {
  }
  n++;demo_tick=n;
  if(raw_mode=="normal-free-first"&&std::getenv("PXP_STRICT_DEBUG"))_debug_levels[size_t(DebugLevelID::yapf)]=n>=900&&n<1700?7:0;
+ if(mode=="reroute"&&std::getenv("PXP_STRICT_DEBUG"))_debug_levels[size_t(DebugLevelID::yapf)]=7;
  if(distant_scenario&&n==1&&std::getenv("PXP_STRICT_DEBUG"))_debug_levels[size_t(DebugLevelID::yapf)]=7;
  if(distant_scenario&&n%256==0)fprintf(demo_log,"FAR TRACE %u slow=%u,%u/%u target=%u fast=%u,%u/%u member=%u need=%u free=%u lane=%u\n",n,TileX(demo_slow->tile),TileY(demo_slow->tile),demo_slow->cur_speed,demo_slow->current_order.GetDestination().base(),TileX(demo_fast->tile),TileY(demo_fast->tile),demo_fast->cur_speed,demo_slot->IsOccupant(demo_fast->index),EvaluateAutoYield(demo_slow,demo_slot->index.base(),AutoYieldCondition::NeedsSiding),EvaluateAutoYield(demo_slow,demo_slot->index.base(),AutoYieldCondition::FreeSiding),StreamHasTarget(demo_fast));
  if(mode.starts_with("crossing") && n%64==0 && n<2200) {
@@ -381,14 +413,15 @@ void EmergencyStrictTick() {
   DemoRequire(CmdSkipToOrder(DoCommandFlag::Execute,demo_fast->index,VehicleOrderID{0}),"activate reroute");
   FreeTrainTrackReservation(demo_fast);TryPathReserve(demo_fast,true,false);rerouted=true;fprintf(demo_log,"REROUTE %u\n",n);
  }
- if(mode=="reroute" && rerouted && (TileY(demo_fast->tile)==38 || TrainReservationPassesThroughTile(demo_fast,TileXY(65,40),TRACK_UPPER))) {
+ const bool selected_independent=mode=="reroute"&&rerouted&&DemoSelectedCorridorsIndependent(demo_slow,demo_fast);
+ if(mode=="reroute" && rerouted && (selected_independent || TileY(demo_fast->tile)==38 || TrainReservationPassesThroughTile(demo_fast,TileXY(65,40),TRACK_UPPER))) {
   TraceRestrictProgramInput input(TileXY(74,42),TRACKDIR_X_SW,nullptr,nullptr);
   TraceRestrictProgramResult result;
   GetExistingTraceRestrictProgram(input.tile,TRACK_X)->Execute(demo_slow,input,result);
   /* Verify the real committed alternative and the actual controlled exit,
    * rather than treating a conservative query from behind it as proof that
    * the express still needs the old, conflicting route. */
-  if(!(result.flags&TRPRF_WAIT_AT_PBS))cancelled=true;
+  if(!(result.flags&TRPRF_WAIT_AT_PBS)){if(!cancelled&&selected_independent)fprintf(demo_log,"REROUTE_SELECTED_INDEPENDENT %u native_plans_and_bodies=disjoint\n",n);cancelled=true;}
  }
  if(mode.starts_with("crossing") && demo_fast && TileY(demo_fast->tile)>=38 && TileY(demo_fast->tile)<=42) {
   main_pass=true;if(demo_slow->cur_speed==0 && TileY(demo_slow->tile)==42)pass_stopped_ticks++;

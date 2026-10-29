@@ -5635,7 +5635,23 @@ static ChooseTrainTrackResult ChooseTrainTrack(Train *consist, const TileIndex t
 {
 	const Train *front = consist->GetMovingFront();
 	AutoYieldNativeRouteScope route_scope(consist, front->tile, front->GetVehicleTrackdir());
-	const auto result = ChooseTrainTrackImpl(consist, tile, enterdir, tracks, flags, lookahead_state);
+	/* A layout edit can invalidate a selected corridor while its continuous
+	 * PBS approach remains valid. Restricted-signal checks may run before
+	 * YAPF, so restore the existing multi-outlet context at that same owned
+	 * endpoint before those checks. No new slot or reservation is acquired. */
+	if (consist->early_route.empty() && consist->early_route_area != UINT16_MAX &&
+			(consist->current_order.IsType(OT_GOTO_STATION) || consist->current_order.IsType(OT_GOTO_WAYPOINT) || consist->current_order.IsType(OT_GOTO_DEPOT))) {
+		const auto origin = FollowTrainReservation(consist, nullptr, FollowTrainReservationFlag::OkayUnused);
+		route_scope.PrepareFromContext(origin.tile, origin.trackdir);
+	}
+	auto result = ChooseTrainTrackImpl(consist, tile, enterdir, tracks, flags, lookahead_state);
+	/* A restricted exit can reject the request before YAPF is entered at all.
+	 * A confirmed split alternative therefore needs the same one-shot fresh
+	 * decision at this outer boundary. Keep the native owned prefix and never
+	 * bypass explicit reversal or a successfully committed reservation. */
+	if (!(result.ctt_flags & (CTTRF_RESERVATION_MADE | CTTRF_REVERSE_AT_SIGNAL)) && route_scope.ReplanForSplit()) {
+		result = ChooseTrainTrackImpl(consist, tile, enterdir, tracks, flags, lookahead_state);
+	}
 	route_scope.Finish(result.ctt_flags & CTTRF_RESERVATION_MADE);
 	return result;
 }

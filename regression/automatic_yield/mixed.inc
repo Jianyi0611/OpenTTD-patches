@@ -39,11 +39,24 @@ bool MixedInRows(uint row,const std::vector<uint>&rows)
 
 void MixedBuild(std::string_view mode)
 {
- const bool independent=mode=="mixed-independent"||mode=="mixed-independent-stops",rejoin=mode=="mixed-rejoin";
+ const bool independent=mode=="mixed-independent"||mode=="mixed-independent-stops",rejoin=mode=="mixed-rejoin"||mode=="mixed-rejoin-stop"||mode=="mixed-rejoin-both-stop";
  const bool close_follower=mode.ends_with("-stop")||mode.ends_with("-signals");
  if(independent||rejoin)TopologyBuild(independent?"topology-split":"topology-rejoin");
  else if(close_follower)DemoBuild();
  else BuildFarDestination();
+ if(mode=="mixed-rejoin-stop"||mode=="mixed-rejoin-both-stop"){
+  /* Use a nearer real feeder depot: a distant express can legitimately let
+   * the stopping train clear the later remerge before it arrives. No vehicle
+   * position/speed writes or path costs are used to manufacture the conflict. */
+  const EngineID engine=demo_fast->engine_type;delete demo_fast;demo_fast=nullptr;
+  DemoRequire(CmdLandscapeClear(DoCommandFlag::Execute,TileXY(120,60)),"empty nearer feeder depot site");
+  UpdateSignalsInBuffer(); // Finish the old rail's updates before replacing its tile type.
+  DemoRequire(CmdBuildTrainDepot(DoCommandFlag::Execute,TileXY(120,60),RAILTYPE_RAIL,DiagDirection::NE),"nearer real feeder depot");
+  TopologyProgram(110,60,TRACK_X,TRACKDIR_X_NE,AutoYieldRole::Approach);
+  demo_fast=DemoTrain(engine,"rejoining stopping-station express",GetStationIndex(TileXY(350,40)),TileXY(120,60));
+  TopologyReplaceOrders(demo_fast,GetStationIndex(TileXY(350,40)),TileXY(446,40));
+  TopologyPassStation(demo_fast,120,25);
+ }
  for(uint x:{180u,210u})DemoSignal(x,40);
  if(!close_follower)for(uint x:{250u,280u,310u,340u})DemoSignal(x,40);
  mixed_platform_rows={42};mixed_ordinary_rows.clear();
@@ -60,6 +73,10 @@ void MixedBuild(std::string_view mode)
   InsertStationStop(demo_fast,GetStationIndex(TileXY(66,20)),32);
  }
  if(mode.ends_with("-stop"))InsertStationStop(demo_slow,station,32);
+ if(mode=="mixed-rejoin-both-stop"){
+  DemoRequire(CmdBuildRailStation(DoCommandFlag::Execute,TileXY(69,40),RAILTYPE_RAIL,Axis::X,1,5,StationClassID{0},0,station,false),"rejoining station native Main platform");
+  InsertStationStop(demo_fast,station,32);
+ }
  if(mode.ends_with("-signals")){
   for(uint x:{58u,62u,64u})DemoSignal(x,40,AutoYieldRole::Main);
   std::vector<uint> rows=mixed_platform_rows;rows.insert(rows.end(),mixed_ordinary_rows.begin(),mixed_ordinary_rows.end());
@@ -120,13 +137,14 @@ void MixedTick()
   if(mode.find("p2o1")!=std::string_view::npos||mode.find("p3o2")!=std::string_view::npos)mixed_platform_rows.push_back(44);
   if(mode.find("p1o2")!=std::string_view::npos||mode.find("p3o2")!=std::string_view::npos)mixed_ordinary_rows.push_back(36);
   if(mode.find("p3o2")!=std::string_view::npos)mixed_platform_rows.push_back(46);
-  mixed_clear_x=mode=="mixed-rejoin"?160:90;
+  mixed_clear_x=mode.starts_with("mixed-rejoin")?160:90;
   started=saved=true;station_work=scheduled||(independent_stops&&demo_slow->last_station_visited==GetStationIndex(TileXY(66,40)));
-  independent_fast_work=independent_stops&&demo_fast->last_station_visited==GetStationIndex(TileXY(66,20));_pause_mode={};
+  independent_fast_work=(independent_stops||mode=="mixed-rejoin-both-stop")&&demo_fast->last_station_visited==GetStationIndex(TileXY(66,20));_pause_mode={};
+  if(mode=="mixed-rejoin-both-stop"&&demo_fast->cur_real_order_index>0)independent_fast_work=true;
  }
  n++;demo_tick=n;
  if(n==1&&std::getenv("PXP_STRICT_DEBUG"))_debug_levels[size_t(DebugLevelID::yapf)]=7;
- if(!reload&&!started&&n==(independent?100u:(scheduled||mode.ends_with("-signals"))?900u:400u)){
+ if(!reload&&!started&&n==(independent?100u:mode.starts_with("mixed-rejoin-")?150u:(scheduled||mode.ends_with("-signals"))?900u:400u)){
   started=true;DemoRequire(CmdStartStopVehicle(DoCommandFlag::Execute,demo_fast->index,true),"start mixed express");fprintf(demo_log,"MIXED START_FAST %u\n",n);
  }
  const uint row=TileY(demo_slow->tile),x=TileX(demo_slow->tile);
@@ -139,7 +157,7 @@ void MixedTick()
  }
  if(demo_slow->current_order.IsAnyLoadingType()&&!station_work){station_work=true;fprintf(demo_log,"MIXED SCHEDULED_LOADING %u row=%u\n",n,row);}
  if(!scheduled&&!independent_stops&&demo_slow->current_order.IsAnyLoadingType()){fprintf(demo_log,"FAIL non-stop mixed arrival performed station work\n");exit(162);}
- if(independent_stops&&demo_fast->current_order.IsAnyLoadingType()&&!independent_fast_work){independent_fast_work=true;fprintf(demo_log,"MIXED INDEPENDENT_FAST_LOADING %u\n",n);}
+ if((independent_stops||mode=="mixed-rejoin-both-stop")&&demo_fast->current_order.IsAnyLoadingType()&&!independent_fast_work){independent_fast_work=true;fprintf(demo_log,"MIXED INDEPENDENT_FAST_LOADING %u\n",n);}
  const bool stop_done=!scheduled||(station_work&&!demo_slow->current_order.IsAnyLoadingType());
  if(entered&&stop_done&&row==chosen_row&&x>=72&&demo_slow->cur_speed==0){
   if(!stopped){stopped=true;fprintf(demo_log,"MIXED EXIT_STOP %u row=%u\n",n,row);}
@@ -164,7 +182,7 @@ void MixedTick()
  }
  if(!saved&&!reload&&((stopped&&held>=2)||(independent&&independent_overlap>16))){DemoSave("strict-waiting");saved=true;}
  if(cleared&&row==40&&x>mixed_clear_x+4&&MixedReleased()){
-  if(independent_stops&&(!station_work||!independent_fast_work)){fprintf(demo_log,"FAIL independent platforms did not both perform station work\n");exit(171);}
+  if((independent_stops||mode=="mixed-rejoin-both-stop")&&(!station_work||!independent_fast_work)){fprintf(demo_log,"FAIL independent platforms did not both perform station work\n");exit(171);}
   if(!saved||(independent?independent_overlap==0:!entered||!stopped||held<2||!resumed||pass_held==0||(scheduled&&!station_work)||(!reload&&!conflict))){fprintf(demo_log,"FAIL mixed missing native stage enter=%u stop=%u held=%u pass_held=%u station_work=%u resume=%u overlap=%u\n",entered,stopped,held,pass_held,station_work,resumed,independent_overlap);exit(169);}
   fprintf(demo_log,"STRICT PASS mode=%.*s reload=%u entered=%u chosen_row=%u scheduled_loading=%u exit_stop=%u held=%u pass_while_stopped=%u actual_tail_clear=1 resumed=%u subject_claims_released=1 independent_overlap=%u\n",int(mode.size()),mode.data(),reload,entered,chosen_row,station_work,stopped,held,pass_held,resumed,independent_overlap);fflush(demo_log);_exit_game=true;
  }

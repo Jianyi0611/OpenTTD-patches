@@ -1585,6 +1585,22 @@ bool TrainReservationPassesThroughTrackdir(const Train *v, TileIndex search_tile
 	return found;
 }
 
+bool GetTrainReservationPathTo(const Train *v, TileIndex tile, Trackdir td, size_t max_steps, std::vector<std::pair<TileIndex, Trackdir>> &path)
+{
+	path.clear();
+	if (v == nullptr || !IsValidTile(tile) || !IsValidTrackdir(td) || max_steps == 0) return false;
+	bool found = false;
+	const Train *front = v->GetMovingFront();
+	FollowReservationEnumerate(v->owner, v->GetIndirectCompatibleRailTypes(), front->tile, front->GetVehicleTrackdir(), FRF_NONE, [&](TileIndex here, Trackdir direction) {
+		if (path.size() == max_steps) return true;
+		path.emplace_back(here, direction);
+		found = here == tile && direction == td;
+		return found;
+	});
+	if (!found) path.clear();
+	return found;
+}
+
 /**
  * Determine whether a certain track on a tile is a safe position to end a path.
  *

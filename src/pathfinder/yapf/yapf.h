@@ -173,11 +173,15 @@ using YapfRailRouteFilter = std::function<bool(TileIndex, Trackdir)>;
  * Does not reserve, advance orders, acquire slots, or return partial paths.
  * Callers providing a future order context must preserve that context and any
  * callback caches/RNG state around this read-only query.
+ * With export_end, a successful full destination search may export just its
+ * selected prefix ending at the first matching directed resource. This does
+ * not replace the destination, lower its cost, or accept an incomplete search.
  */
 YapfRailRoute YapfTrainPlanRoute(const Train *v, TileIndex origin, Trackdir td, uint max_nodes,
 		const YapfRailRouteFilter &filter = {}, TileIndex exact_target = INVALID_TILE,
 		Trackdir exact_td = INVALID_TRACKDIR, uint max_path_steps = 16384,
-		std::optional<std::pair<TileIndex, Trackdir>> required_point = std::nullopt);
+		std::optional<std::pair<TileIndex, Trackdir>> required_point = std::nullopt,
+		const YapfRailRouteFilter &export_end = {});
 
 #endif /* YAPF_H */
 

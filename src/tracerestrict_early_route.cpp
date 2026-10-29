@@ -130,6 +130,8 @@ struct AutoYieldNativeRouteScope::State {
 	uint32_t source_signature = 0, next_signature = 0;
 	bool staged = false, saved = false, onward = false;
 	bool inspected = false, relaxed = false;
+	bool split_requested = false, split_attempted = false;
+	uint32_t split_order_signature = 0;
 	bool effective_order = true;
 	std::pair<TileIndex, Trackdir> detector{INVALID_TILE, INVALID_TRACKDIR};
 	struct Candidate { TileIndex tile; Trackdir td; uint16_t slot; };
@@ -236,26 +238,27 @@ AutoYieldNativeRouteScope::AutoYieldNativeRouteScope(const Train *v, TileIndex o
 	active = state.get();
 	auto &s = *state; s.train = v; s.origin = origin; s.origin_td = td; s.source = v->current_order; s.source_index = v->cur_real_order_index;
 	current = &s;
+	const auto reject = [&](std::string_view reason) { Debug(yapf, 7, "EarlyRoute evidence train={} origin={} reason={}", v->index, origin, reason); };
 	const auto &data = v->early_route;
-	if (data.size() < 14 || data[0] != PLAN_VERSION || (data[10] != 1 && data[10] != 2)) return;
-	if (data[11] != TrainRouteSignature(v)) return; // Real loading/refitting/reversal requires native re-evaluation.
-	if (!GetAutoYieldRouteArea(v, uint16_t(data[1]), s.area)) return;
-	if (s.area.signature != data[9]) return;
-	if (v->orders == nullptr || v->orders->index.base() != data[2]) return;
+	if (data.size() < 14 || data[0] != PLAN_VERSION || (data[10] != 1 && data[10] != 2)) { reject("no-valid-plan"); return; }
+	if (data[11] != TrainRouteSignature(v)) { reject("consist-changed"); return; } // Real loading/refitting/reversal requires native re-evaluation.
+	if (!GetAutoYieldRouteArea(v, uint16_t(data[1]), s.area)) { reject("area-unavailable"); return; }
+	if (s.area.signature != data[9]) { reject("area-changed"); return; }
+	if (v->orders == nullptr || v->orders->index.base() != data[2]) { reject("order-list-changed"); return; }
 	s.source_index = VehicleOrderID(data[3]); s.source_signature = data[4];
 	s.plan.next_order_index = VehicleOrderID(data[5]); s.next_signature = data[6];
 	s.plan.selected_clear = std::pair{TileIndex{data[7]}, Trackdir(data[8])};
 	if (std::find(s.area.clears.begin(), s.area.clears.end(), *s.plan.selected_clear) == s.area.clears.end()) return;
-	if (!s.OrderStillValid()) return;
+	if (!s.OrderStillValid()) { reject("source-or-next-order-changed"); return; }
 	s.source = *v->GetOrder(s.source_index);
 	size_t pos = 12;
-	if (!ReadRoute(data, pos, s.plan.current) || !ReadRoute(data, pos, s.plan.onward) || pos != data.size()) return;
+	if (!ReadRoute(data, pos, s.plan.current) || !ReadRoute(data, pos, s.plan.onward) || pos != data.size()) { reject("invalid-path"); return; }
 	const auto signature = OrderSignature(v->current_order);
 	if (signature == s.source_signature) s.onward = false;
 	else if (s.next_signature != 0 && signature == s.next_signature) s.onward = true;
 	else if ((v->current_order.IsAnyLoadingType() || v->current_order.IsType(OT_LEAVESTATION)) &&
 			v->GetOrder(s.source_index)->IsType(OT_GOTO_STATION) && v->GetOrder(s.source_index)->GetDestination() == v->last_station_visited) s.onward = false;
-	else return;
+	else { reject("active-order-not-in-plan"); return; }
 	s.BuildCorridor(s.onward ? s.plan.onward : s.plan.current);
 	s.BuildPlatformFilter();
 	/* A reversal or a legally changed PBS corridor is a new decision point. */
@@ -266,9 +269,30 @@ AutoYieldNativeRouteScope::~AutoYieldNativeRouteScope() { if (state) current = p
 
 void AutoYieldNativeRouteScope::PrepareFromContext(TileIndex origin, Trackdir td)
 {
-	if (active == nullptr || active->staged || active->inspected || active->train->early_route_area == UINT16_MAX) return;
+	if (active == nullptr || active->staged || active->inspected) return;
+	uint16_t slot = active->train->early_route_area;
+	if (slot == UINT16_MAX) {
+		/* Old saves can already own a detector slot but predate per-train
+		 * route context. Recover only an unambiguous existing multi-outlet
+		 * membership. This query neither registers a train nor publishes state;
+		 * Finish still requires a successful native reservation to do that. */
+		if (!active->train->vehicle_flags.Test(VehicleFlag::HaveSlot)) return;
+		std::vector<TraceRestrictSlotID> memberships;
+		TraceRestrictGetVehicleSlots(active->train->index, memberships);
+		if (memberships.size() > 32) return;
+		for (auto id : memberships) {
+			AutoYieldRouteArea candidate;
+			if (!GetAutoYieldRouteArea(active->train, id.base(), candidate) || !candidate.registered) continue;
+			if (slot != UINT16_MAX) {
+				Debug(yapf, 7, "EarlyRoute train={} reason=ambiguous-legacy-area", active->train->index);
+				return;
+			}
+			slot = id.base();
+		}
+		if (slot == UINT16_MAX) return;
+	}
 	AutoYieldRouteArea area;
-	if (!GetAutoYieldRouteArea(active->train, active->train->early_route_area, area) || !area.registered) return;
+	if (!GetAutoYieldRouteArea(active->train, slot, area) || !area.registered) return;
 	/* A track/order edit after the detector must not make replanning wait for
 	 * another lap. The active saved slot supplies context, not a reservation;
 	 * native selection still starts at the end of the currently owned prefix. */
@@ -298,7 +322,10 @@ void AutoYieldStageNativeRoute(const Train *v, TileIndex detector, Trackdir td, 
 		const YapfRailRouteFilter admit = [&](TileIndex tile, Trackdir td) {
 			return (!filter || filter(tile, td)) && (denied == s.native_denied.end() || !denied->second.contains({tile, td}));
 		};
-		return YapfTrainPlanRoute(v, start, direction, remaining, admit, INVALID_TILE, INVALID_TRACKDIR, MAX_NATIVE_PLAN_STEPS);
+		const YapfRailRouteFilter export_end = [&](TileIndex tile, Trackdir td) {
+			return std::find(s.area.clears.begin(), s.area.clears.end(), std::pair{tile, td}) != s.area.clears.end();
+		};
+		return YapfTrainPlanRoute(v, start, direction, remaining, admit, INVALID_TILE, INVALID_TRACKDIR, MAX_NATIVE_PLAN_STEPS, std::nullopt, export_end);
 	};
 	s.plan = BuildEarlyRailStopPlan(v, detector, td, s.area.clears, remaining, query);
 	if (const Order *next = v->GetOrder(s.plan.next_order_index); s.plan.onward.complete && next != nullptr) s.next_signature = OrderSignature(*next);
@@ -311,6 +338,12 @@ bool AutoYieldNativeRouteAllows(const Train *v, TileIndex tile, Trackdir td)
 {
 	if (!AutoYieldHasNativeRoute(v)) return true;
 	const auto &s = *current;
+	/* Frozen before the fresh retry starts. Evidence collected during the
+	 * previous A* must not alter that A*'s filter midway through its search. */
+	if (s.split_attempted && s.split_order_signature == (s.onward ? s.next_signature : s.source_signature)) {
+		const auto denied = s.native_denied.find(s.split_order_signature);
+		if (denied != s.native_denied.end() && denied->second.contains({tile, td})) return false;
+	}
 	if (s.rejected_platforms.contains(tile)) return false;
 	if (s.plan.selected_clear && std::find(s.area.clears.begin(), s.area.clears.end(), std::pair{tile, td}) != s.area.clears.end()) return *s.plan.selected_clear == std::pair{tile, td};
 	if (s.saved) {
@@ -325,6 +358,10 @@ bool AutoYieldNativeRouteAllows(const Train *v, TileIndex tile, Trackdir td)
 void AutoYieldNativeRouteDenied(const Train *v, TileIndex tile, Trackdir td)
 {
 	if (!AutoYieldHasNativeRoute(v) || !IsValidTile(tile) || !IsValidTrackdir(td)) return;
+	/* The one split retry consumes this existing map as an immutable filter.
+	 * It cannot replan again, so later evidence is unused and must not mutate
+	 * the active graph. No extra per-decision set is needed for ordinary trains. */
+	if (current->split_attempted) return;
 	/* Pure planning suppresses this area's recursive yield evaluation. If the
 	 * real search subsequently forbids the chosen platform's approach, retain
 	 * that directed evidence for its one fresh replan. Never change the filter
@@ -369,6 +406,13 @@ void AutoYieldNativeRouteScope::Commit(const YapfRailRoute &actual)
 bool AutoYieldNativeRouteScope::NeedsInspection() const { return active != nullptr && ((active->staged && !active->saved) || (!active->inspected && !active->candidates.empty())); }
 bool AutoYieldNativeRouteScope::NeedsSelection() const { return active != nullptr && !active->staged && !active->inspected && !active->candidates.empty(); }
 
+bool AutoYieldNativeRouteScope::ExportEnd(TileIndex tile, Trackdir td) const
+{
+	if (active == nullptr) return false;
+	if (active->staged) return std::find(active->area.clears.begin(), active->area.clears.end(), std::pair{tile, td}) != active->area.clears.end();
+	return std::any_of(active->candidates.begin(), active->candidates.end(), [=](const auto &candidate) { return candidate.tile == tile && candidate.td == td; });
+}
+
 bool AutoYieldNativeRouteScope::Select(const YapfRailRoute &actual)
 {
 	if (active == nullptr || active->staged || active->inspected || !actual.complete) return false;
@@ -409,6 +453,37 @@ bool AutoYieldNativeRouteScope::RelaxForReplan()
 	return true;
 }
 
+bool AutoYieldNativeRouteScope::ReplanForSplit()
+{
+	if (active == nullptr || !active->split_requested || active->split_attempted || active->relaxed) return false;
+	active->split_requested = false;
+	active->split_attempted = true;
+	return RelaxForReplan();
+}
+
+bool AutoYieldMayRequestSplitAlternative(const Train *v, uint16_t slot)
+{
+	return query_depth == 0 && current != nullptr && current->train == v && current->staged && current->effective_order &&
+			current->area.slot == slot && current->area.clears.size() > 1 && !current->relaxed && !current->split_attempted && !current->split_requested;
+}
+
+bool AutoYieldRequestSplitAlternative(const Train *v, uint16_t slot, const std::vector<std::pair<TileIndex, Trackdir>> &blocked)
+{
+	if (!AutoYieldMayRequestSplitAlternative(v, slot) || blocked.empty() || blocked.size() > 64) return false;
+	const auto &path = current->onward ? current->plan.onward.path : current->plan.current.path;
+	for (const auto &[tile, td] : blocked) {
+		if (!IsValidTile(tile) || !IsValidTrackdir(td) || TrainReservationPassesThroughTrackdir(v, tile, td) ||
+				std::none_of(path.begin(), path.end(), [=](const auto &step) { return step.tile == tile && step.trackdir == td; })) return false;
+	}
+	auto &denied = current->native_denied[OrderSignature(v->current_order)];
+	if (denied.size() + blocked.size() > 64) return false;
+	denied.insert(blocked.begin(), blocked.end());
+	current->split_order_signature = OrderSignature(v->current_order);
+	current->split_requested = true;
+	Debug(yapf, 6, "EarlyRoute train={} area={} reason=split-independent-alternative-request resources={}", v->index, slot, blocked.size());
+	return true;
+}
+
 void AutoYieldNativeRouteScope::Finish(bool reservation_made)
 {
 	if (!state || !reservation_made) return;
@@ -444,8 +519,32 @@ bool AutoYieldGetNativeRoute(const Train *v, uint16_t slot, TileIndex start, Tra
 			if (!steps.empty() && begin != s.plan.onward.path.end() && steps.back().tile == begin->tile && steps.back().trackdir == begin->trackdir) ++begin;
 			steps.insert(steps.end(), begin, s.plan.onward.path.end());
 		}
-		const auto begin = std::find_if(steps.begin(), steps.end(), [=](const auto &step) { return step.tile == start && step.trackdir == td; });
-		if (begin == steps.end()) return false;
+		auto begin = std::find_if(steps.begin(), steps.end(), [=](const auto &step) { return step.tile == start && step.trackdir == td; });
+		if (begin == steps.end() && !steps.empty()) {
+			/* Native replanning begins at the end of the existing reservation.
+			 * That selected leg alone omits the train's still-owned approach.
+			 * Join only the actual continuous PBS prefix, never a possible route. */
+			std::vector<std::pair<TileIndex, Trackdir>> prefix;
+			if (GetTrainReservationPathTo(v, steps.front().tile, steps.front().trackdir, MAX_NATIVE_PLAN_STEPS, prefix)) {
+				const auto from = std::find(prefix.begin(), prefix.end(), std::pair{start, td});
+				bool adjacent = true;
+				if (from != prefix.end()) for (auto it = from + 1; it != prefix.end(); ++it) {
+					if (DistanceManhattan((it - 1)->first, it->first) != 1) { adjacent = false; break; }
+				}
+				/* A skipped bridge/station arc needs its native span metadata;
+				 * keep that uncommon incomplete-prefix case conservative. */
+				if (from != prefix.end() && adjacent && size_t(prefix.end() - from) + steps.size() - 1 <= MAX_NATIVE_PLAN_STEPS) {
+					std::vector<YapfRailRouteStep> joined;
+					for (auto it = from; it + 1 != prefix.end(); ++it) joined.push_back({it->first, it->second});
+					joined.insert(joined.end(), steps.begin(), steps.end()); steps = std::move(joined); begin = steps.begin();
+				}
+			}
+		}
+		if (begin == steps.end()) {
+			Debug(yapf, 7, "EarlyRoute evidence train={} start={} td={} reason=origin-outside-selected-leg first={} last={}",
+					v->index, start, uint(td), steps.empty()?INVALID_TILE:steps.front().tile, steps.empty()?INVALID_TILE:steps.back().tile);
+			return false;
+		}
 		route.path.assign(begin, steps.end()); ClipAtClear(route, s.area);
 		route.complete = !route.path.empty() && std::pair{route.path.back().tile, route.path.back().trackdir} == *s.plan.selected_clear;
 		return route.complete;
@@ -454,6 +553,48 @@ bool AutoYieldGetNativeRoute(const Train *v, uint16_t slot, TileIndex start, Tra
 	if (v->early_route.empty()) return false;
 	AutoYieldNativeRouteScope saved(v, start, td);
 	return current != nullptr && current->train == v && collect(*current);
+}
+
+bool AutoYieldNativeStopNeedsApproach(const Train *v, uint16_t slot, TileIndex tile, Trackdir td)
+{
+	if (query_depth != 0) return false;
+	const auto needed = [&](const AutoYieldNativeRouteScope::State &s) {
+		if (!s.staged || !s.effective_order || s.onward || s.area.slot != slot ||
+				!s.plan.selected_clear || !s.plan.onward.complete || s.selected_platform.empty()) return false;
+		const auto &path = s.plan.current.path;
+		const auto first_platform = std::find_if(path.begin(), path.end(), [&](const auto &step) { return s.selected_platform.contains({step.tile, step.trackdir}); });
+		const auto clearance = std::find_if(path.begin(), path.end(), [&](const auto &step) { return std::pair{step.tile, step.trackdir} == *s.plan.selected_clear; });
+		if (first_platform == path.end() || (clearance != path.end() && clearance <= first_platform)) return false; // The stop must be inside this area.
+		auto point = std::find_if(path.begin(), path.end(), [=](const auto &step) { return step.tile == tile && step.trackdir == td; });
+		if (point == path.end()) {
+			/* A new leg starts at the owned prefix's end, possibly after Main.
+			 * Prove only its short unique directed predecessor, never search an
+			 * alternative branch or infer it from coordinates. Ambiguity, skipped
+			 * stations/bridges and this fixed local cap leave ordinary rules intact. */
+			if (path.empty()) return false;
+			TileIndex before = path.front().tile;
+			Trackdir reverse = ReverseTrackdir(path.front().trackdir);
+			bool reached = false;
+			for (uint n = 0; n < 64; n++) {
+				if (before == tile && reverse == ReverseTrackdir(td)) { reached = true; break; }
+				CFollowTrackRailNo90 follow(v, v->GetIndirectCompatibleRailTypes());
+				if (!follow.Follow(before, reverse) || follow.tiles_skipped != 0 || follow.new_td_bits == TRACKDIR_BIT_NONE ||
+						KillFirstBit(follow.new_td_bits) != TRACKDIR_BIT_NONE) return false;
+				before = follow.new_tile; reverse = FindFirstTrackdir(follow.new_td_bits);
+			}
+			if (!reached) return false;
+			point = path.begin();
+		}
+		const auto platform = std::find_if(point, path.end(), [&](const auto &step) { return s.selected_platform.contains({step.tile, step.trackdir}); });
+		/* A platform on Main itself keeps ordinary platform/siding diversion.
+		 * This exception is only its actual downstream branching approach. */
+		return platform != path.end() && std::any_of(point, platform, [=](const auto &step) { return step.trackdir != td; });
+	};
+	if (current != nullptr && current->train == v) return needed(*current);
+	if (v->early_route.empty()) return false;
+	const Train *front = v->GetMovingFront();
+	AutoYieldNativeRouteScope saved(v, front->tile, front->GetVehicleTrackdir());
+	return current != nullptr && current->train == v && needed(*current);
 }
 
 void AutoYieldInvalidateNativeRoutes(TileIndex tile)
