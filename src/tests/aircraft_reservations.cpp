@@ -7,6 +7,7 @@
 #include "../3rdparty/catch2/catch.hpp"
 #include "../aircraft.h"
 #include "../air_map.h"
+#include "../engine_base.h"
 #include "../airport.h"
 #include "../pbs_air.h"
 #include "../station_base.h"
@@ -20,6 +21,8 @@ static Aircraft *MakeReservationAircraft(TileIndex tile)
 	Aircraft *shadow = Aircraft::Create();
 	v->subtype = AIR_AIRCRAFT;
 	shadow->subtype = AIR_SHADOW;
+	Engine *engine = Engine::Create(VehicleType::Aircraft, 0);
+	v->engine_type = shadow->engine_type = engine->index;
 	v->SetNext(shadow);
 	v->tile = tile;
 	v->state = AS_IDLE;
@@ -31,7 +34,7 @@ static Aircraft *MakeReservationAircraft(TileIndex tile)
 	return v;
 }
 
-static Station *MakeReservationAirport()
+static Station *MakeReservationAirport(TrackBits tracks = TRACK_BIT_CROSS)
 {
 	Station *st = Station::Create(TileXY(10, 10));
 	st->facilities = {StationFacility::Airport};
@@ -41,7 +44,7 @@ static Station *MakeReservationAirport()
 	for (TileIndex tile : st->airport) {
 		MakeAirport(tile, OWNER_BEGIN, st->index, 0, WaterClass::Invalid);
 		SetAirportTileType(tile, ATT_SIMPLE_TRACK);
-		SetAirportTileTracks(tile, TRACK_BIT_CROSS);
+		SetAirportTileTracks(tile, tracks);
 	}
 	return st;
 }
@@ -50,8 +53,8 @@ TEST_CASE("Aircraft rolling reservations - exclusive current and one tile ahead"
 {
 	AllocateMap(64, 64);
 	ClearAircraftReservationIndexes();
-	auto cleanup = scope_guard([] { ClearAircraftReservationIndexes(); _vehicle_pool.CleanPool(); _station_pool.CleanPool(); DeallocateMap(); });
-	MakeReservationAirport();
+	auto cleanup = scope_guard([] { ClearAircraftReservationIndexes(); _vehicle_pool.CleanPool(); _engine_pool.CleanPool(); _station_pool.CleanPool(); DeallocateMap(); });
+	MakeReservationAirport(TRACK_BIT_X);
 	Aircraft *a = MakeReservationAircraft(TileXY(10, 10));
 	a->planned_path = {{TileXY(10,10), TRACKDIR_X_SW, false}, {TileXY(11,10), TRACKDIR_X_SW, false}, {TileXY(12,10), TRACKDIR_X_SW, false}};
 	CHECK_FALSE(ExtendAircraftTaxiReservation(a));
@@ -73,11 +76,30 @@ TEST_CASE("Aircraft rolling reservations - exclusive current and one tile ahead"
 	ReleaseAircraftTaxiPath(b, false);
 }
 
+TEST_CASE("Aircraft rolling reservations - a junction grant protects the exit beyond the physical window")
+{
+	AllocateMap(64, 64);
+	ClearAircraftReservationIndexes();
+	auto cleanup = scope_guard([] { ClearAircraftReservationIndexes(); _vehicle_pool.CleanPool(); _engine_pool.CleanPool(); _station_pool.CleanPool(); DeallocateMap(); });
+	MakeReservationAirport();
+	Aircraft *a = MakeReservationAircraft(TileXY(10, 10));
+	TileIndex exit = TileXY(12, 10);
+	a->planned_path = {{a->tile, TRACKDIR_X_SW, false}, {TileXY(11, 10), TRACKDIR_X_SW, false}, {exit, TRACKDIR_X_SW, false}};
+	REQUIRE(TryReserveAircraftTaxiPath(a));
+	REQUIRE(ExtendAircraftTaxiReservation(a));
+	Aircraft *b = MakeReservationAircraft(exit);
+	CHECK(GetReservedAirportTracks(exit) == TRACK_BIT_NONE);
+	CHECK_FALSE(TryReserveAircraftTile(b, exit, TRACK_BIT_X));
+	ReleaseAircraftTaxiPath(a, false);
+	REQUIRE(TryReserveAircraftTile(b, exit, TRACK_BIT_X));
+	ReleaseAircraftTaxiPath(b, false);
+}
+
 TEST_CASE("Aircraft rolling reservations - gate claim survives until release")
 {
 	AllocateMap(64, 64);
 	ClearAircraftReservationIndexes();
-	auto cleanup = scope_guard([] { ClearAircraftReservationIndexes(); _vehicle_pool.CleanPool(); _station_pool.CleanPool(); DeallocateMap(); });
+	auto cleanup = scope_guard([] { ClearAircraftReservationIndexes(); _vehicle_pool.CleanPool(); _engine_pool.CleanPool(); _station_pool.CleanPool(); DeallocateMap(); });
 	MakeReservationAirport();
 	Aircraft *a = MakeReservationAircraft(TileXY(10,10));
 	Aircraft *b = MakeReservationAircraft(TileXY(11,10));
@@ -96,7 +118,7 @@ TEST_CASE("Aircraft rolling reservations - turns reserve complete tile groups")
 {
 	AllocateMap(64, 64);
 	ClearAircraftReservationIndexes();
-	auto cleanup = scope_guard([] { ClearAircraftReservationIndexes(); _vehicle_pool.CleanPool(); _station_pool.CleanPool(); DeallocateMap(); });
+	auto cleanup = scope_guard([] { ClearAircraftReservationIndexes(); _vehicle_pool.CleanPool(); _engine_pool.CleanPool(); _station_pool.CleanPool(); DeallocateMap(); });
 	MakeReservationAirport();
 	Aircraft *a = MakeReservationAircraft(TileXY(10,10));
 	a->planned_path = {{TileXY(10,10),TRACKDIR_X_SW,false}, {TileXY(11,10),TRACKDIR_X_SW,false},
@@ -119,7 +141,7 @@ TEST_CASE("Aircraft rolling reservations - old load discards orphan taxi reserva
 {
 	AllocateMap(64, 64);
 	ClearAircraftReservationIndexes();
-	auto cleanup = scope_guard([] { ClearAircraftReservationIndexes(); _vehicle_pool.CleanPool(); _station_pool.CleanPool(); DeallocateMap(); });
+	auto cleanup = scope_guard([] { ClearAircraftReservationIndexes(); _vehicle_pool.CleanPool(); _engine_pool.CleanPool(); _station_pool.CleanPool(); DeallocateMap(); });
 	MakeReservationAirport();
 	Aircraft *a = MakeReservationAircraft(TileXY(10,10));
 	a->state = AS_RUNNING;
