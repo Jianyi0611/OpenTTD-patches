@@ -92,6 +92,7 @@ bool IsExternalCityPassengerOrMail(CargoType cargo);
 std::pair<uint, uint> GetExternalCityTradeCoverage(const ExternalCity *city);
 void ShowExternalCityEconomyWindow(ExternalCityID city);
 void InitializeExternalCityMarket(ExternalCity *city);
+void RegenerateExternalCityTradeCargoes(ExternalCity *city);
 void TickExternalCityMarketSupply(uint day, uint day_tick, uint month_days);
 void RefillExternalCityMarkets();
 bool ExternalIndustryUsesRecipe(IndustryType type);
@@ -127,6 +128,7 @@ struct Viewport;
 struct DrawPixelInfo;
 /** Local display overlay only; never changes city, vehicle or reservation state. */
 void DrawExternalCityBoundaries(const Viewport *viewport, DrawPixelInfo *dpi);
+void MarkExternalCityLabelsDirty(Viewport *viewport);
 
 std::string GetExternalCityTooltipAt(const Viewport *viewport, Point point);
 void ChangeExternalCityOwner(Owner old_owner, Owner new_owner);

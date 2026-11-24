@@ -284,9 +284,10 @@ const std::initializer_list<SlxiSubChunkInfo> _sl_xv_sub_chunk_infos = {
 	{ XSLFI_WAIT_COUPLE_SLOT, XSCF_NULL, 1, 1, "wait_couple_slot", nullptr, nullptr, nullptr },
 	{ XSLFI_DECOUPLE_KEEP_LATENESS, XSCF_NULL, 1, 1, "decouple_keep_lateness", nullptr, nullptr, nullptr },
 	{ XSLFI_WAIT_COUPLE_CRITERIA, XSCF_NULL, 3, 3, "wait_couple_criteria", nullptr, nullptr, nullptr },
-	{ XSLFI_AIRCRAFT_ROLLING_RESERVATION,     XSCF_NULL,                6,   6, "aircraft_rolling_reservation",     nullptr, nullptr, nullptr          },
+	{ XSLFI_AIRCRAFT_ROLLING_RESERVATION,     XSCF_NULL,                9,   9, "aircraft_rolling_reservation",     nullptr, nullptr, nullptr          },
+	{ XSLFI_EXTERNAL_CONNECTIONS, XSCF_NULL, 19, 19, "external_connections", nullptr, nullptr, "EXCT,EXBR" },
+	{ XSLFI_AIRCRAFT_LANDING_BRAKE, XSCF_NULL, 1, 1, "aircraft_landing_brake", nullptr, nullptr, nullptr },
 	{ XSLFI_PASSENGER_DESTINATIONS, XSCF_NULL, 14, 14, "passenger_destinations", nullptr, nullptr, nullptr },
-	{ XSLFI_EXTERNAL_CONNECTIONS, XSCF_NULL, 18, 18, "external_connections", nullptr, nullptr, "EXCT,EXBR" },
 };
 
 /**

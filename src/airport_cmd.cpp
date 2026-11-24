@@ -452,8 +452,9 @@ CommandCost AddAirportTrack(TileIndex tile, Track track, DoCommandFlags flags)
 	if (ret.Failed()) return ret;
 	if (!MayHaveAirTracks(tile)) return CommandCost(STR_ERROR_AIRPORT_CAN_T_HAVE_TRACKS);
 	if (HasAirportTileTrack(tile, track)) return CommandCost(STR_ERROR_ALREADY_BUILT);
-	/* Adding a connection changes the swept directions of an admitted edge turn. */
-	if (GetAircraftAirportEditTracks(tile) != TRACK_BIT_NONE) return CommandCost(STR_ERROR_AIRPORT_PRESENT_AIRCRAFT);
+	/* Occupancy permits track additions, but admitted junction actions and
+	 * planned edge turns must retain their original swept geometry. */
+	if (HasAircraftAirportTrackAdditionConflict(tile, track)) return CommandCost(STR_ERROR_AIRPORT_PRESENT_AIRCRAFT);
 	AirportTileType att = GetAirportTileType(tile);
 	if ((att == ATT_HANGAR_STANDARD || att == ATT_HANGAR_EXTENDED) && !IsDiagonalTrack(track)) return CommandCost(STR_ERROR_AIRPORT_CAN_T_ADD_TRACK_HANGAR);
 
