@@ -29,7 +29,7 @@ src+='\n'+(here/'external_joint_driving.inc').read_text(encoding='utf8')
 g=(root/'src/external_city.cpp').read_text(encoding='utf8').replace('void ServiceExternalCityVehicle(Vehicle *train, bool arrival)','static void ServiceExternalCityVehicleNative(Vehicle *train, bool arrival)',1)
 g+='\nvoid JointMarketBefore(Vehicle*,bool);void JointMarketAfter(Vehicle*,bool);\nvoid ServiceExternalCityVehicle(Vehicle*v,bool arrival){JointMarketBefore(v,arrival);ServiceExternalCityVehicleNative(v,arrival);JointMarketAfter(v,arrival); }\n'
 e=(root/'src/economy.cpp').read_text(encoding='utf8').replace('#include "safeguards.h"','void JointDelivery(VehicleID,const CargoPacket*,uint,Money,bool);\n#include "safeguards.h"',1)
-e=e.replace('this->visual_profit += profit;','this->visual_profit += profit; JointDelivery(this->front->index,cp,count,profit,false);',1)
+e=e.replace('this->visual_profit += profit;','this->visual_profit += profit; JointDelivery(this->front->index,cp,cp->through_fare >= 0 ? accepted : count,profit,false);')
 e=e.replace('this->visual_transfer += profit;','this->visual_transfer += profit; JointDelivery(this->front->index,cp,count,profit,true);',1)
 exe=link(out,{'openttd':src,'external_city':g,'economy':e})
 for name,source in [('lang',build/'lang'),('baseset',args.baseset.resolve())]:shutil.copytree(source,out/name,dirs_exist_ok=True)
