@@ -13,9 +13,11 @@
 #include "core/geometry_type.hpp"
 #include "tilearea_type.h"
 #include "window_type.h"
+#include <functional>
 
 struct Station;
 struct CargoSpec;
+void ShowPassengerTicketQuery(StationID origin = StationID::Invalid());
 
 
 /** Types of cargo to display for station coverage. */

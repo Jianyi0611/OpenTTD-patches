@@ -6170,3 +6170,77 @@ STR_TRACE_RESTRICT_AUTO_REGISTER_RESERVATION                   :領取路籤：�
 STR_TRACE_RESTRICT_AUTO_REGISTER_FRONT                         :領取路籤：車頭通過檢測點時
 STR_TRACE_RESTRICT_AUTO_REGISTER_TAIL                          :領取路籤：車尾通過檢測點時
 STR_TRACE_RESTRICT_AUTO_REGISTER_TOOLTIP                       :{BLACK}選擇何時登記列車。預留模式會提前登記，預留失敗時撤銷；車頭和車尾模式只在對應位置實際通過檢測點後領取。三種模式均使用同一待避路籤。
+STR_PASSENGER_LEG_FARE_TOOLTIP                                  :{BLACK}{STATION} 至 {STATION}{}{BLACK}每人參考票價：{CURRENCY_LONG}{}{BLACK}按兩站距離和統一參考速度估算，實際收入於送達時結算。中途留在原車廂，更換車頭或車次均不另收票價。
+STR_CONFIG_SETTING_PASSENGER_THROUGH_FARES                       :旅客全程票價鎖定：{STRING}
+STR_CONFIG_SETTING_PASSENGER_THROUGH_FARES_HELP                  :啟用固定旅客目的地與自動分配後，首次購票即鎖定至最終目的地的票價。轉乘次數相同、抵達時間接近時，旅客會比較票價。各段按公司或單車定價分帳。轉乘、更換車頭或車次均沿用原票，送達後結算。
+STR_FARE_BUTTON                                                  :旅客票價
+STR_FARE_COMPANY                                                 :公司預設票價
+STR_FARE_TRAIN                                                   :本車票價
+STR_FARE_EDIT                                                    :修改數值
+STR_FARE_RESET                                                   :恢復繼承
+STR_FARE_CUSTOM                                                  :自訂：{NUM}
+STR_FARE_INHERITED                                               :繼承：{NUM}
+STR_FARE_DISTANCE                                                :試算距離：{NUM} 格
+STR_FARE_SPEED                                                   :試算旅行速度：{NUM} km/h
+STR_FARE_PREVIEW                                                 :每人試算票價：{CURRENCY_LONG}
+STR_FARE_INVALID_BANDS                                           :各分界須遞增，請檢查繼承的列車設定
+STR_FARE_SHORT_END                                               :短程截止距離（格）
+STR_FARE_MEDIUM_END                                              :中程截止距離（格）
+STR_FARE_SHORT_PRICE                                             :短途每格票價
+STR_FARE_MEDIUM_PRICE                                            :中途每格票價
+STR_FARE_LONG_PRICE                                              :長途每格票價
+STR_FARE_ECONOMY                                                 :經濟座係數（%）
+STR_FARE_STANDARD                                                :標準座係數（%）
+STR_FARE_COMFORT                                                 :舒適座係數（%）
+STR_FARE_SLOW_END                                                :低速上限（km/h）
+STR_FARE_NORMAL_END                                              :普通上限（km/h）
+STR_FARE_FAST_END                                                :快速上限（km/h）
+STR_FARE_SLOW                                                    :低速票價係數（%）
+STR_FARE_NORMAL                                                  :普通票價係數（%）
+STR_FARE_FAST                                                    :快速票價係數（%）
+STR_FARE_EXPRESS                                                 :高速票價係數（%）
+STR_FARE_CLASS                                                   :售票席別
+STR_FARE_TAB_DISTANCE                                            :距離
+STR_FARE_TAB_SPEED                                               :速度
+STR_FARE_TAB_COMFORT                                             :舒適度
+STR_FARE_RESET_GAME                                              :恢復遊戲預設
+STR_FARE_RESET_COMPANY                                           :跟隨公司票價
+STR_FARE_SEAT_VALUE                                              :目前席別：{STRING}
+STR_FARE_SEAT_ECONOMY                                            :經濟座
+STR_FARE_SEAT_STANDARD                                           :標準座
+STR_FARE_SEAT_COMFORT                                            :舒適座
+STR_FARE_NATIVE                                                  :尚未自訂，沿用原遊戲票價
+STR_FARE_CHART_HELP                                              :點滑桿調價，點右側數值精確設定
+STR_FARE_TRAIN_CAPTION                                           :{VEHICLE} · 旅客票價
+STR_FARE_OWN_TRAIN                                               :本車定價
+STR_FARE_FROM_COMPANY                                            :採用公司設定
+STR_FARE_OWN_COMPANY                                             :公司定價
+STR_FARE_FROM_GAME                                               :遊戲預設
+STR_FARE_FIELD_SOURCE                                            :{STRING} · {STRING}
+STR_FARE_RATE_VALUE                                              :£{DECIMAL}
+STR_FARE_PLAN_BUTTON                                             :本計畫票價
+STR_FARE_TEMPLATE_SAVE                                           :儲存為範本
+STR_FARE_NAMED_TEMPLATE                                          :票價範本：{RAW_STRING}
+STR_FARE_DEFAULT_CHOICE                                          :預設票價
+STR_FARE_NEW_TEMPLATE                                            :新增票價範本
+STR_FARE_RENAME_TEMPLATE                                         :重新命名票價範本
+STR_FARE_COPY_COMPANY_VALUE                                      :使用公司目前值
+STR_FARE_LEVEL_SOLD                                              :售票等級：{RAW_STRING}
+STR_FARE_LEVEL_ADD                                               :＋新增等級
+STR_FARE_LEVEL_ENTRY                                             :{RAW_STRING}（{NUM}%）
+STR_FARE_LEVEL_RENAME                                            :改名
+STR_FARE_LEVEL_REMOVE                                            :刪除此級
+STR_FARE_LEVEL_RATE                                              :票價乘數：{NUM}%
+STR_FARE_LEVEL_NAME                                              :舒適度等級名稱
+STR_FARE_LEVEL_PERCENT                                           :票價乘數（0–500%）
+STR_FARE_REFERENCED_PLAN                                         :目標計畫票價
+STR_FARE_TEMPLATE_APPLY                                          :套用範本
+STR_FARE_TEMPLATE_HELP                                           :儲存或套用距離和舒適度設定。速度沿用本計畫原有的設定。
+STR_FARE_TEMPLATE_NAME                                           :範本名稱（同名將更新）
+STR_FARE_PLAN_CAPTION                                            :{RAW_STRING} · 本計畫票價
+STR_FARE_OWN_PLAN                                                :本計畫定價
+STR_FARE_FROM_PLAN                                               :採用計畫設定
+STR_FARE_RESET_PLAN                                              :跟隨計畫票價
+STR_FARE_RATE_PRECISION                                          :每格票價最多保留一位小數
+STR_FARE_ERROR                                                   :無法修改旅客票價
+STR_PASSENGER_LOCKED_FARE                                        : · 已鎖定全程票價：每人 {CURRENCY_LONG}

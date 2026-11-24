@@ -488,6 +488,7 @@ struct GUISettings : public TimeSettings {
 	uint16_t    console_backlog_length;                          ///< the minimum amount of items in the console backlog before items will be removed.
 
 	uint8_t     station_gui_group_order;                         ///< the order of grouping cargo entries in the station gui
+	uint8_t     station_gui_ticket_group_order;                  ///< Preferred grouping while rail ticket sales are enabled.
 	uint8_t     station_gui_sort_by;                             ///< sort cargo entries in the station gui by station name or amount
 	uint8_t     station_gui_sort_order;                          ///< the sort order of entries in the station gui - ascending or descending
 	uint16_t    network_chat_box_width_pct;                      ///< width of the chat box in percent
@@ -986,6 +987,11 @@ struct OldEconomySettings {
 struct LinkGraphSettings {
 	uint16_t recalc_time;                               ///< time (in days) for recalculating each link graph component.
 	uint16_t recalc_interval;                           ///< time (in days) between subsequent checks for link graphs to be calculated.
+	bool fixed_passenger_destinations; ///< Legacy combined switch, read when migrating older games.
+	DistributionType fixed_destination_demand; ///< Demand pattern to use in fixed-destination mode.
+	bool passenger_ticketing; ///< Sell rail tickets and reserve seats on each booked section.
+	bool passenger_through_fares; ///< Lock newly purchased fares from origin to final destination.
+	bool passenger_route_fares; ///< Price booked rail journeys by their scheduled route.
 	DistributionType distribution_pax;                  ///< distribution type for passengers
 	DistributionType distribution_mail;                 ///< distribution type for mail
 	DistributionType distribution_armoured;             ///< distribution type for armoured cargo class
@@ -1000,10 +1006,23 @@ struct LinkGraphSettings {
 	inline DistributionType GetDistributionType(CargoType cargo) const
 	{
 		if (this->distribution_per_cargo[cargo] != DistributionType::PerCargoDefault) return this->distribution_per_cargo[cargo];
-		if (IsCargoInClass(cargo, CargoClass::Passengers)) return this->distribution_pax;
+		if (IsCargoInClass(cargo, CargoClass::Passengers)) {
+			return this->distribution_pax == DistributionType::FixedDestination ? this->fixed_destination_demand : this->distribution_pax;
+		}
 		if (IsCargoInClass(cargo, CargoClass::Mail)) return this->distribution_mail;
 		if (IsCargoInClass(cargo, CargoClass::Armoured)) return this->distribution_armoured;
 		return this->distribution_default;
+	}
+
+	bool AssignPassengerDestinations() const { return this->distribution_pax == DistributionType::FixedDestination || this->passenger_ticketing; }
+
+	void MigratePassengerTicketing()
+	{
+		this->passenger_ticketing = this->fixed_passenger_destinations;
+		if (this->passenger_ticketing && this->distribution_pax != DistributionType::Manual) {
+			this->fixed_destination_demand = this->distribution_pax;
+			this->distribution_pax = DistributionType::FixedDestination;
+		}
 	}
 };
 

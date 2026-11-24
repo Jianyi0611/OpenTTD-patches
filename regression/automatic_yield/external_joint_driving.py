@@ -6,7 +6,7 @@ parser=argparse.ArgumentParser(description='Native four-mode shared-city transpo
 parser.add_argument('--build-dir',type=Path,required=True)
 parser.add_argument('--baseset',type=Path,required=True)
 parser.add_argument('--output',type=Path,required=True)
-parser.add_argument('--modes',default='direct,shortage,transfer,freight,roundtrip')
+parser.add_argument('--modes',default='direct,shortage,transfer,freight,roundtrip,tickets')
 parser.add_argument('--distributions',default='manual,asymmetric,symmetric')
 parser.add_argument('--phases',default='new,0,1,2,concurrent')
 args=parser.parse_args()
@@ -38,9 +38,11 @@ shutil.copy2(here/'regression.cfg',out/'test.cfg')
 rows=[]
 for dist in args.distributions.split(','):
  for mode in args.modes.split(','):
+  if mode=='tickets' and dist=='manual':continue
   if mode=='freight' and dist=='symmetric':continue # Freight UI offers asymmetric routing; already covered above.
   base=out/(dist+'-'+mode);base.mkdir(exist_ok=True)
   for phase in args.phases.split(','):
+   if mode=='tickets' and phase!='new':continue # Marked ticket groups are introduced after the ready checkpoint.
    case=base if phase=='new' else base/('reload-'+phase);case.mkdir(exist_ok=True)
    env={k:v for k,v in os.environ.items() if not k.startswith('PXP_')};env.update(PXP_JOINT_MODE=mode,PXP_JOINT_DIST=dist,PXP_JOINT_OUTPUT=str(case))
    if phase!='new':env['PXP_JOINT_RELOAD']='1'

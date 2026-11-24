@@ -798,8 +798,20 @@ struct IndustryCompare {
 
 typedef btree::btree_set<IndustryListEntry, IndustryCompare> IndustryList;
 
+/** A recently chosen timed itinerary. Contains no seat reservations. */
+struct PassengerRouteHint {
+	StationID destination;
+	uint64_t tick;
+	uint8_t legs;
+	VehicleID vehicle[2];
+	OrderListID schedule[2];
+	VehicleOrderID cursor[2], board[2], leave[2];
+};
+
 /** Station data structure */
 struct Station final : SpecializedStation<Station, false> {
+	std::map<StationID, PassengerRouteHint> passenger_routes;
+	uint64_t next_passenger_sale = 0; ///< Due time of the next background sale, for fair service across stations.
 public:
 	RoadStop *GetPrimaryRoadStop(RoadStopType type) const
 	{

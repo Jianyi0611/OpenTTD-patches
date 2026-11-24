@@ -10,6 +10,8 @@
 #ifndef COMPANY_CMD_H
 #define COMPANY_CMD_H
 
+#include "order_type.h"
+#include "vehicle_type.h"
 #include "command_type.h"
 #include "company_type.h"
 #include "livery.h"
@@ -42,5 +44,12 @@ DEF_CMD_TUPLE_NT (Commands::BuyShareInCompany,        CmdBuyShareInCompany,     
 DEF_CMD_TUPLE_NT (Commands::SellShareInCompany,       CmdSellShareInCompany,    {},                                         CommandType::MoneyManagement, CmdDataT<CompanyID>)
 DEF_CMD_TUPLE_NT (Commands::BuyCompany,               CmdBuyCompany,            {},                                         CommandType::MoneyManagement, CmdDataT<CompanyID, bool>)
 DEF_CMD_TUPLE_NT (Commands::DeclineBuyCompany,        CmdDeclineBuyCompany,     CMD_NO_EST,                                 CommandType::ServerSetting,   CmdDataT<CompanyID>)
+
+DEF_CMD_TUPLE_NT(Commands::SetScheduleTariff, CmdSetScheduleTariff, {}, CommandType::CompanySetting, CmdDataT<OrderListID, uint8_t, uint16_t>)
+DEF_CMD_TUPLE_NT(Commands::ManageFareTemplate, CmdManageFareTemplate, {}, CommandType::CompanySetting, CmdDataT<OrderListID, bool, std::string>)
+DEF_CMD_TUPLE_NT(Commands::EditFareSeat, CmdEditFareSeat, {}, CommandType::CompanySetting, CmdDataT<OrderListID, uint8_t, std::string, std::string, uint16_t>)
+DEF_CMD_TUPLE_NT(Commands::CompanyFareTemplate, CmdCompanyFareTemplate, {}, CommandType::CompanySetting, CmdDataT<uint16_t, uint8_t, std::string, std::string, uint16_t>)
+DEF_CMD_TUPLE_NT(Commands::SelectTrainFareTemplate, CmdSelectTrainFareTemplate, {}, CommandType::CompanySetting, CmdDataT<VehicleID, uint16_t>)
+DEF_CMD_TUPLE_NT(Commands::SetPassengerTariff, CmdSetPassengerTariff, {}, CommandType::CompanySetting, CmdDataT<VehicleID, uint8_t, uint16_t>)
 
 #endif /* COMPANY_CMD_H */

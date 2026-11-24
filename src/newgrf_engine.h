@@ -23,6 +23,7 @@ struct VehicleScopeResolver : public ScopeResolver {
 	const struct Vehicle *v; ///< The vehicle being resolved.
 	EngineID self_type;      ///< Type of the vehicle.
 	bool rotor_in_gui;       ///< Helicopter rotor is drawn in GUI.
+	bool resolving_sprite = false; ///< Resolve the cab artwork in the physical unit's original order.
 
 	/**
 	 * Scope resolver of a single vehicle.

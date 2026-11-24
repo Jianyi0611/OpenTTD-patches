@@ -1160,6 +1160,9 @@ bool AfterLoadGame()
 		_settings_game.construction.max_tunnel_length = 64;
 	}
 	if (IsSavegameVersionBefore(SLV_166))  _settings_game.economy.infrastructure_maintenance = false;
+	if (SlXvIsFeatureMissing(XSLFI_PASSENGER_DESTINATIONS, 14)) {
+		_settings_game.linkgraph.MigratePassengerTicketing();
+	}
 	if (IsSavegameVersionBefore(SLV_183) && SlXvIsFeatureMissing(XSLFI_CHILLPP)) {
 		_settings_game.linkgraph.distribution_pax = DistributionType::Manual;
 		_settings_game.linkgraph.distribution_mail = DistributionType::Manual;

@@ -372,24 +372,27 @@ public:
 		/* Non-station tiles: require reservation as usual. */
 		TrackdirBits tdb = TrackdirToTrackdirBits(td);
 		if (!HasReservedTracks(tile, TrackdirBitsToTrackBits(tdb))) return nullptr;
-		Train *t = GetTrainForReservation(tile, TrackdirToTrack(td));
 		/* Reservation ownership may resolve a distant train. Only its physical
-		 * presence on this track proves that the search has reached it. */
-		const Train *occupant = nullptr;
-		if (t != nullptr) {
-			for (const Train *part : VehiclesOnTile<VehicleType::Train>(tile)) {
-				if (part->Primary() != t->Primary() || part->vehstatus.Test(VehState::Crashed)) continue;
-				if (part->track & TRACK_BIT_WORMHOLE) {
-					if (!IsTileType(tile, TileType::TunnelBridge) || !IsTrackAcrossTunnelBridge(tile, TrackdirToTrack(td)) ||
-							TileVirtXY(part->x_pos, part->y_pos) != tile) continue;
-				} else if ((part->track & TrackdirBitsToTrackBits(tdb)) == TRACK_BIT_NONE) {
-					continue;
-				}
-				if (occupant == nullptr || part->index < occupant->index) occupant = part;
+		 * presence on this track proves that the search has reached it. Walk the
+		 * reservation only if a waiting train actually occupies the tile. */
+		const Train *owner = nullptr;
+		for (Train *part : VehiclesOnTile<VehicleType::Train>(tile)) {
+			const Train *primary = part->Primary();
+			if (!primary->current_order.IsType(OT_WAIT_COUPLE) || part->vehstatus.Test(VehState::Crashed) ||
+					(this->couple_target_filter != nullptr && primary != this->couple_target_filter)) continue;
+			if (part->track & TRACK_BIT_WORMHOLE) {
+				if (!IsTileType(tile, TileType::TunnelBridge) || !IsTrackAcrossTunnelBridge(tile, TrackdirToTrack(td)) ||
+						TileVirtXY(part->x_pos, part->y_pos) != tile) continue;
+			} else if ((part->track & TrackdirBitsToTrackBits(tdb)) == TRACK_BIT_NONE) {
+				continue;
 			}
+			if (owner == nullptr) {
+				owner = GetTrainForReservation(tile, TrackdirToTrack(td));
+				if (owner == nullptr) return nullptr;
+			}
+			if (owner->Primary() == primary) return ValidateCoupleCandidate(Yapf().GetVehicle(), part->First(), tile, true, claim_cost, &this->dest_order);
 		}
-		if (occupant == nullptr || (this->couple_target_filter != nullptr && t->Primary() != this->couple_target_filter)) return nullptr;
-		return ValidateCoupleCandidate(Yapf().GetVehicle(), t->First(), tile, true, claim_cost, &this->dest_order);
+		return nullptr;
 	}
 
 	/** @copydoc CYapfBaseT::PfCalcEstimateFunc */

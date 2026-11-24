@@ -166,6 +166,30 @@ NamedSaveLoadTable GetCargoPacketDesc()
 		NSL("periods_in_transit", SLE_CONDVAR_X(CargoPacket, periods_in_transit, SLE_FILE_U8 | SLE_VAR_U16, SL_MIN_VERSION, SL_MAX_VERSION, SlXvFeatureTest(XSLFTO_AND, XSLFI_MORE_CARGO_AGE, 0, 0))),
 		NSL("periods_in_transit", SLE_CONDVAR_X(CargoPacket, periods_in_transit, SLE_UINT16, SL_MIN_VERSION, SL_MAX_VERSION, SlXvFeatureTest(XSLFTO_AND, XSLFI_MORE_CARGO_AGE))),
 		NSL("feeder_share",       SLE_VAR(CargoPacket, feeder_share,             SLE_INT64)),
+		NSL("passenger_destination", SLE_CONDVAR_X(CargoPacket, passenger_destination, SLE_UINT16, SL_MIN_VERSION, SL_MAX_VERSION, SlXvFeatureTest(XSLFTO_AND, XSLFI_PASSENGER_DESTINATIONS))),
+		NSL("passenger_alight", SLE_CONDVAR_X(CargoPacket, passenger_alight, SLE_UINT16, SL_MIN_VERSION, SL_MAX_VERSION, SlXvFeatureTest(XSLFTO_AND, XSLFI_PASSENGER_DESTINATIONS, 2))),
+		NSL("ticket_train", SLE_CONDVAR_X(CargoPacket, ticket.train, SLE_UINT32, SL_MIN_VERSION, SL_MAX_VERSION, SlXvFeatureTest(XSLFTO_AND, XSLFI_PASSENGER_DESTINATIONS, 3))),
+		NSL("ticket_schedule", SLE_CONDVAR_X(CargoPacket, ticket.schedule, SLE_UINT16, SL_MIN_VERSION, SL_MAX_VERSION, SlXvFeatureTest(XSLFTO_AND, XSLFI_PASSENGER_DESTINATIONS, 3))),
+		NSL("ticket_call", SLE_CONDVAR_X(CargoPacket, ticket.call, SLE_UINT16, SL_MIN_VERSION, SL_MAX_VERSION, SlXvFeatureTest(XSLFTO_AND, XSLFI_PASSENGER_DESTINATIONS, 3))),
+		NSL("bus_via", SLE_CONDVAR_X(CargoPacket, ticket.bus_via, SLE_UINT16, SL_MIN_VERSION, SL_MAX_VERSION, SlXvFeatureTest(XSLFTO_AND, XSLFI_PASSENGER_DESTINATIONS, 6))),
+		NSL("ticket_alight", SLE_CONDVAR_X(CargoPacket, ticket.alight, SLE_UINT16, SL_MIN_VERSION, SL_MAX_VERSION, SlXvFeatureTest(XSLFTO_AND, XSLFI_PASSENGER_DESTINATIONS, 3))),
+		NSL("ticket_timetable_duration", SLE_CONDVAR_X(CargoPacket, ticket.timetable_duration, SLE_INT32, SL_MIN_VERSION, SL_MAX_VERSION, SlXvFeatureTest(XSLFTO_AND, XSLFI_PASSENGER_DESTINATIONS, 3))),
+		NSL("ticket_untimed", SLE_CONDVAR_X(CargoPacket, ticket.untimed, SLE_BOOL, SL_MIN_VERSION, SL_MAX_VERSION, SlXvFeatureTest(XSLFTO_AND, XSLFI_PASSENGER_DESTINATIONS, 3))),
+		NSL("ticket_number", SLE_CONDSSTR_X(CargoPacket, ticket.number, SLE_STR, SL_MIN_VERSION, SL_MAX_VERSION, SlXvFeatureTest(XSLFTO_AND, XSLFI_PASSENGER_DESTINATIONS, 3))),
+		NSL("ticket_rebooking", SLE_CONDVAR_X(CargoPacket, ticket.rebooking, SLE_UINT8, SL_MIN_VERSION, SL_MAX_VERSION, SlXvFeatureTest(XSLFTO_AND, XSLFI_PASSENGER_DESTINATIONS, 4))),
+		NSL("ticket_visit", SLE_CONDVAR_X(CargoPacket, ticket.visit, SLE_UINT8, SL_MIN_VERSION, SL_MAX_VERSION, SlXvFeatureTest(XSLFTO_AND, XSLFI_PASSENGER_DESTINATIONS, 5))),
+		NSL("ticket_reviewed", SLE_CONDVAR_X(CargoPacket, ticket.reviewed, SLE_BOOL, SL_MIN_VERSION, SL_MAX_VERSION, SlXvFeatureTest(XSLFTO_AND, XSLFI_PASSENGER_DESTINATIONS, 5))),
+		NSL("ticket_capacity", SLE_CONDVAR_X(CargoPacket, ticket.capacity, SLE_UINT32, SL_MIN_VERSION, SL_MAX_VERSION, SlXvFeatureTest(XSLFTO_AND, XSLFI_PASSENGER_DESTINATIONS, 5))),
+		NSL("ticket_issued", SLE_CONDVAR_X(CargoPacket, ticket.issued, SLE_UINT64, SL_MIN_VERSION, SL_MAX_VERSION, SlXvFeatureTest(XSLFTO_AND, XSLFI_PASSENGER_DESTINATIONS, 5))),
+		NSL("passenger_start_tick", SLE_CONDVAR_X(CargoPacket, passenger_start_tick, SLE_UINT64, SL_MIN_VERSION, SL_MAX_VERSION, SlXvFeatureTest(XSLFTO_AND, XSLFI_PASSENGER_DESTINATIONS))),
+		NSL("ticket_quoted_fare", SLE_CONDVAR_X(CargoPacket, ticket.quoted_fare, SLE_INT32, SL_MIN_VERSION, SL_MAX_VERSION, SlXvFeatureTest(XSLFTO_AND, XSLFI_PASSENGER_DESTINATIONS, 9))),
+		NSL("ticket_quoted_shares", SLE_CONDVARVEC_X(CargoPacket, ticket.quoted_shares, SLE_UINT32, SL_MIN_VERSION, SL_MAX_VERSION, SlXvFeatureTest(XSLFTO_AND, XSLFI_PASSENGER_DESTINATIONS, 9))),
+		NSL("fare_shares", SLE_CONDVARVEC_X(CargoPacket, fare_shares, SLE_UINT32, SL_MIN_VERSION, SL_MAX_VERSION, SlXvFeatureTest(XSLFTO_AND, XSLFI_PASSENGER_DESTINATIONS, 9))),
+		NSL("ticket_quoted_distance", SLE_CONDVAR_X(CargoPacket, ticket.quoted_distance, SLE_UINT32, SL_MIN_VERSION, SL_MAX_VERSION, SlXvFeatureTest(XSLFTO_AND, XSLFI_PASSENGER_DESTINATIONS, 13))),
+		NSL("through_distance", SLE_CONDVAR_X(CargoPacket, through_distance, SLE_UINT32, SL_MIN_VERSION, SL_MAX_VERSION, SlXvFeatureTest(XSLFTO_AND, XSLFI_PASSENGER_DESTINATIONS, 13))),
+		NSL("through_fare", SLE_CONDVAR_X(CargoPacket, through_fare, SLE_INT32, SL_MIN_VERSION, SL_MAX_VERSION, SlXvFeatureTest(XSLFTO_AND, XSLFI_PASSENGER_DESTINATIONS, 8))),
+		NSL("fare_interchange", SLE_CONDVAR_X(CargoPacket, fare_interchange, SLE_UINT32, SL_MIN_VERSION, SL_MAX_VERSION, SlXvFeatureTest(XSLFTO_AND, XSLFI_PASSENGER_DESTINATIONS, 8))),
+		NSL("fare_mileage", SLE_CONDVARVEC_X(CargoPacket, fare_mileage, SLE_UINT32, SL_MIN_VERSION, SL_MAX_VERSION, SlXvFeatureTest(XSLFTO_AND, XSLFI_PASSENGER_DESTINATIONS, 8))),
 		NSL("external_source_city", SLE_CONDVAR_X(CargoPacket, external_source_city, SLE_UINT16, SL_MIN_VERSION, SL_MAX_VERSION, SlXvFeatureTest(XSLFTO_AND, XSLFI_EXTERNAL_CONNECTIONS, 8))),
 		NSL("external_distance", SLE_CONDVAR_X(CargoPacket, external_distance, SLE_UINT16, SL_MIN_VERSION, SL_MAX_VERSION, SlXvFeatureTest(XSLFTO_AND, XSLFI_EXTERNAL_CONNECTIONS, 8))),
 		NSL("source_type",        SLE_CONDVAR(CargoPacket, source.type,          SLE_UINT8,  SLV_125, SL_MAX_VERSION)),
@@ -203,6 +227,17 @@ static void Load_CAPA()
 	while ((index = SlIterateArray()) != -1) {
 		CargoPacket *cp = CargoPacket::CreateAtIndex(CargoPacketID(index));
 		SlObjectLoadFiltered(cp, slt);
+		auto validate = [](const std::vector<uint32_t> &shares, int32_t price) {
+			if (shares.empty()) return;
+			if (price < 0 || shares.size() % 2 != 0) SlErrorCorrupt("Invalid fare allocation");
+			uint64_t total = 0;
+			for (size_t i = 0; i < shares.size(); i += 2) total += shares[i + 1];
+			if (total != static_cast<uint32_t>(price)) SlErrorCorrupt("Inconsistent fare allocation");
+		};
+		validate(cp->fare_shares, cp->through_fare);
+		validate(cp->ticket.quoted_shares, cp->ticket.quoted_fare);
+		if (cp->fare_mileage.size() > MAX_COMPANIES * 4 || cp->through_fare < -1 ||
+				(cp->fare_interchange != INVALID_TILE && cp->fare_interchange.base() >= Map::Size())) SlErrorCorrupt("Invalid passenger fare");
 	}
 }
 

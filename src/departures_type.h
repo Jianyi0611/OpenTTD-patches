@@ -122,6 +122,7 @@ struct Departure {
 	uint32_t sequence_id = 0;              ///< Nominal sequence ID, used in determining vehicle_idx
 	uint32_t vehicle_idx = 0;              ///< Nominal vehicle index within a shared order group
 	std::string schedule_route_id;         ///< Scheduled dispatch route ID
+	std::optional<std::string> live_departure_number; ///< Outbound service at this particular visit in the live prediction.
 
 	inline bool operator==(const Departure& d) const {
 		if (this->calling_at.size() != d.calling_at.size()) return false;

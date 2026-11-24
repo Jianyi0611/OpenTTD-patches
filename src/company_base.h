@@ -10,6 +10,7 @@
 #ifndef COMPANY_BASE_H
 #define COMPANY_BASE_H
 
+#include "passenger_fare.h"
 #include "road_type.h"
 #include "livery.h"
 #include "autoreplace_type.h"
@@ -81,8 +82,47 @@ DECLARE_ENUM_AS_BIT_SET(CompanyBankruptcyFlags)
 typedef Pool<Company, CompanyID, 1> CompanyPool;
 extern CompanyPool _company_pool;
 
+/** A snapshot of distance and comfort prices. Speed is a property of the target plan. */
+struct FareTemplate {
+	static constexpr uint MAX_COUNT = 256;
+	static constexpr uint NAME_CHARS = 48;
+	static constexpr PassengerTariff::Field fields[] = {
+		PassengerTariff::ShortEnd, PassengerTariff::MediumEnd, PassengerTariff::ShortPrice, PassengerTariff::MediumPrice, PassengerTariff::LongPrice,
+		PassengerTariff::Class, PassengerTariff::Economy, PassengerTariff::Standard, PassengerTariff::Comfort,
+	};
+	std::string name;
+	std::array<uint16_t, std::size(fields)> rates{};
+	FareSeating seating;
+	void ApplyRates(PassengerTariff &target) const
+	{
+		for (size_t i = 0; i < rates.size(); ++i) target.values[fields[i]] = rates[i];
+	}
+	void Capture(const PassengerTariff &source, const PassengerTariff &company)
+	{
+		for (size_t i = 0; i < rates.size(); ++i) rates[i] = source.Get(fields[i], company) + 1;
+	}
+};
+
 /** Statically loadable part of Company pool item */
 struct CompanyProperties {
+	PassengerTariff passenger_tariff{};
+	std::vector<FareTemplate> fare_templates;
+	const FareTemplate *FareTemplateByID(uint16_t id) const
+	{
+		return id && id <= fare_templates.size() ? &fare_templates[id - 1] : nullptr;
+	}
+	uint64_t QuotePassengerFare(uint distance, uint speed, const PassengerTariff &train, const ScheduleTariff *plan) const
+	{
+		if (const FareTemplate *item = FareTemplateByID(train.template_id)) {
+			auto rates = train;
+			item->ApplyRates(rates);
+			const auto &seats = item->seating;
+			std::optional<uint> percent;
+			if (seats.selected < seats.levels.size()) percent = seats.levels[seats.selected].percent;
+			return rates.Price(distance, speed, passenger_tariff, plan, percent);
+		}
+		return plan ? plan->Quote(distance, speed, passenger_tariff, train) : train.Price(distance, speed, passenger_tariff);
+	}
 	uint32_t name_2 = 0;                     ///< Parameter of #name_1.
 	StringID name_1 = INVALID_STRING_ID;     ///< Name of the company if the user did not change it.
 	std::string name{};                      ///< Name of the company if the user changed it.

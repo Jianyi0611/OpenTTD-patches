@@ -58,6 +58,8 @@
 #include <set>
 #include <vector>
 
+#include "passenger_journey.h"
+#include "train.h"
 #include "safeguards.h"
 
 
@@ -955,6 +957,7 @@ static constexpr std::initializer_list<NWidgetPart> _nested_station_view_widgets
 				SetStringTip(STR_STATION_VIEW_RATINGS_BUTTON, STR_STATION_VIEW_RATINGS_TOOLTIP),
 		NWidget(WWT_PUSHTXTBTN, Colours::Grey, WID_SV_HISTORY), SetMinimalSize(60, 12), SetResize(1, 0), SetFill(1, 1),
 				SetStringTip(STR_STATION_VIEW_HISTORY_BUTTON, STR_STATION_VIEW_HISTORY_TOOLTIP),
+		NWidget(WWT_PUSHTXTBTN, Colours::Grey, WID_SV_TICKET_QUERY), SetFill(1, 1), SetStringTip(STR_TQ_TITLE, STR_TQ_TITLE),
 		NWidget(WWT_PUSHTXTBTN, Colours::Grey, WID_SV_DEPARTURES), SetMinimalSize(46, 12), SetResize(1, 0), SetFill(1, 1),
 				SetStringTip(STR_STATION_VIEW_DEPARTURES_BUTTON, STR_STATION_VIEW_DEPARTURES_TOOLTIP),
 		NWidget(NWID_SELECTION, Colours::Invalid, WID_SV_CLOSE_AIRPORT_SEL),
@@ -1427,6 +1430,7 @@ struct StationViewWindow : public Window {
 		STR_STATION_VIEW_GROUP_V_D_S,
 		STR_STATION_VIEW_GROUP_D_S_V,
 		STR_STATION_VIEW_GROUP_D_V_S,
+		STR_PASSENGER_SERVICE_GROUP,
 	};
 
 	/**
@@ -1442,13 +1446,231 @@ struct StationViewWindow : public Window {
 
 	int scroll_to_row = INT_MAX;                 ///< If set, scroll the main viewport to the station pointed to by this row.
 	int grouping_index = 0;                      ///< Currently selected entry in the grouping drop down.
+	bool passenger_group_default = false;
+
+	void ApplyGroupingPreference()
+	{
+		const auto &settings = _settings_game.linkgraph;
+		const CargoType pax = GetCargoTypeByLabel(CT_PASSENGERS);
+		this->passenger_group_default = this->current_mode == MODE_WAITING && pax != INVALID_CARGO && settings.AssignPassengerDestinations() && settings.GetDistributionType(pax) != DistributionType::Manual;
+		int index = this->passenger_group_default ? _settings_client.gui.station_gui_ticket_group_order : _settings_client.gui.station_gui_group_order;
+		if (this->current_mode == MODE_PLANNED && group_names[index] == STR_PASSENGER_SERVICE_GROUP) index = 0;
+		this->SelectGroupBy(index);
+	}
 	int ratings_list_y = 0;                      ///< Y coordinate of first line in station ratings panel.
 	Mode current_mode{};                         ///< Currently selected display mode of cargo view.
 	std::array<Grouping, NUM_COLUMNS> groupings; ///< Grouping modes for the different columns.
 
 	CargoDataEntry expanded_rows{}; ///< Parent entry of currently expanded rows.
 	CargoDataEntry cached_destinations{}; ///< Cache for the flows passing through this station.
+	std::map<int, StationID> journey_rows; ///< Visible destination rows, indexed by their top pixel.
+	std::set<StationID> fixed_destinations;
 	CargoDataVector displayed_rows{}; ///< Parent entry of currently displayed rows (including collapsed ones).
+
+	/* Keep expansion state by the whole branch: the same public number may belong to several schedules. */
+	struct ServiceKey {
+		int id;
+		std::string number;
+		VehicleID train = VehicleID::Invalid();
+		VehicleOrderID call = INVALID_VEH_ORDER_ID;
+		uint8_t visit = 0;
+		StationID bus_stop = StationID::Invalid();
+		int32_t through_fare = -1;
+		uint32_t through_distance = 0;
+		auto operator<=>(const ServiceKey &) const = default;
+	};
+	using ServicePath = std::vector<ServiceKey>;
+	struct ServiceNode {
+		uint count = 0;
+		bool expanded = false;
+		bool has_children = false;
+		bool untimed = false;
+		std::map<ServiceKey, ServiceNode> children;
+		ServiceNode &Add(ServiceKey key, uint count)
+		{
+			auto &node = this->children[std::move(key)];
+			node.count += count;
+			return node;
+		}
+	};
+	enum class TicketSection : uint8_t { Pending, Connections, Booked, Reserved };
+	struct ServiceRow {
+		TicketSection section;
+		ServicePath path;
+		std::string label;
+		bool expandable;
+		uint count;
+		bool untimed = false;
+	};
+	std::vector<ServiceRow> service_rows;
+	std::set<ServicePath> expanded_services;
+	std::map<size_t, size_t> visible_services;
+	std::set<TicketSection> open_ticket_sections{TicketSection::Booked};
+
+	bool ShowPassengerServices(CargoType cargo) const
+	{
+		return group_names[this->grouping_index] == STR_PASSENGER_SERVICE_GROUP && this->current_mode == MODE_WAITING &&
+				cargo != INVALID_CARGO && cargo == GetCargoTypeByLabel(CT_PASSENGERS);
+	}
+
+	std::string ServiceLabel(CargoType cargo, size_t depth, const ServiceKey &key, uint count) const
+	{
+		const auto id = key.id;
+		const auto &number = key.number;
+		if (depth == 1 && id == -2) return GetString(STR_STATION_VIEW_RESERVED, cargo, count);
+		StationID stop{static_cast<uint16_t>(id)};
+		switch (depth) {
+			case 4: return GetString(this->GetGroupingString(GR_SOURCE, stop), cargo, count, stop);
+			case 1: {
+				if (id == -9) {
+					auto text = GetString(STR_PASSENGER_SERVICE_BUS, cargo, count, key.bus_stop);
+					if (!number.empty()) text += GetString(STR_PASSENGER_PLANNED_TRAIN, number);
+					return text;
+				}
+				if (id == -8) return GetString(STR_PASSENGER_SERVICE_TRANSFER_WAIT, cargo, count);
+				if (id == -7) return GetString(STR_PASSENGER_SERVICE_FULL, cargo, count);
+				if (id == -3) return GetString(STR_PASSENGER_SERVICE_NO_DESTINATION, cargo, count);
+				if (id == -4 || id == -5 || id == -6) {
+					auto label = GetString(id == -4 ? STR_PASSENGER_REBOOK_DEPARTED : id == -5 ? STR_PASSENGER_REBOOK_CHANGED : STR_PASSENGER_REBOOK_CONNECTION, cargo, count);
+					if (!number.empty()) label += " · " + number;
+					return label;
+				}
+				if (id < 0) return GetString(_settings_game.linkgraph.passenger_ticketing ? STR_PASSENGER_SERVICE_PENDING : STR_PASSENGER_DESTINATION_KNOWN, cargo, count);
+				std::string result;
+				if (!number.empty()) result = number + " · ";
+				if (const Vehicle *train = Vehicle::GetIfValid(key.train); train != nullptr) {
+					/* A custom vehicle name replaces its fleet number in the standard formatter. */
+					if (train->name.empty()) {
+						result += GetString(key.visit == 0 ? STR_PASSENGER_DEPARTURE_NEXT : STR_PASSENGER_DEPARTURE_FOLLOWING, train->index);
+					} else {
+						result += GetString(key.visit == 0 ? STR_PASSENGER_DEPARTURE_NAMED : STR_PASSENGER_DEPARTURE_NAMED_FOLLOWING, train->index, train->unitnumber);
+					}
+				} else {
+					result += GetString(STR_PASSENGER_SERVICE_SCHEDULE, id);
+				}
+				return result;
+			}
+			case 2: return stop == StationID::Invalid() ? GetString(STR_PASSENGER_SERVICE_ALIGHT_PENDING, cargo, count) : GetString(STR_PASSENGER_SERVICE_ALIGHT, cargo, count, stop);
+			case 3: {
+				auto label = GetString(STR_PASSENGER_SERVICE_DESTINATION, cargo, count, stop);
+				if (key.through_fare >= 0) label += GetString(STR_PASSENGER_LOCKED_FARE, key.through_fare);
+				if (key.through_distance) label += GetString(STR_PASSENGER_TICKET_DISTANCE, key.through_distance);
+				return label;
+			}
+			default: NOT_REACHED();
+		}
+	}
+
+	void AppendServiceRows(CargoType cargo, TicketSection section, const ServiceNode &parent, ServicePath &path)
+	{
+		using Entry = decltype(parent.children)::value_type;
+		std::vector<const Entry *> siblings;
+		for (const auto &entry : parent.children) {
+			if (entry.second.count != 0) siblings.push_back(&entry);
+		}
+		auto rank = [&](const Entry *left, const Entry *right) {
+			if (this->sortings[1] == CargoSortType::Count && left->second.count != right->second.count) return left->second.count < right->second.count;
+			if (path.empty()) {
+				const int cmp = StrNaturalCompare(left->first.number, right->first.number);
+				if (cmp != 0) return cmp < 0;
+			} else {
+				const Station *a = Station::GetIfValid(StationID{static_cast<uint16_t>(left->first.id)});
+				const Station *b = Station::GetIfValid(StationID{static_cast<uint16_t>(right->first.id)});
+				if (a != nullptr && b != nullptr) {
+					const int cmp = StrNaturalCompare(a->GetCachedName(), b->GetCachedName());
+					if (cmp != 0) return cmp < 0;
+				} else if (a != b) {
+					return a == nullptr;
+				}
+			}
+			return left->first < right->first;
+		};
+		std::sort(siblings.begin(), siblings.end(), [&](const Entry *a, const Entry *b) { return this->sort_orders[1] == SO_ASCENDING ? rank(a, b) : rank(b, a); });
+		for (const Entry *entry : siblings) {
+			const auto &[key, node] = *entry;
+			path.push_back(key);
+			size_t depth = path.size();
+			if (section != TicketSection::Booked && depth > 1) ++depth; // Unbooked passengers have no boarding or alighting call.
+			const bool expandable = node.has_children || (depth == 1 && key.id != -3);
+			auto label = this->ServiceLabel(cargo, depth, key, node.count);
+			if (section == TicketSection::Booked && depth == 3 && path[1].id != key.id) {
+				const auto *change = Station::GetIfValid(StationID{static_cast<uint16_t>(path[1].id)});
+				/* A mixed-mode interchange can continue by bus, ship or air without a rail ticket. */
+				if (change && !change->facilities.Any({StationFacility::BusStop, StationFacility::Dock, StationFacility::Airport})) {
+					label += GetString(STR_PASSENGER_LIST_CONNECTION_AT, change->index);
+				}
+			}
+			this->service_rows.push_back({section, path, std::move(label), expandable, node.count, node.untimed});
+			if (node.expanded) this->AppendServiceRows(cargo, section, node, path);
+			path.pop_back();
+		}
+	}
+
+	void BuildServiceRows(CargoType cargo, const StationCargoList &packets)
+	{
+		std::array<ServiceNode, 4> sections;
+		PassengerServices::ReplayCache boarding_numbers;
+		/* Look up expanded paths once per repaint. Hidden descendants only
+		 * need a count and a plus sign until the player expands that row. */
+		for (TicketSection section : this->open_ticket_sections) {
+			for (const ServicePath &path : this->expanded_services) {
+				ServiceNode *node = &sections[to_underlying(section)];
+				for (const auto &key : path) node = &node->children[key];
+				node->expanded = true;
+			}
+		}
+		for (const auto &[next, bucket] : *packets.Packets()) {
+			for (const CargoPacket *packet : bucket) {
+				const PassengerTicket &ticket = packet->ticket;
+				const bool booked = _settings_game.linkgraph.passenger_ticketing &&
+						_settings_game.linkgraph.GetDistributionType(cargo) != DistributionType::Manual && ticket.train != VehicleID::Invalid();
+				const bool awaiting_connection = _settings_game.linkgraph.passenger_ticketing &&
+						(ticket.rebooking == PassengerRebooking::Bus || ticket.rebooking == PassengerRebooking::Connection || ticket.rebooking == PassengerRebooking::Departed || ticket.rebooking == PassengerRebooking::ServiceChanged);
+				const TicketSection section = booked ? TicketSection::Booked : awaiting_connection ? TicketSection::Connections : TicketSection::Pending;
+				ServiceNode &parent = sections[to_underlying(section)];
+				const uint count = packet->Count();
+				parent.count += count;
+				if (!this->open_ticket_sections.contains(section)) continue;
+				ServiceKey key{-1, {}};
+				if (booked) {
+					key = {ticket.schedule.base(), std::string(boarding_numbers.BookedNumber(ticket, StationID{static_cast<uint16_t>(this->window_number)})), ticket.train, ticket.call, ticket.visit};
+				} else if (ticket.rebooking == PassengerRebooking::Bus && awaiting_connection) {
+					key = {-9, ticket.number};
+					key.bus_stop = ticket.alight;
+				} else if (ticket.rebooking == PassengerRebooking::Connection && awaiting_connection) {
+					key = {-8, {}};
+				} else if (!awaiting_connection && packet->passenger_destination == StationID::Invalid()) {
+					key = {-3, {}};
+				} else if (_settings_game.linkgraph.passenger_ticketing && ticket.rebooking != PassengerRebooking::None) {
+					key = {-3 - static_cast<int>(ticket.rebooking), ticket.number};
+				}
+				ServiceNode &service = parent.Add(std::move(key), count);
+				service.untimed |= booked && ticket.untimed;
+				if (!service.expanded || packet->passenger_destination == StationID::Invalid()) continue;
+				auto &destinations = booked ? service.Add({ticket.alight.base(), {}}, count) : service;
+				service.has_children = true;
+				destinations.has_children = true;
+				if (!destinations.expanded) continue;
+				ServiceKey destination{packet->passenger_destination.base(), {}};
+				destination.through_fare = packet->through_fare;
+				destination.through_distance = packet->through_distance;
+				auto &dest = destinations.Add(std::move(destination), count);
+				dest.has_children = true;
+				if (dest.expanded) dest.Add({packet->GetFirstStation().base(), {}}, count);
+			}
+		}
+		sections[to_underlying(TicketSection::Reserved)].count = packets.ReservedCount();
+		static constexpr StringID labels[] = {STR_PASSENGER_LIST_PENDING, STR_PASSENGER_LIST_CONNECTIONS, STR_PASSENGER_LIST_BOOKED, STR_PASSENGER_LIST_RESERVED};
+		ServicePath path;
+		for (TicketSection section : {TicketSection::Pending, TicketSection::Connections, TicketSection::Booked, TicketSection::Reserved}) {
+			const auto &node = sections[to_underlying(section)];
+			if (node.count == 0) continue;
+			const bool walkup = section == TicketSection::Pending && !_settings_game.linkgraph.passenger_ticketing;
+			this->service_rows.push_back({section, {}, GetString(walkup ? STR_PASSENGER_LIST_WALKUP : labels[to_underlying(section)]), section != TicketSection::Reserved, node.count});
+			if (this->open_ticket_sections.contains(section)) this->AppendServiceRows(cargo, section, node, path);
+		}
+	}
+
 
 	bool place_object_active = false;
 
@@ -1463,7 +1685,7 @@ struct StationViewWindow : public Window {
 
 		this->groupings[0] = GR_CARGO;
 		this->sortings[0] = CargoSortType::AsGrouping;
-		this->SelectGroupBy(_settings_client.gui.station_gui_group_order);
+		this->ApplyGroupingPreference();
 		this->SelectSortBy(_settings_client.gui.station_gui_sort_by);
 		this->sort_orders[0] = SO_ASCENDING;
 		this->SelectSortOrder((SortOrder)_settings_client.gui.station_gui_sort_order);
@@ -1544,7 +1766,7 @@ struct StationViewWindow : public Window {
 		switch (widget) {
 			case WID_SV_WAITING:
 				fill.height = resize.height = this->line_height;
-				size.height = 4 * resize.height + padding.height;
+				size.height = 7 * resize.height + padding.height;
 				break;
 
 			case WID_SV_ACCEPT_RATING_LIST:
@@ -1568,6 +1790,39 @@ struct StationViewWindow : public Window {
 
 	bool OnTooltip(Point pt, WidgetID widget, TooltipCloseCondition close_cond) override
 	{
+		if (widget == WID_SV_WAITING) {
+			const int row = this->vscroll->GetScrolledRowFromWidget(pt.y, this, widget, WidgetDimensions::scaled.framerect.top) - this->vscroll->GetPosition();
+			if (auto item = this->visible_services.find(row); item != this->visible_services.end()) {
+				const ServiceRow &service = this->service_rows[item->second];
+				if (service.section != TicketSection::Booked || service.path.size() != 2) return false;
+				const ServiceKey &booking = service.path.front();
+				const auto *train = Train::GetIfValid(booking.train);
+				const auto *stop = Station::GetIfValid(StationID{static_cast<uint16_t>(service.path.back().id)});
+				const Station *from = Station::Get(this->window_number);
+				if (train == nullptr || train->orders == nullptr || train->orders->index.base() != booking.id || stop == nullptr) return false;
+				const auto fare = EstimatePassengerLegFare(*train, booking.call, *from, *stop);
+				if (!fare) return false;
+				GuiShowTooltips(this, GetEncodedString(_settings_game.linkgraph.passenger_through_fares && _settings_game.linkgraph.passenger_route_fares ? STR_PASSENGER_ROUTE_FARE_TOOLTIP : STR_PASSENGER_LEG_FARE_TOOLTIP, from->index, stop->index, *fare), close_cond);
+				return true;
+			}
+			auto it = this->journey_rows.upper_bound(pt.y);
+			if (it == this->journey_rows.begin()) return false;
+			--it;
+			if (pt.y >= it->first + static_cast<int>(this->line_height)) return false;
+			const PassengerJourney choice = PassengerServices().Choose(StationID(this->window_number), it->second);
+			if (choice.train == VehicleID::Invalid() || choice.arrival < 0) {
+				GuiShowTooltips(this, GetEncodedString(STR_PASSENGER_JOURNEY_UNKNOWN), close_cond);
+			} else {
+				const int minute = std::max<int>(1, _settings_game.game_time.ticks_per_minute);
+				StringID reason = choice.alternative_arrival < 0 ? STR_PASSENGER_JOURNEY_ONLY :
+						choice.arrival < choice.alternative_arrival ? STR_PASSENGER_JOURNEY_EARLIER :
+						choice.arrival > choice.alternative_arrival ? STR_PASSENGER_JOURNEY_FEWER : STR_PASSENGER_JOURNEY_TIE;
+				const int64_t difference = (std::abs(choice.arrival - choice.alternative_arrival) + minute - 1) / minute;
+				GuiShowTooltips(this, GetEncodedString(choice.alight == it->second ? STR_PASSENGER_JOURNEY_DIRECT : STR_PASSENGER_JOURNEY_CHANGE,
+						choice.train, choice.alight, (choice.arrival + minute - 1) / minute, reason, difference), close_cond);
+			}
+			return true;
+		}
 		if (widget == WID_SV_RENAME) {
 			GuiShowTooltips(this, GetEncodedString(STR_STATION_VIEW_RENAME_TOOLTIP_EXTRA, STR_STATION_VIEW_EDIT_TOOLTIP, STR_BUTTON_DEFAULT), close_cond);
 			return true;
@@ -1598,10 +1853,14 @@ struct StationViewWindow : public Window {
 	void OnPaint() override
 	{
 		const Station *st = Station::Get(this->window_number);
+		this->service_rows.clear();
+		this->visible_services.clear();
+		this->fixed_destinations.clear();
+		this->journey_rows.clear();
 		CargoDataEntry cargo;
 		BuildCargoList(&cargo, st);
 
-		this->vscroll->SetCount(cargo.GetNumChildren()); // update scrollbar
+		this->vscroll->SetCount(cargo.GetNumChildren() + this->service_rows.size());
 
 		EnumBitSet<VehicleType, uint8_t> have_veh_types{};
 		IterateOrderRefcountMapForDestinationID(st->index, [&](CompanyID cid, OrderType order_type, VehicleType veh_type, uint32_t refcount) {
@@ -1790,12 +2049,19 @@ struct StationViewWindow : public Window {
 	 * @param packets The current station's cargo list for that cargo.
 	 * @param entry The CargoDataEntry to save the result in.
 	 */
-	void BuildCargoList(CargoType cargo, const StationCargoList &packets, CargoDataEntry *entry)
+	void BuildCargoList(CargoType cargo, const StationCargoList &packets, CargoDataEntry *entry, bool fixed_waiting)
 	{
 		const CargoDataEntry *source_dest = this->cached_destinations.Retrieve(cargo);
 		for (StationCargoList::ConstIterator it = packets.Packets()->begin(); it != packets.Packets()->end(); it++) {
 			const CargoPacket *cp = *it;
 			StationID next = it.GetKey();
+			if (fixed_waiting || cp->passenger_destination != StationID::Invalid()) {
+				if (cp->passenger_destination != StationID::Invalid()) this->fixed_destinations.insert(cp->passenger_destination);
+				/* Display the stop on the ticket when it supersedes the CargoDist hop. */
+				if (fixed_waiting && (cp->ticket.train != VehicleID::Invalid() || cp->ticket.rebooking == PassengerRebooking::Bus) && cp->ticket.alight != StationID::Invalid()) next = cp->ticket.alight;
+				this->ShowCargo(entry, cargo, cp->GetFirstStation(), next, cp->passenger_destination, cp->Count());
+				continue;
+			}
 
 			const CargoDataEntry *source_entry = source_dest->Retrieve(cp->GetFirstStation());
 			if (source_entry == nullptr) {
@@ -1840,12 +2106,23 @@ struct StationViewWindow : public Window {
 	void BuildCargoList(CargoDataEntry *entry, const Station *st)
 	{
 		for (CargoType cargo : EnumRange(NUM_CARGO)) {
-			if (this->cached_destinations.Retrieve(cargo) == nullptr) {
+			if (this->current_mode == MODE_WAITING && st->goods[cargo].ConstCargoList().TotalCount() == 0) continue;
+			if (this->ShowPassengerServices(cargo)) {
+				const auto &packets = st->goods[cargo].ConstCargoList();
+				if (packets.TotalCount() != 0) {
+					entry->InsertOrRetrieve(cargo).Update(packets.TotalCount());
+					this->BuildServiceRows(cargo, packets);
+				}
+				continue;
+			}
+			const bool fixed_waiting = this->current_mode == MODE_WAITING && cargo == GetCargoTypeByLabel(CT_PASSENGERS) &&
+					_settings_game.linkgraph.AssignPassengerDestinations() && _settings_game.linkgraph.GetDistributionType(cargo) != DistributionType::Manual;
+			if (!fixed_waiting && this->cached_destinations.Retrieve(cargo) == nullptr) {
 				this->RecalcDestinations(cargo);
 			}
 
 			if (this->current_mode == MODE_WAITING) {
-				this->BuildCargoList(cargo, st->goods[cargo].ConstCargoList(), entry);
+				this->BuildCargoList(cargo, st->goods[cargo].ConstCargoList(), entry, fixed_waiting);
 			} else {
 				this->BuildFlowList(cargo, st->goods[cargo].ConstFlows(), entry);
 			}
@@ -2003,11 +2280,11 @@ struct StationViewWindow : public Window {
 				int y = r.top - pos * this->line_height;
 				if (this->groupings[column] == GR_CARGO) {
 					str = STR_STATION_VIEW_WAITING_CARGO;
-					this->DrawCargoIcons(cd.GetCargo(), cd.GetCount(), Rect(r.left + this->expand_shrink_width, y, r.right - this->expand_shrink_width, y + this->line_height - 1));
 				} else {
 					if (!auto_distributed) grouping = GR_SOURCE;
 					station = cd.GetStation();
 					str = this->GetGroupingString(grouping, station);
+					if (grouping == GR_DESTINATION && station == StationID::Invalid() && this->passenger_group_default && cargo == GetCargoTypeByLabel(CT_PASSENGERS)) str = STR_PASSENGER_SERVICE_NO_DESTINATION;
 					if (grouping == GR_NEXT && str == STR_STATION_VIEW_VIA) str = this->SearchNonStop(cd, station, column);
 
 					if (pos == -this->scroll_to_row && Station::IsValidID(station)) {
@@ -2019,9 +2296,20 @@ struct StationViewWindow : public Window {
 				Rect text = r.Indent(column * WidgetDimensions::scaled.hsep_indent, rtl).Indent(this->expand_shrink_width, !rtl);
 				Rect shrink = r.WithWidth(this->expand_shrink_width, !rtl);
 
-				DrawString(text.left, text.right, y + text_y_offset, GetString(str, cargo, cd.GetCount(), station));
+				std::string label = GetString(str, cargo, cd.GetCount(), station);
+				if (_settings_game.linkgraph.AssignPassengerDestinations() && this->current_mode == MODE_WAITING && grouping == GR_DESTINATION &&
+						cargo == GetCargoTypeByLabel(CT_PASSENGERS) && this->fixed_destinations.contains(station)) {
+					this->journey_rows.emplace(y, station);
+					label += GetString(STR_PASSENGER_JOURNEY_HINT);
+				}
+				int label_end = DrawString(text.left, text.right, y + text_y_offset, label);
+				if (grouping == GR_CARGO && !this->ShowPassengerServices(cargo)) {
+					const int gap = WidgetDimensions::scaled.hsep_normal;
+					Rect icons{rtl ? text.left : label_end + gap, y, rtl ? label_end - gap : text.right, y + this->line_height - 1};
+					if (icons.Width() > 0) this->DrawCargoIcons(cargo, cd.GetCount(), icons);
+				}
 
-				if (column < NUM_COLUMNS - 1) {
+				if (column < NUM_COLUMNS - 1 && !(grouping == GR_CARGO && this->ShowPassengerServices(cargo))) {
 					std::string_view sym;
 					if (cd.GetNumChildren() > 0) {
 						sym = "-";
@@ -2039,6 +2327,42 @@ struct StationViewWindow : public Window {
 				this->SetDisplayedRow(cd);
 			}
 			--pos;
+			if (grouping == GR_CARGO && this->ShowPassengerServices(cargo)) {
+				for (size_t index = 0; index < this->service_rows.size(); ++index, --pos) {
+					if (pos > 0 || pos <= -maxrows) continue;
+					const ServiceRow &row = this->service_rows[index];
+					const bool rtl = _current_text_dir == TD_RTL;
+					const Rect line = r.Indent(row.path.size() * WidgetDimensions::scaled.hsep_indent, rtl).Indent(this->expand_shrink_width, !rtl);
+					const int y = r.top - pos * this->line_height;
+					const bool header = row.path.empty();
+					const bool departure = row.section == TicketSection::Booked && row.path.size() == 1;
+					if (header || departure) {
+						const std::string total = GetString(STR_PASSENGER_SERVICE_COUNT, cargo, row.count);
+						const int width = std::min<int>(line.Width(), GetStringBoundingBox(total).width);
+						const Rect amount = line.WithWidth(width, !rtl);
+						const Rect name = line.Indent(width + WidgetDimensions::scaled.hsep_normal, !rtl);
+						std::string label = row.label;
+						if (departure) {
+							const auto &key = row.path.front();
+							auto delay = row.untimed ? std::nullopt : PassengerServices::DepartureDelay(Train::GetIfValid(key.train), StationID{static_cast<uint16_t>(this->window_number)}, key.call, key.visit);
+							label += delay ? GetString(STR_PASSENGER_LIST_DEPARTURE, STR_JUST_TT_TIME, _state_ticks + *delay) : GetString(STR_PASSENGER_SERVICE_TIME_PENDING);
+						}
+						if (name.left <= name.right) DrawString(name.left, name.right, y + text_y_offset, label);
+						DrawString(amount.left, amount.right, y + text_y_offset, total);
+					} else {
+						DrawString(line.left, line.right, y + text_y_offset, row.label);
+					}
+					if (row.expandable) {
+						Rect marker = r.WithWidth(this->expand_shrink_width, !rtl);
+						const bool expanded = header ? this->open_ticket_sections.contains(row.section) : this->expanded_services.contains(row.path);
+						DrawString(marker.left, marker.right, y + text_y_offset, expanded ? "-" : "+", TextColour::Yellow);
+					}
+
+					this->visible_services.emplace(this->displayed_rows.size(), index);
+					this->displayed_rows.emplace_back(nullptr, StationID::Invalid());
+				}
+				continue;
+			}
 			if ((auto_distributed || column == 0) && column < NUM_COLUMNS - 1) {
 				pos = this->DrawEntries(cd, r, pos, maxrows, column + 1, cargo);
 			}
@@ -2132,14 +2456,30 @@ struct StationViewWindow : public Window {
 		}
 	}
 
-	/**
-	 * Handle a click on a specific row in the cargo view.
-	 * @param row Row being clicked.
-	 */
-	void HandleCargoWaitingClick(int row)
+	void HandleCargoWaitingClick(int row, int click_x)
 	{
 		if (row < 0 || (uint)row >= this->displayed_rows.size()) return;
-		if (_ctrl_pressed) {
+		const RowDisplay &clicked = this->displayed_rows[row];
+		if (auto it = this->visible_services.find(row); it != this->visible_services.end()) {
+			const ServiceRow &service = this->service_rows[it->second];
+			const Rect area = this->GetWidget<NWidgetBase>(WID_SV_WAITING)->GetCurrentRect().Shrink(WidgetDimensions::scaled.framerect);
+			const bool rtl = _current_text_dir == TD_RTL;
+			const Rect marker = area.WithWidth(this->expand_shrink_width, !rtl);
+			if (service.path.empty()) {
+				if (service.expandable && this->open_ticket_sections.erase(service.section) == 0) this->open_ticket_sections.insert(service.section);
+			} else if (service.section == TicketSection::Booked && service.path.size() == 1 && (click_x < marker.left || click_x > marker.right)) {
+				const auto &key = service.path.front();
+				const Vehicle *v = Vehicle::GetIfValid(key.train);
+				if (v != nullptr && v->type == VehicleType::Train && v->orders != nullptr && v->orders->index.base() == key.id) ShowVehicleViewWindow(v);
+			} else if (_ctrl_pressed && service.path.size() > 1 && service.path.back().id >= 0) {
+				StationID id{static_cast<uint16_t>(service.path.back().id)};
+				if (Station::IsValidID(id)) ScrollMainWindowToTile(Station::Get(id)->xy);
+			} else if (service.expandable) {
+				if (this->expanded_services.erase(service.path) == 0) this->expanded_services.insert(service.path);
+			}
+		} else if (clicked.filter == &this->expanded_rows && this->ShowPassengerServices(clicked.next_cargo)) {
+			return; // Passenger total. Each ticket section has its own expansion control.
+		} else if (_ctrl_pressed) {
 			this->scroll_to_row = row;
 		} else {
 			RowDisplay &display = this->displayed_rows[row];
@@ -2159,7 +2499,7 @@ struct StationViewWindow : public Window {
 
 		switch (widget) {
 			case WID_SV_WAITING:
-				this->HandleCargoWaitingClick(this->vscroll->GetScrolledRowFromWidget(pt.y, this, WID_SV_WAITING, WidgetDimensions::scaled.framerect.top) - this->vscroll->GetPosition());
+				this->HandleCargoWaitingClick(this->vscroll->GetScrolledRowFromWidget(pt.y, this, WID_SV_WAITING, WidgetDimensions::scaled.framerect.top) - this->vscroll->GetPosition(), pt.x);
 				break;
 
 			case WID_SV_CATCHMENT:
@@ -2237,7 +2577,9 @@ struct StationViewWindow : public Window {
 			}
 
 			case WID_SV_GROUP_BY: {
-				ShowDropDownMenu(this, StationViewWindow::group_names, this->grouping_index, WID_SV_GROUP_BY, 0, 0);
+				auto names = std::span<const StringID>(group_names);
+				if (this->current_mode == MODE_PLANNED) names = names.first(names.size() - 1);
+				ShowDropDownMenu(this, names, this->grouping_index, WID_SV_GROUP_BY, 0, 0);
 				break;
 			}
 
@@ -2253,6 +2595,7 @@ struct StationViewWindow : public Window {
 				break;
 			}
 
+			case WID_SV_TICKET_QUERY: ShowPassengerTicketQuery(StationID{static_cast<uint16_t>(this->window_number)}); break;
 			case WID_SV_DEPARTURES: {
 				ShowDeparturesWindow((StationID)this->window_number);
 				break;
@@ -2316,6 +2659,7 @@ struct StationViewWindow : public Window {
 	 */
 	void SelectSortBy(int index)
 	{
+		const Mode previous_mode = this->current_mode;
 		_settings_client.gui.station_gui_sort_by = index;
 		switch (StationViewWindow::sort_names[index].base()) {
 			case STR_STATION_VIEW_WAITING_STATION.base():
@@ -2338,6 +2682,7 @@ struct StationViewWindow : public Window {
 				NOT_REACHED();
 		}
 		/* Display the current sort variant */
+		if (this->current_mode != previous_mode) this->ApplyGroupingPreference();
 		this->GetWidget<NWidgetCore>(WID_SV_SORT_BY)->SetString(StationViewWindow::sort_names[index]);
 		this->SetDirty();
 	}
@@ -2348,10 +2693,17 @@ struct StationViewWindow : public Window {
 	 */
 	void SelectGroupBy(int index)
 	{
+		if (this->grouping_index != index) {
+			this->displayed_rows.clear();
+			this->visible_services.clear();
+			this->journey_rows.clear();
+			this->expanded_rows.Clear();
+			this->vscroll->SetPosition(0);
+		}
 		this->grouping_index = index;
-		_settings_client.gui.station_gui_group_order = index;
 		this->GetWidget<NWidgetCore>(WID_SV_GROUP_BY)->SetString(StationViewWindow::group_names[index]);
 		switch (StationViewWindow::group_names[index].base()) {
+			case STR_PASSENGER_SERVICE_GROUP.base():
 			case STR_STATION_VIEW_GROUP_S_V_D.base():
 				this->groupings[1] = GR_SOURCE;
 				this->groupings[2] = GR_NEXT;
@@ -2391,6 +2743,7 @@ struct StationViewWindow : public Window {
 		if (widget == WID_SV_SORT_BY) {
 			this->SelectSortBy(index);
 		} else {
+			(this->passenger_group_default ? _settings_client.gui.station_gui_ticket_group_order : _settings_client.gui.station_gui_group_order) = index;
 			this->SelectGroupBy(index);
 		}
 	}
@@ -2418,6 +2771,7 @@ struct StationViewWindow : public Window {
 			if (data >= 0 && data < NUM_CARGO) {
 				this->cached_destinations.Remove((CargoType)data);
 			} else {
+				this->ApplyGroupingPreference();
 				this->ReInit();
 			}
 		}
@@ -3117,4 +3471,312 @@ bool ShouldShowBaseStationViewportLabel(const BaseStation *bst)
 	if (Waypoint::IsExpected(bst) && HasBit(Waypoint::From(bst)->waypoint_flags, WPF_HIDE_LABEL) && _settings_client.gui.allow_hiding_waypoint_labels &&
 			!HasBit(_extra_display_opt, XDO_SHOW_HIDDEN_SIGNS)) return false;
 	return true;
+}
+
+/** Passenger departures are quoted on demand. Painting or browsing a result never runs a sale. */
+namespace {
+enum TicketQueryWidget : WidgetID {
+	TQ_FROM, TQ_FROM_MAP, TQ_SWAP, TQ_TO, TQ_TO_MAP, TQ_TIME, TQ_FILTER, TQ_AVAILABLE, TQ_SEARCH, TQ_STAMP, TQ_LIST, TQ_SCROLL, TQ_DIRECT, TQ_CHANGE, TQ_EARLIEST,
+};
+static constexpr NWidgetPart ticket_query_widgets[] = {
+	NWidget(NWID_HORIZONTAL),
+		NWidget(WWT_CLOSEBOX, Colours::Grey),
+		NWidget(WWT_CAPTION, Colours::Blue), SetStringTip(STR_TQ_TITLE),
+		NWidget(WWT_STICKYBOX, Colours::Grey),
+	EndContainer(),
+	NWidget(NWID_HORIZONTAL),
+		NWidget(WWT_DROPDOWN, Colours::Grey, TQ_FROM), SetStringTip(STR_EMPTY), SetMinimalSize(156, 14), SetFill(1, 0), SetResize(1, 0),
+		NWidget(WWT_PUSHTXTBTN, Colours::Grey, TQ_FROM_MAP), SetStringTip(STR_TQ_PICK),
+		NWidget(WWT_PUSHTXTBTN, Colours::Grey, TQ_SWAP), SetStringTip(STR_TQ_SWAP),
+		NWidget(WWT_DROPDOWN, Colours::Grey, TQ_TO), SetStringTip(STR_EMPTY), SetMinimalSize(156, 14), SetFill(1, 0), SetResize(1, 0),
+		NWidget(WWT_PUSHTXTBTN, Colours::Grey, TQ_TO_MAP), SetStringTip(STR_TQ_PICK),
+		NWidget(WWT_DROPDOWN, Colours::Grey, TQ_TIME), SetStringTip(STR_EMPTY), SetMinimalSize(112, 14), SetFill(1, 0), SetResize(1, 0),
+		NWidget(WWT_PUSHTXTBTN, Colours::LightBlue, TQ_SEARCH), SetStringTip(STR_TQ_RUN), SetMinimalSize(52, 16),
+	EndContainer(),
+	NWidget(NWID_HORIZONTAL),
+		NWidget(WWT_TEXTBTN, Colours::LightBlue, TQ_FILTER), SetStringTip(STR_TQ_ALL), SetFill(1, 0), SetResize(1, 0),
+		NWidget(WWT_TEXTBTN, Colours::LightBlue, TQ_DIRECT), SetStringTip(STR_TQ_DIRECT), SetFill(1, 0), SetResize(1, 0),
+		NWidget(WWT_TEXTBTN, Colours::LightBlue, TQ_CHANGE), SetStringTip(STR_TQ_CHANGE), SetFill(1, 0), SetResize(1, 0),
+		NWidget(WWT_TEXTBTN, Colours::LightBlue, TQ_EARLIEST), SetStringTip(STR_TQ_FAST), SetFill(1, 0), SetResize(1, 0),
+		NWidget(WWT_TEXTBTN, Colours::Grey, TQ_AVAILABLE), SetStringTip(STR_TQ_SEATS, STR_TQ_STOCK_HELP), SetFill(1, 0), SetResize(1, 0),
+	EndContainer(),
+	NWidget(WWT_PANEL, Colours::Grey), NWidget(WWT_TEXT, Colours::Grey, TQ_STAMP), SetStringTip(STR_EMPTY), SetFill(1, 0), SetResize(1, 0), EndContainer(),
+	NWidget(NWID_HORIZONTAL),
+		NWidget(WWT_PANEL, Colours::Grey, TQ_LIST), SetMinimalSize(500, 130), SetResize(1, 1), EndContainer(),
+		NWidget(NWID_VSCROLLBAR, Colours::Grey, TQ_SCROLL),
+	EndContainer(),
+	NWidget(NWID_HORIZONTAL), NWidget(WWT_PANEL, Colours::Grey), SetFill(1, 0), SetResize(1, 0), EndContainer(), NWidget(WWT_RESIZEBOX, Colours::Grey), EndContainer(),
+};
+static WindowDesc ticket_query_desc(__FILE__, __LINE__, WindowPosition::Automatic, "ticket_query", 660, 300,
+		WindowClass::PassengerTicketQuery, WindowClass::None, {}, ticket_query_widgets);
+
+struct TicketQueryWindow : Window {
+	struct Offer {
+		size_t legs;
+		int64_t arrival;
+		bool available, open = false;
+		std::string summary, kind, departure, arrival_time, duration, availability, price;
+		struct Detail { std::string title, journey; };
+		std::vector<Detail> detail;
+	};
+	struct Line { size_t offer; size_t detail; };
+	std::vector<Offer> offers;
+	std::vector<Line> lines;
+	StationID from, to = StationID::Invalid();
+	int after = 0, filter = 0;
+	bool only_available = false, searched = false;
+	WidgetID picking = TQ_FROM_MAP;
+	std::string stamp, origin_name, destination_name;
+	size_t visible_offers = 0;
+	Scrollbar *scroll;
+	static constexpr WidgetID filter_buttons[] = {TQ_FILTER, TQ_DIRECT, TQ_CHANGE, TQ_EARLIEST};
+
+	TicketQueryWindow(StationID origin) : Window(ticket_query_desc), from(origin)
+	{
+		this->CreateNestedTree();
+		this->scroll = this->GetScrollbar(TQ_SCROLL);
+		this->FinishInitNested(0);
+	}
+	static std::string StationName(StationID id)
+	{
+		return Station::IsValidID(id) ? GetString(STR_STATION_NAME, id) : GetString(STR_TQ_CHOOSE);
+	}
+	std::string GetWidgetString(WidgetID w, StringID str) const override
+	{
+		switch (w) {
+			case TQ_FROM: return GetString(STR_TQ_FROM, StationName(from));
+			case TQ_TO: return GetString(STR_TQ_TO, StationName(to));
+			case TQ_TIME: return after ? GetString(STR_TQ_LATER, after) : GetString(STR_TQ_NOW);
+			case TQ_STAMP: return searched ? GetString(STR_TQ_RESULTS, visible_offers, stamp) : GetString(from == to && Station::IsValidID(from) ? STR_TQ_SAME : STR_TQ_START);
+			default: return Window::GetWidgetString(w, str);
+		}
+	}
+	void UpdateLines()
+	{
+		lines.clear();
+		visible_offers = 0;
+		for (size_t i = 0; i < std::size(filter_buttons); ++i) SetWidgetLoweredState(filter_buttons[i], i == static_cast<size_t>(filter));
+		std::stable_sort(offers.begin(), offers.end(), [&](const Offer &a, const Offer &b) {
+			if (filter != 3 && a.legs != b.legs) return a.legs < b.legs;
+			return (a.arrival < 0 ? INT64_MAX : a.arrival) < (b.arrival < 0 ? INT64_MAX : b.arrival);
+		});
+		for (size_t i = 0; i < offers.size(); ++i) {
+			const Offer &o = offers[i];
+			if ((only_available && !o.available) || (filter == 1 && o.legs != 1) || (filter == 2 && o.legs == 1)) continue;
+			++visible_offers;
+			lines.push_back({i, 0});
+			if (o.open) for (size_t j = 0; j < o.detail.size(); ++j) lines.push_back({i, j + 1});
+		}
+		scroll->SetCount(lines.size());
+		SetDirty();
+	}
+	void ResetResults()
+	{
+		searched = false;
+		offers.clear();
+		UpdateLines();
+		SetWidgetDisabledState(TQ_SEARCH, from == to || !Station::IsValidID(from) || !Station::IsValidID(to));
+	}
+	void OnInvalidateData(int, bool gui_scope) override
+	{
+		if (gui_scope) this->ResetResults();
+	}
+	void Search()
+	{
+		ResetResults();
+		if (IsWidgetDisabled(TQ_SEARCH)) return;
+		searched = true;
+		const auto clock = _state_ticks;
+		auto time = [clock](int64_t offset) {
+			if (offset < 0) return GetString(STR_TQ_TIME);
+			const auto when = clock + StateTicksDelta{offset};
+			auto text = GetString(STR_JUST_TT_TIME_ABS, when);
+			if (_settings_time.time_in_minutes) {
+				const auto days = _settings_time.ToTickMinutes(when).DayNumber().base() - _settings_time.ToTickMinutes(clock).DayNumber().base();
+				if (days > 0) text += fmt::format(" (+{})", GetString(STR_UNITS_DAYS, days));
+			}
+			return text;
+		};
+		stamp = time(0);
+		origin_name = StationName(from);
+		destination_name = StationName(to);
+		const int ticks_per_minute = std::max<int>(1, _settings_game.game_time.ticks_per_minute);
+		const CargoType pax = GetCargoTypeByLabel(CT_PASSENGERS);
+		const bool selling = pax != INVALID_CARGO && _settings_game.linkgraph.passenger_ticketing &&
+				_settings_game.linkgraph.GetDistributionType(pax) != DistributionType::Manual;
+		const auto routes = PassengerServices::QueryRoutes(from, to, after * ticks_per_minute);
+		int64_t fastest_direct = INT64_MAX;
+		for (const auto &route : routes) {
+			const auto &leg = route.legs.front();
+			if (route.legs.size() == 1 && leg.arrival >= 0 && !leg.bus && leg.seats != 0) fastest_direct = std::min(fastest_direct, leg.arrival);
+		}
+		for (const auto &route : routes) {
+			const auto &legs = route.legs;
+			const auto &first = legs.front();
+			const int64_t end = legs.back().arrival;
+			Offer o{};
+			o.legs = legs.size();
+			o.arrival = end;
+			uint room = UINT_MAX;
+			std::string names;
+			bool bus = false;
+			for (size_t i = 0; i < legs.size(); ++i) {
+				const auto &leg = legs[i];
+				const auto name = leg.number.empty() ? GetString(STR_VEHICLE_NAME, leg.vehicle) : leg.number;
+				if (i != 0) {
+					names += " → ";
+					const auto prev = legs[i - 1].arrival;
+					o.detail.push_back({GetString(STR_TQ_MARGIN, leg.from, prev < 0 || leg.departure < 0 ? GetString(STR_TQ_UNSURE) : GetString(STR_TQ_DURATION, (leg.departure - prev) / ticks_per_minute)), {}});
+				}
+				names += name;
+				if (!leg.bus) room = std::min(room, leg.seats);
+				bus |= leg.bus;
+				o.detail.push_back({fmt::format("{}    {}", name,
+						leg.bus ? GetString(STR_TQ_BUS) : selling ? GetString(STR_TQ_ROOM, leg.seats) : GetString(STR_TQ_WALKUP)),
+						fmt::format("{} {} → {} {}", time(leg.departure), StationName(leg.from), time(leg.arrival), StationName(leg.to))});
+				if (!leg.last_number.empty() && leg.number != leg.last_number) o.detail.push_back({GetString(STR_TQ_RENUMBER, leg.last_number), {}});
+			}
+			o.available = selling && room != 0 && !bus && (legs.size() == 1 || end >= 0);
+			o.availability = !selling ? GetString(STR_TQ_WALKUP) : room == 0 ? GetString(STR_TQ_SOLD) :
+					legs.size() > 1 && end < 0 ? GetString(STR_TQ_UNSURE) : bus ? GetString(STR_TQ_BUS) : GetString(STR_TQ_ROOM, room);
+			if (first.departure >= 0 && end >= first.departure) {
+				const auto minutes = (end - first.departure) / ticks_per_minute;
+				o.duration = GetString(STR_TQ_ELAPSED_HOURS_MINUTES, minutes / 60, minutes % 60);
+			} else {
+				o.duration = GetString(STR_TQ_TIME);
+			}
+			o.summary = std::move(names);
+			o.kind = legs.size() == 1 ? GetString(STR_TQ_DIRECT) : GetString(STR_TQ_CHANGES, legs.size() - 1);
+			o.departure = time(first.departure);
+			o.arrival_time = time(end);
+			o.price = route.fare < 0 ? GetString(STR_TQ_PRICE) : GetString(STR_JUST_CURRENCY_LONG, route.fare);
+			if (legs.size() > 1 && end >= 0 && fastest_direct != INT64_MAX && fastest_direct - end >= ticks_per_minute) {
+				o.detail.push_back({GetString(STR_TQ_EARLIER, (fastest_direct - end) / ticks_per_minute), {}});
+			}
+			offers.push_back(std::move(o));
+		}
+		scroll->SetPosition(0);
+		UpdateLines();
+	}
+	static int HeaderHeight() { return GetCharacterHeight(FontSize::Normal) + ScaleGUITrad(4); }
+	static int RowHeight() { return 2 * GetCharacterHeight(FontSize::Normal) + ScaleGUITrad(5); }
+
+	void DrawWidget(const Rect &r, WidgetID w) const override
+	{
+		if (w != TQ_LIST) return;
+		const Rect area = r.Shrink(WidgetDimensions::scaled.framerect);
+		const int pad = ScaleGUITrad(3);
+		const int line_height = GetCharacterHeight(FontSize::Normal);
+		constexpr int bounds[] = {0, 23, 42, 55, 71, 84, 100};
+		auto cell = [&](int col, int y, const std::string &value, PixelColour colour) {
+			DrawString(area.left + area.Width() * bounds[col] / 100 + pad,
+					area.left + area.Width() * bounds[col + 1] / 100 - pad, y, value,
+					ExtendedTextColour{colour, {ExtendedTextColourFlag::NoShade}});
+		};
+		GfxFillRect(area, GREY_SCALE(14));
+		GfxFillRect(area.WithHeight(HeaderHeight()), GetColourGradient(Colours::Blue, Shade::Dark));
+		constexpr StringID headers[] = {STR_TQ_SERVICE, STR_TQ_STATIONS, STR_TQ_TIMES, STR_TQ_ELAPSED, STR_TQ_STOCK, STR_TQ_FARE};
+		for (size_t col = 0; col < std::size(headers); ++col) cell(col, area.top + ScaleGUITrad(2), GetString(headers[col]), PC_WHITE);
+
+		int y = area.top + HeaderHeight();
+		if (lines.empty() && searched) DrawString(area.left + pad, area.right, y + pad, STR_TQ_EMPTY, PC_BLACK);
+		for (size_t i = scroll->GetPosition(); i < lines.size() && y + RowHeight() <= area.bottom + 1; ++i, y += RowHeight()) {
+			const auto &line = lines[i];
+			const auto &o = offers[line.offer];
+			const Rect row = area.WithY(y, y + RowHeight() - 1);
+			if (line.detail != 0) {
+				GfxFillRect(row, GetColourGradient(Colours::LightBlue, Shade::Lighterest));
+				const auto &detail = o.detail[line.detail - 1];
+				const int title_y = y + (detail.journey.empty() ? (RowHeight() - line_height) / 2 : ScaleGUITrad(2));
+				const ExtendedTextColour ink{PC_BLACK, {ExtendedTextColourFlag::NoShade}};
+				DrawString(row.left + 3 * pad, row.right - pad, title_y, detail.title, ink);
+				if (!detail.journey.empty()) DrawString(row.left + 3 * pad, row.right - pad, title_y + line_height, detail.journey, ink);
+				continue;
+			}
+			GfxFillRect(row.WithY(row.bottom, row.bottom), GetColourGradient(Colours::Grey, Shade::Light));
+			const int top = y + ScaleGUITrad(2);
+			const int bottom = top + line_height;
+			cell(0, top, (o.open ? "− " : "+ ") + o.summary, PC_VERY_DARK_BLUE);
+			cell(0, bottom, o.kind, PC_BLACK);
+			cell(1, top, origin_name, PC_BLACK);
+			cell(1, bottom, destination_name, PC_BLACK);
+			cell(2, top, o.departure, PC_VERY_DARK_BLUE);
+			cell(2, bottom, o.arrival_time, PC_BLACK);
+			cell(3, top, o.duration, PC_BLACK);
+			cell(4, top, o.availability, o.available ? GetColourGradient(Colours::DarkGreen, Shade::Darker) : PC_BLACK);
+			cell(5, top, o.price, PC_VERY_DARK_BROWN);
+		}
+	}
+	void OnResize() override
+	{
+		const int available = int(GetWidget<NWidgetBase>(TQ_LIST)->current_y) - int(WidgetDimensions::scaled.framerect.Vertical());
+		scroll->SetCapacity(std::max(1, (available - HeaderHeight()) / RowHeight()));
+	}
+	void OnClick(Point pt, WidgetID w, int) override
+	{
+		DropDownList list;
+		switch (w) {
+			case TQ_FROM: case TQ_TO: {
+				std::vector<std::pair<std::string, StationID>> stations;
+				for (const Station *s : Station::Iterate()) if (IsPassengerTerminal(*s)) stations.emplace_back(StationName(s->index), s->index);
+				std::stable_sort(stations.begin(), stations.end(), [](const auto &a, const auto &b) { return StrNaturalCompare(a.first, b.first) < 0; });
+				for (auto &[name, id] : stations) list.push_back(MakeDropDownListStringItem(std::move(name), id.base()));
+				if (!list.empty()) ShowDropDownList(this, std::move(list), (w == TQ_FROM ? from : to).base(), w, 0, {DropDownOption::Filterable});
+				break;
+			}
+			case TQ_FROM_MAP: case TQ_TO_MAP:
+				picking = w;
+				SetObjectToPlaceWnd(ANIMCURSOR_PICKSTATION, PAL_NONE, HT_RECT, this);
+				break;
+			case TQ_SWAP: std::swap(from, to); ResetResults(); break;
+			case TQ_TIME:
+				for (int n : {0, 30, 60, 120}) list.push_back(MakeDropDownListStringItem(n == 0 ? GetString(STR_TQ_NOW) : GetString(STR_TQ_LATER, n), n));
+				ShowDropDownList(this, std::move(list), after, w);
+				break;
+			case TQ_FILTER: case TQ_DIRECT: case TQ_CHANGE: case TQ_EARLIEST:
+				filter = std::find(std::begin(filter_buttons), std::end(filter_buttons), w) - std::begin(filter_buttons);
+				scroll->SetPosition(0);
+				UpdateLines();
+				break;
+			case TQ_AVAILABLE: only_available = !only_available; SetWidgetLoweredState(w, only_available); UpdateLines(); break;
+			case TQ_SEARCH: Search(); break;
+			case TQ_LIST: {
+				const Rect area = GetWidget<NWidgetBase>(TQ_LIST)->GetCurrentRect().Shrink(WidgetDimensions::scaled.framerect);
+				if (pt.y < area.top + HeaderHeight() || pt.y > area.bottom) break;
+				const int visible = (pt.y - area.top - HeaderHeight()) / RowHeight();
+				if (visible >= scroll->GetCapacity()) break;
+				int row = visible + scroll->GetPosition();
+				if (row >= 0 && static_cast<size_t>(row) < lines.size() && lines[row].detail == 0) {
+					auto &o = offers[lines[row].offer];
+					o.open = !o.open;
+					UpdateLines();
+				}
+				break;
+			}
+		}
+	}
+	void OnDropdownSelect(WidgetID w, int value, int) override
+	{
+		if (w == TQ_TIME) after = value;
+		if (w == TQ_FROM || w == TQ_TO) (w == TQ_FROM ? from : to) = StationID{static_cast<uint16_t>(value)};
+		ResetResults();
+	}
+	void OnPlaceObject(Point, TileIndex tile) override
+	{
+		if (!IsTileType(tile, TileType::Station)) return;
+		const auto *s = Station::GetByTile(tile);
+		if (!s || !IsPassengerTerminal(*s)) return;
+		(picking == TQ_FROM_MAP ? from : to) = s->index;
+		ResetObjectToPlace();
+		ResetResults();
+	}
+};
+}
+void ShowPassengerTicketQuery(StationID origin)
+{
+	auto *w = static_cast<TicketQueryWindow *>(BringWindowToFrontById(WindowClass::PassengerTicketQuery, 0));
+	if (w == nullptr) w = new TicketQueryWindow(origin);
+	else if (origin != StationID::Invalid()) w->from = origin;
+	else return;
+	w->ResetResults();
 }

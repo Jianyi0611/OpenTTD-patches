@@ -64,6 +64,7 @@
 
 #include "table/strings.h"
 
+#include "company_gui.h"
 #include "safeguards.h"
 
 
@@ -3217,6 +3218,7 @@ static constexpr std::initializer_list<NWidgetPart> _nested_train_vehicle_detail
 		NWidget(WWT_DEFSIZEBOX, Colours::Grey),
 		NWidget(WWT_STICKYBOX, Colours::Grey),
 	EndContainer(),
+	NWidget(WWT_PUSHTXTBTN, Colours::Grey, WID_VD_PASSENGER_TARIFF), SetStringTip(STR_FARE_BUTTON), SetFill(1, 0),
 	NWidget(WWT_PANEL, Colours::Grey, WID_VD_TOP_DETAILS), SetResize(1, 0), SetMinimalSize(405, 42), EndContainer(),
 	NWidget(NWID_HORIZONTAL),
 		NWidget(WWT_MATRIX, Colours::Grey, WID_VD_MATRIX), SetResize(1, 1), SetMinimalSize(393, 45), SetMatrixDataTip(1, 0), SetFill(1, 0), SetScrollbar(WID_VD_SCROLLBAR),
@@ -3983,6 +3985,11 @@ struct VehicleDetailsWindow : Window {
 	void OnClick([[maybe_unused]] Point pt, WidgetID widget, [[maybe_unused]] int click_count) override
 	{
 		switch (widget) {
+			case WID_VD_PASSENGER_TARIFF: {
+				const Vehicle *v = Vehicle::Get(this->window_number);
+				ShowPassengerTariff(v->owner, v->index);
+				break;
+			}
 			case WID_VD_INCREASE_SERVICING_INTERVAL:   // increase int
 			case WID_VD_DECREASE_SERVICING_INTERVAL: { // decrease int
 				const Vehicle *v = Vehicle::Get(this->window_number);

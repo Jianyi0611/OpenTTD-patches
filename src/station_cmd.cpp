@@ -4903,7 +4903,25 @@ static uint UpdateStationWaiting(Station *st, CargoType cargo, uint amount, Sour
 	if (amount == 0) return 0;
 
 	StationID next = ge.GetVia(st->index);
-	ge.CreateData().cargo.Append(CargoPacket::Create(st->index, amount, source), next);
+	CargoPacket *packet = CargoPacket::Create(st->index, amount, source);
+	if (_settings_game.linkgraph.AssignPassengerDestinations() && cargo == GetCargoTypeByLabel(CT_PASSENGERS) &&
+			_settings_game.linkgraph.GetDistributionType(cargo) != DistributionType::Manual) {
+		/* Follow the same origin-specific weighted shares used for transfers. A local consumption share identifies the destination. */
+		StationID via = next;
+		std::vector<StationID> visited{st->index};
+		while (Station::IsValidID(via) && std::ranges::find(visited, via) == visited.end()) {
+			visited.push_back(via);
+			const GoodsEntry &onward = Station::Get(via)->goods[cargo];
+			StationID following = onward.GetVia(st->index);
+			if (following == via) {
+				packet->passenger_destination = via;
+				packet->passenger_start_tick = _scaled_tick_counter;
+				break;
+			}
+			via = following;
+		}
+	}
+	ge.CreateData().cargo.Append(packet, next);
 	LinkGraph *lg = nullptr;
 	if (ge.link_graph == LinkGraphID::Invalid()) {
 		if (LinkGraph::CanAllocateItem()) {

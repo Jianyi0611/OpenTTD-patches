@@ -188,6 +188,20 @@ void LinkGraphJob::FinaliseJob()
 		ge.RemoveDataIfUnused();
 		InvalidateWindowData(WindowClass::StationView, st->index, this->Cargo());
 	}
+	/* Give stations from the newly published passenger graph an extra turn only after all
+	 * downstream shares are installed. Bound the work even for a nationwide graph. */
+	if (_settings_game.linkgraph.AssignPassengerDestinations() && this->Cargo() == GetCargoTypeByLabel(CT_PASSENGERS) &&
+			_settings_game.linkgraph.GetDistributionType(this->Cargo()) != DistributionType::Manual) {
+		for (uint i = 0; i < std::min<uint>(8, size); ++i) {
+			const NodeID node = (this->JoinTick() + i) % size;
+			Station *st = Station::GetIfValid((*this)[node].Station());
+			if (st == nullptr) continue;
+			auto &ge = st->goods[this->Cargo()];
+			if (ge.data != nullptr && ge.link_graph == this->link_graph.index && ge.node == node) {
+				ge.data->cargo.RetryPassengerDestinations(*st, this->Cargo(), this->JoinTick() + i);
+			}
+		}
+	}
 }
 
 /**

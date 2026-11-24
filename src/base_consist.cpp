@@ -24,6 +24,7 @@ void BaseConsist::CopyConsistPropertiesFrom(const BaseConsist *src)
 	if (this == src) return;
 
 	this->name = src->name;
+	this->passenger_tariff = src->passenger_tariff;
 	this->fixed_service_number = src->fixed_service_number;
 	this->service_number_suppressed = src->service_number_suppressed;
 

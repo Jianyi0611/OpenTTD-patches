@@ -38,6 +38,7 @@
 #include "gamelog.h"
 #include "settings_cmd.h"
 #include "settings_func.h"
+#include "station_base.h"
 #include "settings_table.h"
 #include "ini_type.h"
 #include "ai/ai_config.hpp"
@@ -1532,6 +1533,10 @@ void LoadFromConfig(bool startup)
 
 		const IniItem *old_item;
 
+		if (IsConversionNeeded(generic_ini, "linkgraph", "fixed_passenger_destinations", "passenger_ticketing", &old_item) && old_item->value.has_value()) {
+			_settings_newgame.linkgraph.fixed_passenger_destinations = BoolSettingDesc::ParseSingleValue(*old_item->value).value_or(false);
+			_settings_newgame.linkgraph.MigratePassengerTicketing();
+		}
 		if (generic_version < IniFileVersion::GameType && IsConversionNeeded(generic_ini, "network", "server_advertise", "server_game_type", &old_item)) {
 			auto old_value = BoolSettingDesc::ParseSingleValue(*old_item->value);
 			_settings_client.network.server_game_type = old_value.value_or(false) ? ServerGameType::Public : ServerGameType::Local;
@@ -1913,7 +1918,28 @@ CommandCost CmdChangeSetting(DoCommandFlags flags, const std::string &name, int3
 	if (flags.Test(DoCommandFlag::Execute)) {
 		SCOPE_INFO_FMT([=], "CmdChangeSetting: {} -> {}", sd->name, value);
 
-		sd->AsIntSetting()->ChangeValue(&GetGameSettings(), value, ConfigSaveFlagsUsingGameSettingsFor(sd));
+		auto &settings = GetGameSettings();
+		const CargoType pax = GetCargoTypeByLabel(CT_PASSENGERS);
+		auto passenger_modes = [&]() {
+			const bool automatic = pax != INVALID_CARGO && settings.linkgraph.GetDistributionType(pax) != DistributionType::Manual;
+			return std::pair{automatic && settings.linkgraph.AssignPassengerDestinations(), automatic && settings.linkgraph.passenger_ticketing};
+		};
+		const auto previous = passenger_modes();
+		sd->AsIntSetting()->ChangeValue(&settings, value, ConfigSaveFlagsUsingGameSettingsFor(sd));
+		const auto current = passenger_modes();
+		if (_game_mode == GameMode::Normal && previous != current) {
+			for (Station *st : Station::Iterate()) {
+				st->passenger_routes.clear();
+				st->next_passenger_sale = 0;
+			}
+			if (previous.second && !current.second) {
+				for (CargoPacket *packet : CargoPacket::Iterate()) {
+					if (packet->ticket != PassengerTicket{}) packet->SetPassengerTicket({});
+				}
+			}
+			InvalidateWindowClassesData(WindowClass::StationView, -1);
+			InvalidateWindowClassesData(WindowClass::PassengerTicketQuery);
+		}
 	}
 
 	return CommandCost();

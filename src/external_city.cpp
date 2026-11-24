@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /** @file external_city.cpp Synchronized external cities and map boundary regions. */
 #include "stdafx.h"
+#include "passenger_journey.h"
 #include "external_city.h"
 #include "aircraft.h"
 #include "external_city_cmd.h"
@@ -785,13 +786,14 @@ void ServiceExternalCityVehicle(Vehicle *train, bool arrival)
  const auto profile = GetExternalCityEconomy(city->index);
  Money income = 0;
  CargoArray delivered{};
+ PassengerBoarding boarding(station->index);
  bool changed = false;
  for (Vehicle *part = train->First(); part != nullptr; part = part->Next()) {
   const CargoType cargo = part->cargo_type;
   if (cargo >= NUM_CARGO || !CargoSpec::Get(cargo)->IsValid() || part->cargo.ReservedCount() != 0) continue;
   if (arrival) {
    if (!profile.accepted.Test(cargo) || train->current_order.GetCargoUnloadType(cargo) == OrderUnloadType::NoUnload) continue;
-   const uint count = part->cargo.DeliverToExternal(part->cargo.StoredCount(), cargo, train->external_entry_tile, city->index.base(), train->external_distance_tiles, income, station->index, &station->goods[cargo]);
+   const uint count = part->cargo.DeliverToExternal(part->cargo.StoredCount(), cargo, train->external_entry_tile, city->index.base(), train->external_distance_tiles, income, station->index, &station->goods[cargo], train);
    changed |= count != 0;
    city->delivered_units += count; city->month_delivered[cargo] += count;
    delivered[cargo] += count;
@@ -818,7 +820,7 @@ void ServiceExternalCityVehicle(Vehicle *train, bool arrival)
    if (uses_trade_credit) capacity = uint(std::min<uint64_t>(capacity, city->trade_credit));
    if (capacity == 0) continue;
    const uint count = ge.data->cargo.Load(capacity, &part->cargo,
-     next_stations.Get(cargo), train->external_entry_tile);
+     next_stations.Get(cargo), train->external_entry_tile, part, cargo == GetCargoTypeByLabel(CT_PASSENGERS) ? &boarding : nullptr);
    if (count == 0) continue;
    changed = true;
    city->stock[cargo] -= count; city->loaded_units += count; city->month_loaded[cargo] += count;

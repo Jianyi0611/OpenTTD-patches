@@ -8,6 +8,7 @@
 /** @file train_cmd.cpp Handling of trains. */
 
 #include "stdafx.h"
+#include "passenger_journey.h"
 #include "depot_base.h"
 #include <map>
 #include <set>
@@ -4266,11 +4267,10 @@ static void RecheckSignalsAndTryReserve(Train *consist)
 /**
  * Turn a train around.
  * @param consist %Train to turn around.
- * @param no_swap When flipping, reverse in place without swapping vehicle
- *                positions (see ReverseTrainNoSwapVehicles) instead of the
- *                vanilla full swap.
+ * @param during_split Reverse the detached part in place. Its departure
+ *                     reservation is decided after assigning the two schedules.
  */
-static void ReverseTrainDirection(Train *consist, bool no_swap = false)
+static void ReverseTrainDirection(Train *consist, bool during_split = false)
 {
 	Train *first = consist->First();
 	Train *moving_front = consist->GetMovingFront();
@@ -4332,7 +4332,7 @@ static void ReverseTrainDirection(Train *consist, bool no_swap = false)
 	}
 
 	/* Clear path reservation in front if train is not stuck. */
-	if (no_swap) {
+	if (during_split) {
 		/* A decoupled part is flipped to face away from its partner, so the
 		 * reservation ahead of it still belongs to the partner part and must
 		 * not be released: with no signal in front of the station the walk
@@ -4384,7 +4384,7 @@ static void ReverseTrainDirection(Train *consist, bool no_swap = false)
 		}
 		/* We may have entered a depot and stopped driving backwards. */
 		std::swap(moving_front, moving_back);
-	} else if (no_swap) {
+	} else if (during_split) {
 		/* The train will flip in place without swapping vehicle positions. The
 		 * chain tail is kept in place while the front is re-spaced. */
 		ReverseTrainForCouple(first, true);
@@ -4488,9 +4488,9 @@ static void ReverseTrainDirection(Train *consist, bool no_swap = false)
 		}
 	}
 
-	/* Re-check the signal segment and rebuild the reservation in the new
-	 * direction, like after any other consist-changing operation. */
-	RecheckSignalsAndTryReserve(consist);
+	/* During a split the new front may still carry its previous order.
+	 * TrainEnterStation will handle the reservation once SplitOrders has run. */
+	if (!during_split) RecheckSignalsAndTryReserve(consist);
 }
 
 /**
@@ -5450,7 +5450,13 @@ static Track DoTrainCouplePathfind(const Train *v, bool do_track_reservation, Tr
 		}
 	}
 
-	Track ret = YapfTrainCoupleTrack(v, !do_track_reservation, couple_target, couple_cost, nullptr, only_target);
+	Track ret = INVALID_TRACK;
+	if (HasPotentialCoupleTarget(v)) {
+		ret = YapfTrainCoupleTrack(v, !do_track_reservation, couple_target, couple_cost, nullptr, only_target);
+	} else {
+		if (couple_target != nullptr) *couple_target = nullptr;
+		if (couple_cost != nullptr) *couple_cost = 0;
+	}
 	if (ret == INVALID_TRACK) {
 		_couple_search_last_fail[id] = now;
 	} else {
@@ -7420,6 +7426,7 @@ static StringID PrepareDecoupleWaitOrders(const Train *v, std::unique_ptr<OrderL
 		OrderList *copy = copies[i].get();
 		copy->GetOrderVector().reserve(v->GetNumOrders() + 1);
 		for (const Order *order : v->Orders()) copy->GetOrderVector().emplace_back(*order);
+		copy->passenger_tariff = v->orders->passenger_tariff;
 		copy->GetScheduledDispatchScheduleSet() = v->orders->GetScheduledDispatchScheduleSet();
 		copy->SetRouteOverlayColour(v->orders->GetRouteOverlayColour());
 		copy->SetDispatchEnabled(v->vehicle_flags.Test(VehicleFlag::ScheduledDispatch));
@@ -7912,6 +7919,25 @@ static bool CoupleGroupOk(const Order &order, const Train *t)
 	return GroupIsInGroup(t->group_id, group);
 }
 
+void Train::ClearSplitPartner()
+{
+	if (this->split_partner == VehicleID::Invalid()) return;
+	Train *partner = Train::GetIfValid(this->split_partner);
+	if (partner != nullptr && partner->split_partner == this->index) partner->split_partner = VehicleID::Invalid();
+	this->split_partner = VehicleID::Invalid();
+}
+
+/** Use physical vehicles as anchors: the order carrier and unit number can change on reversal. */
+static bool IsOtherPartOfSplit(const Train *waiting, const Train *approaching)
+{
+	for (const Train *part = waiting->First(); part != nullptr; part = part->Next()) {
+		if (part->split_partner == VehicleID::Invalid()) continue;
+		const Train *other = Train::GetIfValid(part->split_partner);
+		if (other != nullptr && other->split_partner == part->index && other->First() == approaching->First()) return true;
+	}
+	return false;
+}
+
 static bool WaitCouplePartnerSlotOk(const Order &wait_order, const Train *t)
 {
 	TraceRestrictSlotID slot = wait_order.GetWaitCouplePartnerSlot();
@@ -8151,6 +8177,7 @@ static CoupleCandidateResult GetCoupleVolatileConditionResult(const Train *movin
 	if (carrier->vehstatus.Test(VehState::Crashed)) return CoupleCandidateResult::Crashed;
 	if (carrier->vehstatus.Test(VehState::Stopped)) return CoupleCandidateResult::Stopped;
 	if (!IsTrainCouplingAllowed(moving->owner, carrier->owner)) return CoupleCandidateResult::Owner;
+	if (carrier->current_order.RequiresSplitPartner() && !IsOtherPartOfSplit(carrier, moving)) return CoupleCandidateResult::WaitSplitPartner;
 	const uint16_t companies = carrier->current_order.GetWaitCoupleCompanyMask();
 	if (companies != 0 && !HasBit(companies, moving->owner.base())) return CoupleCandidateResult::WaitingCompany;
 	const uint8_t traction = carrier->current_order.GetWaitCoupleTraction();
@@ -8203,7 +8230,16 @@ bool HasPotentialCoupleTarget(const Train *moving)
 	for (const Train *candidate : Train::Iterate()) {
 		if (!candidate->IsPrimaryVehicle() || candidate == moving || !IsHoldingForCouple(candidate)) continue;
 		if (CoupleClaimBlocks(candidate, moving, UINT32_MAX)) continue;
-		if (GetCoupleVolatileConditionResult(moving, moving->current_order, candidate->First(), candidate->First()->tile) == CoupleCandidateResult::Valid) return true;
+		Train *first = candidate->First();
+		const auto result = GetCoupleVolatileConditionResult(moving, moving->current_order, first, first->tile);
+		if (result == CoupleCandidateResult::Valid) return true;
+		/* A long waiting consist can straddle two stations. The contact tile used
+		 * by the pathfinder may match the station order even when the head does not. */
+		if (result == CoupleCandidateResult::Station && moving->current_order.HasCoupleStation()) {
+			for (const Train *unit = first->Next(); unit != nullptr; unit = unit->Next()) {
+				if (CoupleStationOk(moving->current_order, unit->tile)) return true;
+			}
+		}
 	}
 	return false;
 }
@@ -8393,7 +8429,8 @@ Train *FindBestCoupleCheckpointTarget(Train *moving, const Order &couple)
 	Train *best = nullptr;
 	std::tuple<uint64_t, uint, uint32_t, uint32_t> best_key{};
 	for (Train *candidate : Train::Iterate()) {
-		if (!candidate->IsPrimaryVehicle() || candidate->Primary() == moving->Primary() || candidate->vehstatus.Test(VehState::Crashed)) continue;
+		if (!candidate->IsPrimaryVehicle() || !candidate->current_order.IsType(OT_WAIT_COUPLE) ||
+				candidate->Primary() == moving->Primary() || candidate->vehstatus.Test(VehState::Crashed)) continue;
 		const uint penalty = GetCoupleSpeedPreferencePenalty(moving, candidate, &couple);
 		for (Train *end : {candidate->First(), candidate->First()->Last()}) {
 			const uint distance = DistanceManhattan(end->tile, moving->tile);
@@ -9172,6 +9209,11 @@ static void Couple(Train *v, Train *u)
 	Train *v_prim = v->Primary();
 	for (Train *w = v->First(); w != nullptr; w = w->Next()) {
 		w->SetPrimary(v_prim);
+		/* Consume a reunited pair only after the physical merge succeeds. */
+		if (w->split_partner != VehicleID::Invalid()) {
+			const Train *partner = Train::GetIfValid(w->split_partner);
+			if (partner != nullptr && partner->First() == v->First()) w->ClearSplitPartner();
+		}
 	}
 	/* The merged consist keeps the last-loading-station records of both parts;
 	 * switch to per-vehicle attribution when they loaded at different
@@ -9190,7 +9232,13 @@ static void Couple(Train *v, Train *u)
 	/* The moving consist may take over the waiting consist's schedule; do this
 	 * before the waiting consist's orders are removed, so its state can be
 	 * copied and the surviving consist can join its shared chain. */
-	if (adopt_waiting_schedule) AdoptCoupleWaitingSchedule(v, u);
+	if (adopt_waiting_schedule) {
+		FollowPassengerSchedule(v->index, nullptr);
+		AdoptCoupleWaitingSchedule(v, u);
+		FollowPassengerSchedule(u->index, v);
+	} else {
+		FollowPassengerSchedule(u->index, nullptr);
+	}
 
 	DeleteVehicleOrders(u);
 	u->ReleaseUnitNumber();
@@ -9496,6 +9544,7 @@ static void TrainEnterStation(Train *consist, StationID station)
 	bool both_same_dir = first_same_dir && second_same_dir;
 	Debug(desync, 1, "TrainEnterStation: veh={} st={} tile=({},{}) want_decouple={} ordertype={}", consist->index, station, TileX(consist->tile), TileY(consist->tile), want_decouple, (int)consist->current_order.GetType());
 	if (consist->current_order.IsType(OT_GOTO_STATION) && consist->current_order.GetDestination() == station) consist->ApplyStationServiceNumber(consist->current_order);
+	const PassengerTariff original_fare = consist->passenger_tariff;
 	std::string station_service_number = consist->GetActiveServiceNumber();
 	const bool station_service_uses_dispatch = consist->fixed_service_number.empty() && !consist->service_number_suppressed;
 	bool service_number_split = false;
@@ -9556,6 +9605,8 @@ static void TrainEnterStation(Train *consist, StationID station)
 		StringID decouple_failure_reason;
 		/* Arrival bookkeeping may just have selected this stop's dispatch slot. */
 		if (station_service_uses_dispatch) station_service_number = consist->GetActiveServiceNumber();
+		/* A new split order replaces any previous pairing, even if it cannot cut. */
+		for (Train *w = consist->First(); w != nullptr; w = w->Next()) w->ClearSplitPartner();
 		u = DecoupleTrain(consist, consist_in_rear, decouple_failure_reason);
 		/* All further handling of the rear part (orders, loading, windows)
 		 * must operate on its primary vehicle, not the physical chain head. */
@@ -9576,6 +9627,10 @@ static void TrainEnterStation(Train *consist, StationID station)
 		 * skip it entirely then: physically flipping a still-moving consist
 		 * mid-station-entry is only valid for an actual trailer part. */
 		bool decoupled = (u != nullptr && u != consist);
+		if (decoupled) {
+			consist->split_partner = u->index;
+			u->split_partner = consist->index;
+		}
 		service_number_split = decoupled;
 		/* Both parts are marked before the reversal: reversing re-reserves the
 		 * part's path, and a part that is still standing in the station it
@@ -9600,6 +9655,9 @@ static void TrainEnterStation(Train *consist, StationID station)
 			}
 		}
 		reset_lateness = SplitOrders(consist, u, load_trains, wait_orders, decouple_inbound_time);
+		if (decoupled && second_keeps_arrival && !first_keeps_arrival && consist->orders != u->orders) {
+			FollowPassengerSchedule(consist->index, u);
+		}
 		/* The split can leave either part's carrier pointer on a vehicle that is
 		 * no longer that part's primary, and both the FreeTrainTrackReservation()
 		 * calls below and every use of current_order assume the primary. Re-anchor
@@ -9639,15 +9697,11 @@ static void TrainEnterStation(Train *consist, StationID station)
 		if (decoupled) {
 			if (!consist->flags.Test(VehicleRailFlag::JustDecoupled) && !consist->flags.Test(VehicleRailFlag::SameDirDecouplePending) && CheckReverseTrain(consist)) consist->flags.Set(VehicleRailFlag::Reversing);
 			if (!u->flags.Test(VehicleRailFlag::JustDecoupled) && !u->flags.Test(VehicleRailFlag::SameDirDecouplePending) && CheckReverseTrain(u)) u->flags.Set(VehicleRailFlag::Reversing);
-			/* Every part gets the full turnaround-style signal re-check and
-			 * reservation attempt right after the split (also the ones the
-			 * forced trailer reversal or a pending deferred reversal already
-			 * covered: the order handling above may have released reservations
-			 * again, and a duplicate attempt on an already valid reservation
-			 * is cheap). Parts that cannot reserve end up stuck and wait for
-			 * the path like any other train. */
-			RecheckSignalsAndTryReserve(consist);
-			RecheckSignalsAndTryReserve(u);
+			/* Parts that leave immediately can reserve for their new orders.
+			 * A loading part may turn around at departure. Reserving now can
+			 * strand the exit reservation when the shared platform clears. */
+			if (!(load_trains & DECOUPLE_LOAD_FIRST)) RecheckSignalsAndTryReserve(consist);
+			if (!(load_trains & DECOUPLE_LOAD_SECOND)) RecheckSignalsAndTryReserve(u);
 		}
 		if (u == consist && consist->owner == _local_company) {
 			AddVehicleAdviceNewsItem(AdviceType::Order, GetEncodedString(STR_NEWS_ORDER_DECOUPLE_FAILED_REASON, consist->index, decouple_failure_reason), consist->index);
@@ -9702,6 +9756,10 @@ static void TrainEnterStation(Train *consist, StationID station)
 		u->BeginLoading(second_keeps_arrival && arrival_booked && u->orders != nullptr && u->orders->index == arrival_order_list);
 	}
 
+	if (u != nullptr && u != consist) {
+		consist->Primary()->passenger_tariff = !first_keeps_arrival && second_keeps_arrival ? PassengerTariff{} : original_fare;
+		u->Primary()->passenger_tariff = !first_keeps_arrival && second_keeps_arrival ? original_fare : PassengerTariff{};
+	}
 	/* BeginLoading has now booked the inbound leg (including the one-off load
 	 * wrapper). Reset each part that adopted a new list unless it opted to keep the offset;
 	 * keep dwell timers, dispatch slots and the continuing part's timing intact. */
@@ -12036,6 +12094,17 @@ bool Train::Tick()
 
 	if (prim->IsInExternalTrip() || !(prim->vehstatus.Test(VehState::Stopped) || prim->IsWaitingInDepot()) || prim->cur_speed > 0) prim->running_ticks++;
 
+	if (prim->fare_origin != INVALID_TILE) {
+		if (!_settings_game.linkgraph.passenger_route_fares || !_settings_game.linkgraph.passenger_through_fares || prim->IsInExternalTrip()) {
+			prim->fare_origin = INVALID_TILE;
+		} else {
+			const TileIndex tile = TileVirtXY(prim->x_pos, prim->y_pos);
+			const uint delta = DistanceManhattan(tile, prim->fare_last_tile);
+			if (delta > 8 || delta > UINT32_MAX - prim->fare_tiles) prim->fare_origin = INVALID_TILE;
+			else prim->fare_tiles += delta;
+			prim->fare_last_tile = tile;
+		}
+	}
 	prim->current_order_time++;
 	if (prim->IsInExternalTrip()) {
 		prim->TickExternalTrip();

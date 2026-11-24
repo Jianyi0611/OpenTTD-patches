@@ -1216,6 +1216,9 @@ SettingsContainer &GetSettingsTree()
 				cdist->Add(new SettingEntry("linkgraph.recalc_time"));
 				cdist->Add(new SettingEntry("linkgraph.recalc_interval"));
 				cdist->Add(new SettingEntry("linkgraph.distribution_pax"));
+				cdist->Add(new SettingEntry("linkgraph.passenger_ticketing"));
+				cdist->Add(new SettingEntry("linkgraph.passenger_through_fares"));
+				cdist->Add(new SettingEntry("linkgraph.passenger_route_fares"));
 				cdist->Add(new SettingEntry("linkgraph.distribution_mail"));
 				cdist->Add(new SettingEntry("linkgraph.distribution_armoured"));
 				cdist->Add(new SettingEntry("linkgraph.distribution_default"));

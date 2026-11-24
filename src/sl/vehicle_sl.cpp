@@ -1537,6 +1537,8 @@ NamedSaveLoadTable GetVehicleDescription(VehicleType vt)
 
 		NSL("next",                           SLE_REF(Vehicle, next,                      REF_VEHICLE_OLD)),
 		NSL("service_number_suppressed", SLE_CONDVAR_X(Vehicle, service_number_suppressed, SLE_BOOL, SL_MIN_VERSION, SL_MAX_VERSION, SlXvFeatureTest(XSLFTO_AND, XSLFI_FIXED_SERVICE_NUMBER, 2))),
+		NSL("passenger_tariff", SLE_CONDARR_X(Vehicle, passenger_tariff.values, SLE_UINT16, PassengerTariff::Fields, SL_MIN_VERSION, SL_MAX_VERSION, SlXvFeatureTest(XSLFTO_AND, XSLFI_PASSENGER_DESTINATIONS, 9))),
+		NSL("fare_template_id", SLE_CONDVAR_X(Vehicle, passenger_tariff.template_id, SLE_UINT16, SL_MIN_VERSION, SL_MAX_VERSION, SlXvFeatureTest(XSLFTO_AND, XSLFI_PASSENGER_DESTINATIONS, 12))),
 		NSL("fixed_service_number", SLE_CONDSTR_X(Vehicle, fixed_service_number, SLE_STR, 0, SL_MIN_VERSION, SL_MAX_VERSION, SlXvFeatureTest(XSLFTO_AND, XSLFI_FIXED_SERVICE_NUMBER))),
 		NSL("name",                       SLE_CONDVAR(Vehicle, name,                      SLE_CNAME,                  SL_MIN_VERSION, SLV_84)),
 		NSL("name",                       SLE_CONDSTR(Vehicle, name,                      SLE_STR | SLF_ALLOW_CONTROL, 0, SLV_84, SL_MAX_VERSION)),
@@ -1769,6 +1771,9 @@ NamedSaveLoadTable GetVehicleDescription(VehicleType vt)
 		NSL("gv_flags",                   SLE_CONDVAR(Train, gv_flags,                  SLE_UINT16,                  SLV_139, SL_MAX_VERSION)),
 		NSL("",                        SLE_CONDNULL_X(2,                                                             SL_MIN_VERSION, SL_MAX_VERSION, SlXvFeatureTest(XSLFTO_AND, XSLFI_CHILLPP, SL_CHILLPP_232))),
 		NSL("",                          SLE_CONDNULL(11,                                                            SLV_2, SLV_144)), // old reserved space
+		NSL("fare_origin", SLE_CONDVAR_X(Train, fare_origin, SLE_UINT32, SL_MIN_VERSION, SL_MAX_VERSION, SlXvFeatureTest(XSLFTO_AND, XSLFI_PASSENGER_DESTINATIONS, 13))),
+		NSL("fare_last_tile", SLE_CONDVAR_X(Train, fare_last_tile, SLE_UINT32, SL_MIN_VERSION, SL_MAX_VERSION, SlXvFeatureTest(XSLFTO_AND, XSLFI_PASSENGER_DESTINATIONS, 13))),
+		NSL("fare_tiles", SLE_CONDVAR_X(Train, fare_tiles, SLE_UINT32, SL_MIN_VERSION, SL_MAX_VERSION, SlXvFeatureTest(XSLFTO_AND, XSLFI_PASSENGER_DESTINATIONS, 13))),
 		NSL("reverse_distance",         SLE_CONDVAR_X(Train, reverse_distance,          SLE_UINT16,                  SL_MIN_VERSION, SL_MAX_VERSION, SlXvFeatureTest(XSLFTO_AND, XSLFI_REVERSE_AT_WAYPOINT))),
 		NSL("speed_restriction",        SLE_CONDVAR_X(Train, speed_restriction,         SLE_UINT16,                  SL_MIN_VERSION, SL_MAX_VERSION, SlXvFeatureTest(XSLFTO_AND, XSLFI_SPEED_RESTRICTION))),
 		NSL("signal_speed_restriction", SLE_CONDVAR_X(Train, signal_speed_restriction,  SLE_UINT16,                  SL_MIN_VERSION, SL_MAX_VERSION, SlXvFeatureTest(XSLFTO_AND, XSLFI_TRAIN_SPEED_ADAPTATION))),
@@ -2465,6 +2470,7 @@ struct CoupleClaimSave {
 	uint32_t couple_claim_cost;
 	uint8_t couple_body_hold;
 	TraceRestrictSlotID wait_couple_acquired_slot = TraceRestrictSlotID::Invalid();
+	VehicleID split_partner = VehicleID::Invalid();
 };
 
 static std::vector<CoupleClaimSave> _couple_claims;
@@ -2481,8 +2487,8 @@ void Save_CPLM()
 	SlAutolength([]() {
 		std::vector<CoupleClaimSave> claims;
 		for (Train *t : Train::Iterate()) {
-			if (t->couple_target == VehicleID::Invalid() && t->couple_claimant == VehicleID::Invalid() && !t->couple_body_hold && t->wait_couple_acquired_slot == TraceRestrictSlotID::Invalid()) continue;
-			claims.push_back({t->index, t->couple_target, t->couple_claimant, t->couple_claim_cost, static_cast<uint8_t>(t->couple_body_hold ? 1 : 0), t->wait_couple_acquired_slot});
+			if (t->couple_target == VehicleID::Invalid() && t->couple_claimant == VehicleID::Invalid() && !t->couple_body_hold && t->wait_couple_acquired_slot == TraceRestrictSlotID::Invalid() && t->split_partner == VehicleID::Invalid()) continue;
+			claims.push_back({t->index, t->couple_target, t->couple_claimant, t->couple_claim_cost, static_cast<uint8_t>(t->couple_body_hold ? 1 : 0), t->wait_couple_acquired_slot, t->split_partner});
 		}
 
 		SlWriteUint32((uint32_t)claims.size());
@@ -2493,6 +2499,7 @@ void Save_CPLM()
 			SlWriteUint32(cs.couple_claim_cost);
 			SlWriteByte(cs.couple_body_hold);
 			SlWriteUint16(cs.wait_couple_acquired_slot.base());
+			SlWriteUint32(cs.split_partner.base());
 		}
 	});
 }
@@ -2505,7 +2512,8 @@ void Load_CPLM()
 	uint32_t count = SlReadUint32();
 	const bool wide_ids = SlXvIsFeaturePresent(XSLFI_COUPLE_CLAIM_STATE, 2);
 	const bool has_wait_slot = SlXvIsFeaturePresent(XSLFI_COUPLE_CLAIM_STATE, 3);
-	const uint32_t record_size = has_wait_slot ? 19 : wide_ids ? 17 : 13;
+	const bool has_split_partner = SlXvIsFeaturePresent(XSLFI_COUPLE_CLAIM_STATE, 4);
+	const uint32_t record_size = has_split_partner ? 23 : has_wait_slot ? 19 : wide_ids ? 17 : 13;
 	if (count > VehicleID::End().base() || SlGetFieldLength() != 4ULL + uint64_t(count) * record_size) {
 		SlErrorCorrupt("Invalid couple claim record count");
 	}
@@ -2525,6 +2533,7 @@ void Load_CPLM()
 		cs.couple_claim_cost = SlReadUint32();
 		cs.couple_body_hold = SlReadByte() != 0;
 		if (has_wait_slot) cs.wait_couple_acquired_slot = TraceRestrictSlotID{SlReadUint16()};
+		if (has_split_partner) cs.split_partner = VehicleID{SlReadUint32()};
 	}
 }
 
@@ -2538,6 +2547,13 @@ void SlApplyCoupleClaims()
 		t->couple_claim_cost = cs.couple_claim_cost;
 		t->couple_body_hold = cs.couple_body_hold != 0;
 		t->wait_couple_acquired_slot = cs.wait_couple_acquired_slot;
+		t->split_partner = cs.split_partner;
+	}
+	for (const CoupleClaimSave &cs : _couple_claims) {
+		if (cs.split_partner == VehicleID::Invalid()) continue;
+		Train *t = Train::GetIfValid(cs.vehicle);
+		const Train *other = Train::GetIfValid(cs.split_partner);
+		if (t != nullptr && (other == nullptr || other == t || other->split_partner != t->index)) t->split_partner = VehicleID::Invalid();
 	}
 	_couple_claims.clear();
 }

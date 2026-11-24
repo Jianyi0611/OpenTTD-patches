@@ -433,6 +433,42 @@ static uint32_t PositionHelper(const Vehicle *v, bool consecutive)
 	return chain_before | chain_after << 8 | (chain_before + chain_after + consecutive) << 16;
 }
 
+/** Number of same-ID parts in a base-last articulated locomotive. Some sets use two such
+ * locomotives and var 41 to draw the outward-facing cabs of a pair. */
+static uint ReversedLocomotiveSize(const Train *part, EngineID type)
+{
+	const Train *base = Train::From(part->GetUnitMain());
+	if (!base->IsEngine() || base->IsMultiheaded() || base->Previous() == nullptr || base->Previous()->GetUnitMain() != base) return 0;
+
+	uint size = 0;
+	for (const Train *member = base; member != nullptr && member->GetUnitMain() == base; member = member->Previous()) {
+		if (member->engine_type != type) return 0;
+		++size;
+	}
+	return size;
+}
+
+/** Mirror the order of complete locomotives within a reversed block, preserving the
+ * base-first position of each articulated member calculated by PositionHelper. */
+static uint8_t GetSpritePositionDelta(const Vehicle *v)
+{
+	if (v->type != VehicleType::Train) return 0;
+	const Train *part = Train::From(v);
+	if (ReversedLocomotiveSize(part, v->engine_type) == 0) return 0;
+	int delta = 0;
+	for (const Train *unit = part->GetUnitChainFront()->Previous(); unit != nullptr; unit = unit->GetUnitChainFront()->Previous()) {
+		const uint size = ReversedLocomotiveSize(unit, v->engine_type);
+		if (size == 0) break;
+		delta -= static_cast<int>(size);
+	}
+	for (const Train *unit = part->GetUnitChainLast()->Next(); unit != nullptr; unit = unit->GetUnitChainLast()->Next()) {
+		const uint size = ReversedLocomotiveSize(unit, v->engine_type);
+		if (size == 0) break;
+		delta += static_cast<int>(size);
+	}
+	return static_cast<uint8_t>(delta);
+}
+
 static uint32_t VehicleGetVariable(Vehicle *v, const VehicleScopeResolver *object, uint16_t variable, uint32_t parameter, GetVariableExtra &extra)
 {
 	if (_sprite_group_resolve_check_veh_check) {
@@ -562,7 +598,15 @@ static uint32_t VehicleGetVariable(Vehicle *v, const VehicleScopeResolver *objec
 		case 0x41: // Get length of same consecutive wagons
 			if (!HasBit(v->grf_cache.cache_valid, NCVV_POSITION_SAME_ID_LENGTH)) {
 				v->grf_cache.position_same_id_length = PositionHelper(v, true);
+				v->grf_cache.sprite_position_delta = GetSpritePositionDelta(v);
 				SetBit(v->grf_cache.cache_valid, NCVV_POSITION_SAME_ID_LENGTH);
+			}
+			if (object->resolving_sprite && v->grf_cache.sprite_position_delta != 0) {
+				uint32_t position = v->grf_cache.position_same_id_length;
+				const uint8_t delta = v->grf_cache.sprite_position_delta;
+				SB(position, 0, 8, static_cast<uint8_t>(GB(position, 0, 8) + delta));
+				SB(position, 8, 8, static_cast<uint8_t>(GB(position, 8, 8) - delta));
+				return position;
 			}
 			return v->grf_cache.position_same_id_length;
 
@@ -1321,6 +1365,7 @@ VehicleResolverObject::VehicleResolverObject(EngineID engine_type, const Vehicle
 static void GetCustomEngineSprite(EngineID engine, const Vehicle *v, Direction direction, EngineImageType image_type, VehicleSpriteSeq *result)
 {
 	VehicleResolverObject object(engine, v, VehicleResolverObject::WagonOverride::Cached, false, CBID_NO_CALLBACK);
+	object.self_scope.resolving_sprite = true;
 	result->Clear();
 
 	bool sprite_stack = EngInfo(engine)->misc_flags.Test(EngineMiscFlag::SpriteStack);

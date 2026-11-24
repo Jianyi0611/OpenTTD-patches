@@ -25,7 +25,31 @@
 #include "3rdparty/cpp-ring-buffer/ring_buffer.hpp"
 #include "3rdparty/cpp-btree/btree_map.h"
 
+enum class PassengerRebooking : uint8_t { None, Departed, ServiceChanged, Connection, Full, Bus };
+
+/** One waiting group's rail ticket. The order index distinguishes repeated calls at a station. */
+struct PassengerTicket {
+	VehicleID train = VehicleID::Invalid();
+	OrderListID schedule = OrderListID::Invalid();
+	VehicleOrderID call = INVALID_VEH_ORDER_ID;
+	StationID alight = StationID::Invalid();
+	StationID bus_via = StationID::Invalid(); ///< First stop in the planned direction. A bus plan holds no seat.
+	int32_t timetable_duration = 0;
+	bool untimed = false;
+	bool reviewed = false; ///< Pending group's services checked, or rail ticket's alighting stop already reviewed.
+	PassengerRebooking rebooking = PassengerRebooking::None; ///< Pending only. Retain the old public number until a replacement is sold.
+	uint8_t visit = 0; ///< Number of intervening departures at this order before boarding.
+	uint32_t capacity = 0; ///< Consist capacity at the last seat allocation.
+	uint64_t issued = 0; ///< Sale order within the train, for priority after a capacity reduction.
+	int32_t quoted_fare = -1;
+	uint32_t quoted_distance = 0;
+	std::vector<uint32_t> quoted_shares; ///< Pairs of alighting station IDs and their share of a single fare.
+	std::string number;
+	bool operator==(const PassengerTicket &) const = default;
+};
+
 struct CargoPayment;
+struct PassengerBoarding;
 
 /** Unique identifier for a single cargo packet. */
 struct CargoPacketIDTag : public PoolIDTraits<uint32_t, 0xFFF000, 0xFFFFFF> {};
@@ -88,6 +112,24 @@ private:
 public:
 	/** Maximum number of items in a single cargo packet. */
 	static const uint16_t MAX_COUNT = UINT16_MAX;
+	PassengerTicket ticket;
+	std::vector<uint32_t> fare_shares; ///< Quoted carrier amounts retained through rebooking.
+	int32_t through_fare = -1; ///< Price per passenger, retained independently of each seat reservation.
+	uint32_t through_distance = 0; ///< Booked route mileage retained with the through fare.
+	TileIndex fare_interchange = INVALID_TILE; ///< Last physical transfer, or the original boarding tile for the first leg.
+	std::vector<uint32_t> fare_mileage; ///< Completed mileage per passenger, indexed by company * 4 + transport type.
+	void LockThroughFare(const Station &from, const Vehicle *carrier = nullptr, StationID alight = StationID::Invalid());
+	void RecordFareTransfer(const Vehicle &carrier, TileIndex tile, StationID station);
+	Money SettleThroughFare(uint accepted, const Vehicle &carrier, TileIndex tile, uint offmap = 0) const;
+	uint FareLegDistance(TileIndex tile) const;
+	bool SameThroughFare(const CargoPacket &other) const
+	{
+		return this->through_fare == other.through_fare && (this->through_fare < 0 ||
+				(this->through_distance == other.through_distance && this->fare_interchange == other.fare_interchange && this->fare_mileage == other.fare_mileage && this->fare_shares == other.fare_shares));
+	}
+	StationID passenger_alight = StationID::Invalid(); ///< Planned end of the current train ride.
+	StationID passenger_destination = StationID::Invalid();
+	uint64_t passenger_start_tick = 0; ///< Scaled simulation tick at the start of this journey.
 	uint16_t external_source_city = UINT16_MAX; ///< A real external-market origin, never a map industry ID.
 	uint16_t external_distance = 0; ///< Source city to map entrance; preserved through ordinary transfers.
 
@@ -96,6 +138,8 @@ public:
 	CargoPacket(CargoPacketID index, uint16_t count, uint16_t periods_in_transit, StationID first_station, TileIndex source_xy, Money feeder_share);
 	CargoPacket(CargoPacketID index, uint16_t count, Money feeder_share, const CargoPacket &original);
 	~CargoPacket();
+	void SetPassengerTicket(PassengerTicket replacement);
+	static std::vector<const CargoPacket *> TicketsForTrain(VehicleID train);
 
 	CargoPacket *Split(uint new_size);
 	void Merge(CargoPacket *cp);
@@ -539,7 +583,7 @@ public:
 	uint Unload(uint max_move, StationCargoList *dest, CargoType cargo, CargoPayment *payment, TileIndex current_tile);
 	uint Shift(uint max_move, VehicleCargoList *dest);
 	uint Truncate(uint max_move = UINT_MAX);
-	uint DeliverToExternal(uint max_move, CargoType cargo, TileIndex tile, uint16_t city, uint16_t distance, Money &income, StationID destination = StationID::Invalid(), const GoodsEntry *goods = nullptr);
+	uint DeliverToExternal(uint max_move, CargoType cargo, TileIndex tile, uint16_t city, uint16_t distance, Money &income, StationID destination = StationID::Invalid(), const GoodsEntry *goods = nullptr, const Vehicle *carrier = nullptr);
 	uint Reroute(uint max_move, VehicleCargoList *dest, StationID avoid, StationID avoid2, const GoodsEntry *ge);
 	uint RerouteFromSource(uint max_move, VehicleCargoList *dest, StationID source, StationID avoid, StationID avoid2, const GoodsEntry *ge);
 
@@ -552,7 +596,9 @@ public:
 	 */
 	static bool AreMergable(const CargoPacket *cp1, const CargoPacket *cp2)
 	{
-		return cp1->source_xy           == cp2->source_xy &&
+		return cp1->SameThroughFare(*cp2) && cp1->source_xy == cp2->source_xy &&
+				cp1->passenger_alight == cp2->passenger_alight && cp1->ticket == cp2->ticket &&
+				cp1->passenger_destination == cp2->passenger_destination && cp1->passenger_start_tick == cp2->passenger_start_tick &&
 				cp1->external_source_city == cp2->external_source_city && cp1->external_distance == cp2->external_distance &&
 				cp1->periods_in_transit == cp2->periods_in_transit &&
 				cp1->first_station      == cp2->first_station &&
@@ -591,6 +637,9 @@ public:
 	static void InvalidateAllFrom(Source src);
 
 	template <class Taction>
+	uint BoardCargo(Taction action, std::span<const StationID> next, const Vehicle *vehicle, PassengerBoarding *boarding);
+
+	template <class Taction>
 	bool ShiftCargo(Taction &action, StationID next);
 
 	template <class Taction>
@@ -603,6 +652,8 @@ public:
 	uint ShiftCargoFromSource(Taction action, StationID source, std::span<const StationID> next, bool include_invalid);
 
 	void Append(CargoPacket *cp, StationID next);
+	void SellPassengerSeats(PassengerBoarding &sale);
+	void RetryPassengerDestinations(const Station &station, CargoType cargo, uint64_t round);
 
 	/**
 	 * Check for cargo headed for a specific station.
@@ -662,8 +713,8 @@ public:
 	 * amount of cargo to be moved. Second parameter is destination (if
 	 * applicable), return value is amount of cargo actually moved. */
 
-	uint Reserve(uint max_move, VehicleCargoList *dest, std::span<const StationID> next, TileIndex current_tile);
-	uint Load(uint max_move, VehicleCargoList *dest, std::span<const StationID> next, TileIndex current_tile);
+	uint Reserve(uint max_move, VehicleCargoList *dest, std::span<const StationID> next, TileIndex current_tile, const Vehicle *vehicle = nullptr, PassengerBoarding *boarding = nullptr);
+	uint Load(uint max_move, VehicleCargoList *dest, std::span<const StationID> next, TileIndex current_tile, const Vehicle *vehicle = nullptr, PassengerBoarding *boarding = nullptr);
 	uint Truncate(uint max_move = UINT_MAX, StationCargoAmountMap *cargo_per_source = nullptr);
 	uint Reroute(uint max_move, StationCargoList *dest, StationID avoid, StationID avoid2, const GoodsEntry *ge);
 	uint RerouteFromSource(uint max_move, StationCargoList *dest, StationID source, StationID avoid, StationID avoid2, const GoodsEntry *ge);
@@ -687,7 +738,9 @@ public:
 	 */
 	static bool AreMergable(const CargoPacket *cp1, const CargoPacket *cp2)
 	{
-		return cp1->source_xy           == cp2->source_xy &&
+		return cp1->SameThroughFare(*cp2) && cp1->source_xy == cp2->source_xy &&
+				cp1->passenger_alight == cp2->passenger_alight && cp1->ticket == cp2->ticket &&
+				cp1->passenger_destination == cp2->passenger_destination && cp1->passenger_start_tick == cp2->passenger_start_tick &&
 				cp1->external_source_city == cp2->external_source_city && cp1->external_distance == cp2->external_distance &&
 				cp1->periods_in_transit == cp2->periods_in_transit &&
 				cp1->first_station      == cp2->first_station &&

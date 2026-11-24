@@ -11,6 +11,7 @@
 #include "external_city.h"
 #include "core/geometry_func.hpp"
 #include "gui.h"
+#include "station_gui.h"
 #include "spritecache.h"
 #include "window_gui.h"
 #include "window_func.h"
@@ -2073,7 +2074,8 @@ class NWidgetMainToolbarContainer : public NWidgetToolbarContainer {
 			WID_TN_BLUEPRINT_UNDO,
 			WID_TN_MUSIC_SOUND,
 			WID_TN_MESSAGES,
-			WID_TN_HELP
+			WID_TN_HELP,
+			WID_TN_TICKET_QUERY
 		};
 
 		/* If at least BIGGEST_ARRANGEMENT fit, just spread all the buttons nicely */
@@ -2090,7 +2092,14 @@ class NWidgetMainToolbarContainer : public NWidgetToolbarContainer {
 
 		button_count = arrangeable_count = full_buttons;
 		spacer_count = this->spacers;
-		return arrangements[full_buttons - SMALLEST_ARRANGEMENT] + ((_toolbar_mode == ToolbarMode::Lower) ? full_buttons : 0);
+		const WidgetID *row = arrangements[full_buttons - SMALLEST_ARRANGEMENT];
+		if (_toolbar_mode != ToolbarMode::Lower) return row;
+		static std::array<WidgetID, BIGGEST_ARRANGEMENT + 1> lower;
+		std::copy_n(row + full_buttons, full_buttons, lower.begin());
+		lower[full_buttons - 1] = WID_TN_TICKET_QUERY;
+		lower[full_buttons] = WID_TN_SWITCH_BAR;
+		button_count = arrangeable_count = full_buttons + 1;
+		return lower.data();
 	}
 };
 
@@ -2255,6 +2264,7 @@ static ToolbarButtonProc * const _toolbar_button_procs[] = {
 	ToolbarNewspaperClick,
 	ToolbarHelpClick,
 	ToolbarSwitchClick,
+	[](Window *) { ShowPassengerTicketQuery(); return CallBackFunction::None; },
 };
 
 /** Main toolbar. */
@@ -2515,6 +2525,7 @@ static constexpr std::tuple<WidgetID, WidgetType, SpriteID> _toolbar_button_spri
 	{WID_TN_MESSAGES,     WWT_IMGBTN,     SPR_IMG_MESSAGES},
 	{WID_TN_HELP,         WWT_IMGBTN,     SPR_IMG_QUERY},
 	{WID_TN_SWITCH_BAR,   WWT_IMGBTN,     SPR_IMG_SWITCH_TOOLBAR},
+	{WID_TN_TICKET_QUERY, WWT_PUSHIMGBTN, SPR_SHOW_ORDERS},
 };
 
 /**
@@ -2549,7 +2560,7 @@ static std::unique_ptr<NWidgetBase> MakeMainToolbar()
 				hor->Add(std::make_unique<NWidgetSpacer>(0, 0));
 				break;
 		}
-		auto leaf = std::make_unique<NWidgetLeaf>(tp, Colours::Grey, widget, WidgetData{.sprite = sprite}, STR_TOOLBAR_TOOLTIP_PAUSE_GAME + widget);
+		auto leaf = std::make_unique<NWidgetLeaf>(tp, Colours::Grey, widget, WidgetData{.sprite = sprite}, widget == WID_TN_TICKET_QUERY ? STR_TQ_TITLE : STR_TOOLBAR_TOOLTIP_PAUSE_GAME + widget);
 		leaf->SetToolbarMinimalSize(1);
 		hor->Add(std::move(leaf));
 	}

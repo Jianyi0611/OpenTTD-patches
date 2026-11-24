@@ -139,6 +139,7 @@ static const StringID _departure_source_mode_strings[DSM_END] = {
 static std::string GetDepartureBoardServiceNumber(const Departure &d, DeparturesSourceMode source_mode)
 {
 	if (source_mode != DSM_SCHEDULE_24H) {
+		if (d.live_departure_number.has_value()) return *d.live_departure_number;
 		/* Arrival rows must not fall back to the vehicle's current number,
 		 * which depends on where the train happens to be when the board
 		 * redraws: compute the number in effect on arrival from the arrival

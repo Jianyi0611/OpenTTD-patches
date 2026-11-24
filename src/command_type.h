@@ -796,6 +796,12 @@ enum class Commands : uint16_t {
 	ManageExternalCity,                      ///< Create, link or edit a shared external destination.
 	BuildExternalRoadConnection,             ///< Confirm a road entrance at the actual map boundary.
 
+	SetPassengerTariff,                     ///< Edit a company or individual train tariff.
+	SetScheduleTariff,                      ///< Edit the fare of a specific shared order list.
+	ManageFareTemplate,                     ///< Save a company's fare template or apply it to an order list.
+	EditFareSeat,                           ///< Edit the comfort levels offered by an order list.
+	CompanyFareTemplate,                    ///< Manage a company's named fare templates.
+	SelectTrainFareTemplate,                ///< Select the fare template used for future ticket sales.
 	End,                                    ///< Must ALWAYS be on the end of this list!! (period)
 };
 

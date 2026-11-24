@@ -106,6 +106,7 @@ struct OrderDate {
 	Ticks scheduled_waiting_time = Departure::INVALID_WAIT_TICKS; ///< Scheduled waiting time if scheduled dispatch is used
 	Ticks lateness_post_adjust = 0;                   ///< Lateness adjustment to apply after this order
 	ScheduledDispatchVehicleRecords dispatch_records; ///< Dispatch records for this vehicle
+	std::optional<std::string_view> fixed_number; ///< Empty value selects the predicted dispatch slot. An engaged empty string suppresses the number.
 	std::vector<ArrivalHistoryEntry> arrival_history;
 	const OrderList *walk_list = nullptr; ///< List currently walked (execute-schedule descent); nullptr means the vehicle's own list
 	DepartureWalkContext walk_ctx;        ///< Execute-schedule walk state
@@ -567,6 +568,7 @@ static bool IsVehicleUsableForDepartures(const Vehicle *v, DepartureCallingSetti
 
 struct LiveCandidateVehicle {
 	ScheduledDispatchVehicleRecords dispatch_records;
+	std::optional<std::string_view> fixed_number;
 	std::vector<ArrivalHistoryEntry> arrival_history;
 	const OrderList *walk_list = nullptr; ///< List currently walked (execute-schedule descent); nullptr means the vehicle's own list
 	DepartureWalkContext walk_ctx;        ///< Execute-schedule walk state
@@ -582,8 +584,20 @@ struct LiveCandidateVehicle {
 
 	LiveCandidateVehicle(const Vehicle *v, const Order *order, bool have_veh_dispatch_conditionals, bool require_travel_time, DepartureStatus status, Ticks tick)
 			: v(v), order(order), have_veh_dispatch_conditionals(have_veh_dispatch_conditionals), require_travel_time(require_travel_time), status(status),
-			tick(tick), current_lateness(v->lateness_counter), orders_remaining(DepartureWalkGraphSteps(v) * 2 * (have_veh_dispatch_conditionals ? 8 : 1)) {}
+			tick(tick), current_lateness(v->lateness_counter), orders_remaining(DepartureWalkGraphSteps(v) * 2 * (have_veh_dispatch_conditionals ? 8 : 1))
+	{
+		if (v->service_number_suppressed) this->fixed_number = std::string_view{};
+		else if (!v->fixed_service_number.empty()) this->fixed_number = std::string_view(v->fixed_service_number);
+	}
 };
+
+/** Apply a change once the live prediction actually visits the order, including repeated visits to the same station. */
+static void AdvanceLiveServiceNumber(std::optional<std::string_view> &number, const Order &order)
+{
+	if (!order.IsServiceNumberChangePoint()) return;
+	if (order.GetServiceNumberMode() == 1) number = order.GetServiceNumber();
+	if (order.GetServiceNumberMode() == 2) number.reset();
+}
 
 struct LiveQueueItem {
 	enum class DataType : uint8_t {
@@ -695,6 +709,7 @@ static ProcessLiveDepartureCandidateVehicleResult ProcessLiveDepartureCandidateV
 
 		check_first_order = true;
 
+		if (type == D_DEPARTURE && status != D_ARRIVED) AdvanceLiveServiceNumber(candidate.fixed_number, *order);
 		Ticks lateness_post_adjust = 0; // Lateness change to apply after this order
 		Ticks waiting_time = 0;
 		if (status == D_ARRIVED && v->vehicle_flags.Test(VehicleFlag::ScheduledDispatch) && v->cur_implicit_order_index < v->orders->GetNumOrders() && v->orders->GetOrderAt(v->cur_implicit_order_index)->IsScheduledDispatchOrder(true)) {
@@ -790,6 +805,7 @@ static ProcessLiveDepartureCandidateVehicleResult ProcessLiveDepartureCandidateV
 			od.scheduled_waiting_time = waiting_time;
 			od.lateness_post_adjust = lateness_post_adjust;
 			od.dispatch_records = std::move(candidate.dispatch_records);
+			od.fixed_number = candidate.fixed_number;
 			od.walk_list = walk_list;
 			od.walk_ctx = walk_ctx;
 			/* Derive now: the vehicle's executing state must still match the
@@ -1062,6 +1078,7 @@ static void AdvanceLiveDepartureOrderToNextCandidate(LiveQueueItem queue_item, O
 
 		check_first_order = true;
 
+		if (type == D_DEPARTURE) AdvanceLiveServiceNumber(lod.fixed_number, *order);
 		if (VehicleSetNextDepartureTime(&lod.expected_tick, &lod.scheduled_waiting_time, state_ticks_base, lod.v, order, false, schdispatch_last_planned_dispatch, lod.dispatch_records)) {
 			HandleScheduledWaitLateness(lod);
 		}
@@ -1292,6 +1309,8 @@ static DepartureList MakeDepartureListLiveMode(DepartureOrderDestinationDetector
 				d->schedule_route_id = schedule.GetSupplementaryName(DispatchSchedule::SupplementaryNameType::RouteID, best_record->route_id);
 			}
 		}
+
+		if (type == D_DEPARTURE) d->live_departure_number = lod.fixed_number.value_or(d->schedule_route_id);
 
 		ScheduledDispatchVehicleRecords &dispatch_records = lod.dispatch_records;
 

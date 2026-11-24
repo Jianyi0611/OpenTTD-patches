@@ -258,11 +258,9 @@ private:
 				this->res_fail_td = td;
 			}
 		} else {
-			/* A goto-couple train may only travel towards its partner while no
-			 * foreign consist stands on the track tile it passes. Plain-track
-			 * reservations alone miss a foreign train on a crossing/parallel
-			 * track bit, which then gets driven into. */
-			if (v->current_order.IsType(OT_GOTO_COUPLE) && HasForeignConsistOnTile(v, tile)) {
+			/* Check actual bodies as well as reservations, including vehicles on
+			 * crossing tracks. Two disjoint parallel tracks can be used together. */
+			if (v->current_order.IsType(OT_GOTO_COUPLE) && HasForeignConsistOnTile(v, tile, TrackdirToTrack(td))) {
 				this->res_fail_tile = tile;
 				this->res_fail_td = td;
 				return false;

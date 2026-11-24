@@ -2,6 +2,38 @@
 #include "timetable_cmd.h"
 #include "waypoint_cmd.h"
 #include "newgrf_station.h"
+#include "departures_func.h"
+
+/** On a repeated call, the unchanged number at the platform precedes the change on the next lap. */
+static void CheckInheritedNumberOnLiveBoard(Train *train)
+{
+ Order *platform = train->GetOrder(train->cur_real_order_index);
+ platform->SetServiceNumber(0, {});
+ platform->SetLoadType(OrderLoadType::LoadIfPossible);
+ for (Order *order : train->Orders()) {
+  order->SetTravelTime(100); order->SetTravelTimetabled(true);
+  order->SetWaitTime(64); order->SetWaitTimetabled(true);
+  if (order->IsType(OT_GOTO_DEPOT)) order->SetDepotActionType(ODATF_SERVICE_ONLY);
+ }
+ DepartureOrderDestinationDetector source{};
+ SetBit(source.order_type_mask, OT_GOTO_STATION);
+ source.destination = train->last_station_visited;
+ DepartureCallingSettings settings;
+ settings.SetCargoFilter(true, true);
+ const Vehicle *trains[] = {train};
+ bool platform_seen = false, next_visit_seen = false;
+ for (const auto &row : MakeDepartureList(DSM_LIVE, source, trains, DepartureTypes{D_DEPARTURE}, settings)) {
+  if (row->order != platform) continue;
+  if (row->status == D_ARRIVED) {
+   assert(row->live_departure_number == "G456");
+   platform_seen = true;
+  } else {
+   assert(row->live_departure_number == "G123");
+   next_visit_seen = true;
+  }
+ }
+ assert(platform_seen && next_visit_seen && train->GetActiveServiceNumber() == "G456");
+}
 void StationServiceDrivingTick()
 {
  if (HasModalProgress() || _generating_world) return;
@@ -9,6 +41,7 @@ void StationServiceDrivingTick()
  const bool split = mode != "station";
  const bool reload = std::getenv("PXP_SERVICE_RELOAD") != nullptr;
  const bool checkpoint_coupling = mode.starts_with("recouple-checkpoint");
+ const bool require_split_partner = mode == "recouple-checkpoint-partner";
  const bool reversed_checkpoint = mode == "recouple-checkpoint-reversed";
  const bool waypoint_coupling = mode.starts_with("recouple-waypoint") || checkpoint_coupling;
  const bool late_partner = mode == "recouple-waypoint-late" || checkpoint_coupling;
@@ -91,6 +124,7 @@ void StationServiceDrivingTick()
    recouple_posted=true;
    for(const Train*t:Train::Iterate())if(t->IsPrimaryVehicle()&&t!=demo_slow&&t!=demo_fast&&t->last_station_visited==first_station)late_target=t->index;
    assert(late_target!=VehicleID::Invalid());
+   if(require_split_partner) assert(Train::Get(late_target)->current_order.RequiresSplitPartner());
    assert(demo_slow->flags.Test(VehicleRailFlag::CoupleCheckReversePending));
    assert(demo_slow->cur_speed==0);
   }
@@ -114,6 +148,13 @@ void StationServiceDrivingTick()
   if(reversed_checkpoint&&!reload)DemoRequire(CmdReverseTrainDirection(DoCommandFlag::Execute,demo_slow->index,false),"turn held checkpoint collector away from next waypoint");
   if(checkpoint_coupling&&!reload)DemoSave("couple-checkpoint-waiting");
   DemoRequire(CmdStartStopVehicle(DoCommandFlag::Execute,target->index,true),"enable newly available partner behind waypoint");
+  if(require_split_partner){
+   Order approach; approach.MakeGoToCouple();
+   assert(target->current_order.RequiresSplitPartner());
+   assert(GetCoupleCandidateResult(demo_fast,approach,target->First(),target->tile,false)==CoupleCandidateResult::WaitSplitPartner);
+   assert(GetCoupleCandidateResult(demo_slow,approach,target->First(),target->tile,false)!=CoupleCandidateResult::WaitSplitPartner);
+   fprintf(demo_log,"SPLIT_PARTNER unrelated_rejected=1 original_accepted=1 reload=%u\n",reload);
+  }
   if(checkpoint_coupling&&!reload)DemoSave("couple-checkpoint-ready");
   late_released = true;
   fprintf(demo_log,"LATE partner available tick=%u blocked_ticks=%u\n",ticks,late_stuck_ticks);
@@ -142,12 +183,18 @@ void StationServiceDrivingTick()
   }
   if (first && demo_slow->last_station_visited==second_station && demo_slow->current_order.IsAnyLoadingType()) {
    assert(demo_slow->GetActiveServiceNumber()=="G456");
+   CheckInheritedNumberOnLiveBoard(demo_slow);
    fprintf(demo_log,"STRICT PASS station actual_first=G123 actual_second=G456 reload=%u ticks=%u\n",reload,ticks);fflush(demo_log);_exit_game=true;
   }
  } else {
   Train *carriages=nullptr;
   for(auto *t:Train::Iterate())if(t->IsPrimaryVehicle()&&t!=demo_slow&&t!=demo_fast&&t->last_station_visited==first_station)carriages=t;
   if(carriages!=nullptr && demo_slow->last_station_visited==first_station) {
+   if(require_split_partner&&!saved&&!reload){
+    if(!carriages->current_order.IsType(OT_WAIT_COUPLE))return;
+    DemoRequire(CmdModifyOrder(DoCommandFlag::Execute,OrderTargetType::Vehicle,carriages->index.base(),carriages->cur_real_order_index,MOF_WAIT_COUPLE_SPLIT_PARTNER,1,INVALID_CARGO,{}),"wait only for other part of the split");
+    assert(carriages->current_order.RequiresSplitPartner());
+   }
    if(auto_slot&&!carriages->current_order.IsType(OT_WAIT_COUPLE))return;
    assert(carriages->GetActiveServiceNumber()==first_number);
    if(mode=="split-both")assert(demo_slow->GetActiveServiceNumber()==first_number);

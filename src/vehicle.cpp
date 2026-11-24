@@ -83,6 +83,7 @@
 
 #include <algorithm>
 
+#include "passenger_journey.h"
 #include "safeguards.h"
 
 /** @{
@@ -1208,6 +1209,13 @@ void Vehicle::HandlePathfindingResult(bool path_found)
 void Vehicle::PreDestructor()
 {
 	if (CleaningPool()) return;
+	if (this->type == VehicleType::Train) Train::From(this)->ClearSplitPartner();
+
+	if (this->type == VehicleType::Train && this->IsPrimaryVehicle()) {
+		for (CargoPacket *packet : CargoPacket::Iterate()) {
+			if (packet->ticket.train == this->index) packet->SetPassengerTicket({});
+		}
+	}
 
 	SCOPE_INFO_FMT([this], "Vehicle::PreDestructor: {}", VehicleInfoDumper(this));
 
@@ -1735,9 +1743,10 @@ void CallVehicleTicks()
 		PerformanceMeasurer framerate(PerformanceElement::GameLoopEconomy);
 		Station *si_st = nullptr;
 		SCOPE_INFO_FMT([&si_st], "CallVehicleTicks: LoadUnloadStation: {}", StationInfoDumper(si_st));
+		const Station *sale = NextPassengerSale();
 		for (Station *st : Station::Iterate()) {
 			si_st = st;
-			LoadUnloadStation(st);
+			LoadUnloadStation(st, st == sale);
 		}
 	}
 
@@ -2909,6 +2918,10 @@ bool Vehicle::TickExternalTrip()
 					this->external_return_tick += StateTicksDelta{1};
 					return true;
 				}
+				if (this->type == VehicleType::Train) {
+					const ExternalCity *city = ExternalCity::GetIfValid(this->external_trip_city);
+					if (city) ReleaseMissedPassengerTickets(*this, city->market_station);
+				}
 				this->HandleWaiting(true, false);
 				this->external_departure_handled = true;
 				InvalidateWindowData(WindowClass::VehicleView, this->index);
@@ -3703,6 +3716,11 @@ std::string Vehicle::GetActiveServiceNumber() const
 {
 	if (this->service_number_suppressed) return {};
 	if (!this->fixed_service_number.empty()) return std::string(this->fixed_service_number.c_str());
+	return this->GetActiveDispatchServiceNumber();
+}
+
+std::string Vehicle::GetActiveDispatchServiceNumber() const
+{
 	if (this->orders == nullptr) return {};
 	const LastDispatchRecord *best = nullptr;
 	uint schedule = 0;
@@ -3922,6 +3940,16 @@ void Vehicle::BeginLoading(bool timetable_arrival_booked)
 		VehicleIncreaseStats(this);
 
 		PrepareUnload(this);
+		/* A new passenger departure can serve groups on standby immediately,
+		 * without running the route search again for every individual coach. */
+		if (this->type == VehicleType::Train && _settings_game.linkgraph.passenger_ticketing) {
+			const CargoType pax = GetCargoTypeByLabel(CT_PASSENGERS);
+			for (const Vehicle *unit = this->First(); unit != nullptr; unit = unit->Next()) {
+				if (unit->cargo_type != pax || unit->cargo_cap == 0) continue;
+				SellWaitingPassengerTickets(*Station::Get(this->last_station_visited), false);
+				break;
+			}
+		}
 	}
 
 	DirtyVehicleListWindowForVehicle(this);
@@ -4007,6 +4035,14 @@ void Vehicle::RemoveFromLoadingQueues()
  */
 void Vehicle::LeaveStation()
 {
+	if (this->type == VehicleType::Train) ReleaseMissedPassengerTickets(*this, this->last_station_visited);
+	if (this->type == VehicleType::Road && RoadVehicle::From(this)->IsBus() &&
+			_settings_game.linkgraph.passenger_ticketing && this->cur_real_order_index < this->GetNumOrders()) {
+		Order *call = this->GetOrder(this->cur_real_order_index);
+		const auto pax = GetCargoTypeByLabel(CT_PASSENGERS);
+		if (pax != INVALID_CARGO && call->IsType(OT_GOTO_STATION) && call->GetDestination().ToStationID() == this->last_station_visited &&
+				call->GetCargoLoadType(pax) != OrderLoadType::NoLoad) call->RecordBusDeparture(_scaled_tick_counter);
+	}
 	assert(this->current_order.IsAnyLoadingType());
 
 	delete this->cargo_payment;

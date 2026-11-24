@@ -400,6 +400,7 @@ enum ModifyOrderFlags : uint8_t {
 	MOF_EXTERNAL_FLIGHT_CITY, ///< Change an existing external flight's destination city.
 	MOF_WAIT_COUPLE_POWER_MODE,
 	MOF_WAIT_COUPLE_POWER_VALUE,
+	MOF_WAIT_COUPLE_SPLIT_PARTNER,
 	MOF_END
 };
 

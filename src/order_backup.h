@@ -59,6 +59,7 @@ private:
 	const Vehicle *clone = nullptr;       ///< Vehicle this vehicle was a clone of.
 	std::vector<Order> orders;            ///< The actual orders if the vehicle was not a clone.
 
+	ScheduleTariff schedule_tariff{};
 	std::vector<DispatchSchedule> dispatch_schedules; ///< Scheduled dispatch schedules
 
 	static uint update_counter;

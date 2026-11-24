@@ -25,6 +25,7 @@
 
 #include "saveload.h"
 #include "saveload_buffer.h"
+#include "fare_seats_sl.h"
 
 #include "table/strings.h"
 
@@ -445,6 +446,32 @@ public:
 	void LoadCheck(CompanyProperties *cprops) const override { this->Load(cprops); }
 };
 
+struct CompanyFareTemplatesHandler final : public TypedSaveLoadStructHandler<CompanyFareTemplatesHandler, CompanyProperties> {
+	using Seats = FareSeatsHandler<FareTemplate, [](FareTemplate &item) -> FareSeating & { return item.seating; }>;
+	NamedSaveLoadTable GetDescription() const override
+	{
+		static const NamedSaveLoad description[] = {
+			NSLT("name", SLE_SSTR(FareTemplate, name, SLE_STR)),
+			NSLT("rates", SLE_ARR(FareTemplate, rates, SLE_UINT16, std::size(FareTemplate::fields))),
+			NSLT_STRUCTLIST<Seats>("comfort_levels", SL_MIN_VERSION, SL_MAX_VERSION, SlXvFeatureTest(XSLFTO_AND, XSLFI_PASSENGER_DESTINATIONS, 12)),
+		};
+		return description;
+	}
+
+	void Save(CompanyProperties *company) const override
+	{
+		SlSetStructListLength(company->fare_templates.size());
+		for (auto &item : company->fare_templates) SlObjectSaveFiltered(&item, this->GetLoadDescription());
+	}
+
+	void Load(CompanyProperties *company) const override
+	{
+		company->fare_templates.resize(SlGetStructListLength(FareTemplate::MAX_COUNT));
+		for (auto &item : company->fare_templates) SlObjectLoadFiltered(&item, this->GetLoadDescription());
+	}
+	void LoadCheck(CompanyProperties *company) const override { this->Load(company); }
+};
+
 /* Save/load of companies */
 static const NamedSaveLoad _company_desc[] = {
 	NSL("name_2",                           SLE_VAR(CompanyProperties, name_2,                SLE_UINT32)),
@@ -455,6 +482,7 @@ static const NamedSaveLoad _company_desc[] = {
 	NSL("president_name_2",                 SLE_VAR(CompanyProperties, president_name_2,      SLE_UINT32)),
 	NSL("president_name",              SLE_CONDSSTR(CompanyProperties, president_name,        SLE_STR | SLF_ALLOW_CONTROL, SLV_84, SL_MAX_VERSION)),
 
+	NSL("passenger_tariff", SLE_CONDARR_X(CompanyProperties, passenger_tariff.values, SLE_UINT16, PassengerTariff::Fields, SL_MIN_VERSION, SL_MAX_VERSION, SlXvFeatureTest(XSLFTO_AND, XSLFI_PASSENGER_DESTINATIONS, 9))),
 	NSL("face",                             SLE_VAR(CompanyProperties, face.bits,             SLE_UINT32)),
 	NSLT("face_style",                     SLE_SSTR(CompanyProperties, face.style_label,      SLE_STR)),
 
@@ -516,6 +544,7 @@ static const NamedSaveLoad _company_desc[] = {
 	NSLT_STRUCTLIST<CompanyOldEconomyStructHandler>("old_economy"),
 	NSLT_STRUCTLIST<CompanyLiveriesStructHandler>("liveries"),
 	NSLT_STRUCTLIST<CompanyAllowListStructHandler>("allow_list"),
+	NSLT_STRUCTLIST<CompanyFareTemplatesHandler>("fare_templates", SL_MIN_VERSION, SL_MAX_VERSION, SlXvFeatureTest(XSLFTO_AND, XSLFI_PASSENGER_DESTINATIONS, 11)),
 	NSLT("allow_any", SLE_VAR(CompanyProperties, allow_any, SLE_BOOL)),
 };
 

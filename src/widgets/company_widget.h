@@ -77,7 +77,8 @@ enum CompanyFinancesWidgets : WidgetID {
 	WID_CF_MAXLOAN_VALUE,  ///< Max loan widget.
 	WID_CF_SEL_BUTTONS,    ///< Selection of buttons.
 	WID_CF_INCREASE_LOAN,  ///< Increase loan.
-	WID_CF_REPAY_LOAN,     ///< Decrease loan..
+	WID_CF_REPAY_LOAN,
+	WID_CF_PASSENGER_TARIFF,     ///< Decrease loan..
 	WID_CF_INFRASTRUCTURE, ///< View company infrastructure.
 };
 

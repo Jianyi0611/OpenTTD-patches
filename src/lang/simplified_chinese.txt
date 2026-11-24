@@ -2161,8 +2161,10 @@ STR_CONFIG_SETTING_LINKGRAPH_RECALC_INTERVAL_HELPTEXT           :重新计算客
 STR_CONFIG_SETTING_LINKGRAPH_RECALC_TIME                        :客货流计算限时：{STRING}
 STR_CONFIG_SETTING_LINKGRAPH_RECALC_TIME_HELPTEXT               :重新计算客货流的时间上限。开始计算时，游戏会产生一个线程。产生的线程至多允许运行设定的秒数。设定赋值越小，线程无法按时结束的可能性越大，从而导致游戏运行延迟。设定赋值越大，则在线路改变时货物再分配所需时间会变长
 
+STR_CONFIG_SETTING_FIXED_PASSENGER_DESTINATIONS                 :按最终目的站分配
+STR_CONFIG_SETTING_FIXED_PASSENGER_DESTINATIONS_HELPTEXT        :每组旅客出发时确定最终目的站，分批上车或换乘后继续前往同一站。
 STR_CONFIG_SETTING_DISTRIBUTION_PAX                             :旅客分配方式：{STRING}
-STR_CONFIG_SETTING_DISTRIBUTION_PAX_HELPTEXT                    :假设有交通路线连接甲、乙两站。“对称”指甲站往乙站的旅客数量与乙站往甲站的旅客数量大致相同。“不对称”指任何一站往另一站的旅客数量皆由系统随意决定。“手动”指系统不会自动分配旅客的目的地
+STR_CONFIG_SETTING_DISTRIBUTION_PAX_HELPTEXT                    :假设有交通路线连接甲、乙两站。“对称”指甲站往乙站的旅客数量与乙站往甲站的旅客数量大致相同。“不对称”指任何一站往另一站的旅客数量皆由系统随意决定。“手动”指系统不会自动分配旅客的目的地。选择“按最终目的站分配”后，每组旅客出发时确定最终目的站，分批上车或换乘后继续前往同一站。
 STR_CONFIG_SETTING_DISTRIBUTION_MAIL                            :邮件分配方式：{STRING}
 STR_CONFIG_SETTING_DISTRIBUTION_MAIL_HELPTEXT                   :假设有交通路线连接甲、乙两站。“对称”指甲站往乙站的邮件数量与乙站往甲站的邮件数量大致相同。“不对称”指任何一站往另一站的邮件数量皆由系统随意决定。“手动”指系统不会自动分配邮件的目的地
 STR_CONFIG_SETTING_DISTRIBUTION_ARMOURED                        :装甲货物分配方式：{STRING}
@@ -3973,6 +3975,40 @@ STR_STATION_VIEW_SUPPLY_RATINGS_TITLE_MONTH                     :{BLACK}每月�
 STR_STATION_VIEW_SUPPLY_RATINGS_TITLE_MINUTE                    :{BLACK}每分钟供应量与本地评价：
 STR_STATION_VIEW_CARGO_SUPPLY_RATING                            :{WHITE}{STRING}：{YELLOW}{COMMA} / {STRING}（{COMMA}%）
 
+STR_PASSENGER_SERVICE_GROUP                                     :购票状态／发车车次
+STR_PASSENGER_SERVICE_NO_DESTINATION                            :{YELLOW}{CARGO_SHORT} · 目的站未确定
+STR_PASSENGER_SERVICE_PENDING                                   :{YELLOW}{CARGO_SHORT} · 等待首次出票
+STR_PASSENGER_REBOOK_DEPARTED                                   :{YELLOW}{CARGO_SHORT} · 待改签（原车已发）
+STR_PASSENGER_REBOOK_CHANGED                                    :{YELLOW}{CARGO_SHORT} · 待改签（原班次有变）
+STR_PASSENGER_REBOOK_CONNECTION                                 :{YELLOW}{CARGO_SHORT} · 等待接续班次
+STR_PASSENGER_SERVICE_FULL                                      :{YELLOW}{CARGO_SHORT} · 候补 · 所乘区间已满
+STR_PASSENGER_SERVICE_BUS                                       :{YELLOW}{CARGO_SHORT} · 等候公交，在{STATION}下车
+STR_PASSENGER_PLANNED_TRAIN                                     :{BLACK} · 计划接乘 {STRING}
+STR_PASSENGER_SERVICE_TRANSFER_WAIT                             :{YELLOW}{CARGO_SHORT} · 换乘 · 等待下一程出票
+STR_PASSENGER_SERVICE_COUNT                                     :{YELLOW}{CARGO_SHORT}
+STR_PASSENGER_SERVICE_SCHEDULE                                  :{LTBLUE}调度 #{NUM}
+STR_PASSENGER_DEPARTURE_NEXT                                    :{LTBLUE}{VEHICLE}
+STR_PASSENGER_DEPARTURE_FOLLOWING                               :{LTBLUE}{VEHICLE}（下一趟）
+STR_PASSENGER_DEPARTURE_NAMED                                   :{LTBLUE}{VEHICLE}（#{NUM}）
+STR_PASSENGER_DEPARTURE_NAMED_FOLLOWING                         :{LTBLUE}{VEHICLE}（#{NUM}，下一趟）
+STR_PASSENGER_SERVICE_TIME_PENDING                              :{BLACK} · 发车时间待定
+STR_PASSENGER_LIST_BOOKED                                       :{WHITE}已购票
+STR_PASSENGER_LIST_PENDING                                      :{YELLOW}待购票
+STR_PASSENGER_LIST_CONNECTIONS                                  :{YELLOW}等待接续班次
+STR_PASSENGER_LIST_RESERVED                                     :{WHITE}已预留上车
+STR_PASSENGER_LIST_CONNECTION_AT                                       :{BLACK} · 在{STATION}换乘 · 下一程待出票
+STR_PASSENGER_LIST_DEPARTURE                                    :{BLACK} · 预计 {STRING} 发车
+STR_PASSENGER_SERVICE_ALIGHT_PENDING                            :{YELLOW}{CARGO_SHORT} · 下车站待定
+STR_PASSENGER_SERVICE_ALIGHT                                    :{YELLOW}{CARGO_SHORT}在{STATION}下车
+STR_PASSENGER_SERVICE_DESTINATION                               :{WHITE}{CARGO_SHORT} · 最终目的地：{STATION}
+STR_PASSENGER_JOURNEY_HINT                                      :　（乘车方案）
+STR_PASSENGER_JOURNEY_UNKNOWN                                   :铁路到达时间待估
+STR_PASSENGER_JOURNEY_DIRECT                                    :乘坐{VEHICLE}直达{STATION}，预计 {NUM} 分钟后到达。{STRING}
+STR_PASSENGER_JOURNEY_CHANGE                                    :乘坐{VEHICLE}，在{STATION}换乘，预计 {NUM} 分钟后到达目的站。{STRING}
+STR_PASSENGER_JOURNEY_ONLY                                      :当前只有这一种可估时方案
+STR_PASSENGER_JOURNEY_EARLIER                                   :比另一方案约早到 {NUM} 分钟
+STR_PASSENGER_JOURNEY_FEWER                                     :这条路线换乘较少，预计多用 {NUM} 分钟
+STR_PASSENGER_JOURNEY_TIE                                       :预计到达时间相近
 STR_STATION_VIEW_GROUP                                          :{BLACK}群组方式
 STR_STATION_VIEW_WAITING_STATION                                :等候装载的货物，按站名排序
 STR_STATION_VIEW_WAITING_AMOUNT                                 :等候装载的货物，按总量排序
@@ -6575,3 +6611,125 @@ STR_TRACE_RESTRICT_AUTO_REGISTER_RESERVATION                   :领取路签：�
 STR_TRACE_RESTRICT_AUTO_REGISTER_FRONT                         :领取路签：车头通过检测点时
 STR_TRACE_RESTRICT_AUTO_REGISTER_TAIL                          :领取路签：车尾通过检测点时
 STR_TRACE_RESTRICT_AUTO_REGISTER_TOOLTIP                       :{BLACK}选择何时登记列车。预留模式会提前登记，预留失败时撤销；车头和车尾模式只在对应位置实际通过检测点后领取。三种模式均使用同一待避路签。
+STR_PASSENGER_LEG_FARE_TOOLTIP                                  :{BLACK}{STATION} 至 {STATION}{}{BLACK}每人参考票价：{CURRENCY_LONG}{}{BLACK}按两站距离和统一参考速度估算，实际收入在送达时结算。中途留在原车厢，换车头或换车次均不加收票价。
+STR_CONFIG_SETTING_PASSENGER_ROUTE_FARES :按所选行程计价：{STRING}
+STR_CONFIG_SETTING_PASSENGER_ROUTE_FARES_HELP :开启旅客全程票价锁定后，新票按所选班次途经的站点和路点累计里程。铁路区间优先采用已观测里程。换乘沿用原票，临时改道不补价。
+STR_PASSENGER_ROUTE_FARE_TOOLTIP :{BLACK}{STATION} 至 {STATION}{}{BLACK}本段参考票价：{CURRENCY_LONG}（未计速度加成）。展开最终目的地可见已锁定的全程票价和里程。
+STR_PASSENGER_TICKET_DISTANCE : · 计费里程：{COMMA} 格
+STR_CONFIG_SETTING_PASSENGER_THROUGH_FARES                       :旅客全程票价锁定：{STRING}
+STR_CONFIG_SETTING_PASSENGER_THROUGH_FARES_HELP                  :开启固定旅客目的地和自动分配后，首次购票即锁定到最终目的地的票价。换乘次数相同、到达时间接近时，旅客会比较票价。各段按公司或单车定价分账。换乘、换车头或换车次均沿用原票，送达后结算。
+STR_FARE_BUTTON                                                  :旅客票价
+STR_FARE_COMPANY                                                 :公司默认票价
+STR_FARE_TRAIN                                                   :本车票价
+STR_FARE_EDIT                                                    :修改数值
+STR_FARE_RESET                                                   :恢复跟随上级
+STR_FARE_CUSTOM                                                  :自定义：{NUM}
+STR_FARE_INHERITED                                               :跟随上级：{NUM}
+STR_FARE_DISTANCE                                                :试算距离：{NUM} 格
+STR_FARE_SPEED                                                   :试算旅行速度：{NUM} km/h
+STR_FARE_PREVIEW                                                 :试算每人票价：{CURRENCY_LONG}
+STR_FARE_INVALID_BANDS                                           :距离和速度的分界值须依次递增，请一并检查继承的单车设置
+STR_FARE_SHORT_END                                               :短途截止距离（格）
+STR_FARE_MEDIUM_END                                              :中途截止距离（格）
+STR_FARE_SHORT_PRICE                                             :短途每格票价
+STR_FARE_MEDIUM_PRICE                                            :中途每格票价
+STR_FARE_LONG_PRICE                                              :长途每格票价
+STR_FARE_ECONOMY                                                 :经济座系数（%）
+STR_FARE_STANDARD                                                :标准座系数（%）
+STR_FARE_COMFORT                                                 :舒适座系数（%）
+STR_FARE_SLOW_END                                                :低速档上限（km/h）
+STR_FARE_NORMAL_END                                              :普通速度档上限（km/h）
+STR_FARE_FAST_END                                                :快速档上限（km/h）
+STR_FARE_SLOW                                                    :低速票价系数（%）
+STR_FARE_NORMAL                                                  :普通速度票价系数（%）
+STR_FARE_FAST                                                    :快速票价系数（%）
+STR_FARE_EXPRESS                                                 :高速票价系数（%）
+STR_FARE_CLASS                                                   :售票席别
+STR_FARE_TAB_DISTANCE                                            :距离
+STR_FARE_TAB_SPEED                                               :速度
+STR_FARE_TAB_COMFORT                                             :舒适度
+STR_FARE_RESET_GAME                                              :恢复游戏默认
+STR_FARE_RESET_COMPANY                                           :跟随公司票价
+STR_FARE_SEAT_VALUE                                              :当前席别：{STRING}
+STR_FARE_SEAT_ECONOMY                                            :经济座
+STR_FARE_SEAT_STANDARD                                           :标准座
+STR_FARE_SEAT_COMFORT                                            :舒适座
+STR_FARE_NATIVE                                                  :尚未自定义，沿用原游戏票价
+STR_FARE_CHART_HELP                                              :点滑条调价，点右侧数值精确设置
+STR_FARE_TRAIN_CAPTION                                           :{VEHICLE} · 旅客票价
+STR_FARE_OWN_TRAIN                                               :本车定价
+STR_FARE_FROM_COMPANY                                            :采用公司设置
+STR_FARE_OWN_COMPANY                                             :公司定价
+STR_FARE_FROM_GAME                                               :游戏默认
+STR_FARE_FIELD_SOURCE                                            :{STRING} · {STRING}
+STR_FARE_RATE_VALUE                                              :£{DECIMAL}
+STR_FARE_PLAN_BUTTON                                             :本计划票价
+STR_FARE_TEMPLATE_SAVE                                           :保存为模板
+STR_FARE_NAMED_TEMPLATE                                          :票价模板：{RAW_STRING}
+STR_FARE_DEFAULT_CHOICE                                          :默认票价
+STR_FARE_NEW_TEMPLATE                                            :新建票价模板
+STR_FARE_RENAME_TEMPLATE                                         :重命名票价模板
+STR_FARE_COPY_COMPANY_VALUE                                      :取公司当前值
+STR_FARE_LEVEL_SOLD                                              :售票等级：{RAW_STRING}
+STR_FARE_LEVEL_ADD                                               :＋添加等级
+STR_FARE_LEVEL_ENTRY                                             :{RAW_STRING}（{NUM}%）
+STR_FARE_LEVEL_RENAME                                            :改名
+STR_FARE_LEVEL_REMOVE                                            :删除此档
+STR_FARE_LEVEL_RATE                                              :票价乘数：{NUM}%
+STR_FARE_LEVEL_NAME                                              :舒适度等级名称
+STR_FARE_LEVEL_PERCENT                                           :票价乘数（0–500%）
+STR_FARE_REFERENCED_PLAN                                         :目标计划票价
+STR_FARE_TEMPLATE_APPLY                                          :套用模板
+STR_FARE_TEMPLATE_HELP                                           :保存或套用距离和舒适度设置。速度使用本计划原有的设置。
+STR_FARE_TEMPLATE_NAME                                           :模板名称（同名将更新）
+STR_FARE_PLAN_CAPTION                                            :{RAW_STRING} · 本计划票价
+STR_FARE_OWN_PLAN                                                :本计划定价
+STR_FARE_FROM_PLAN                                               :采用计划设置
+STR_FARE_RESET_PLAN                                              :跟随计划票价
+STR_FARE_RATE_PRECISION                                          :每格票价最多保留一位小数
+STR_FARE_ERROR                                                   :无法修改旅客票价
+STR_PASSENGER_LOCKED_FARE                                        : · 已锁定全程票价：每人 {CURRENCY_LONG}
+
+STR_TQ_TITLE :车票查询
+STR_TQ_FROM :出发站 · {STRING}
+STR_TQ_TO :到达站 · {STRING}
+STR_TQ_CHOOSE :选择车站
+STR_TQ_PICK :点选地图
+STR_TQ_SWAP :⇄
+STR_TQ_RUN :查询
+STR_TQ_NOW :现在出发
+STR_TQ_LATER :{NUM} 分钟后出发
+STR_TQ_ALL :全部路线
+STR_TQ_DIRECT :直达
+STR_TQ_CHANGE :中转换乘
+STR_TQ_FAST :最快到达
+STR_TQ_SEATS :只看有票
+STR_TQ_EMPTY :当前预测中没有符合条件的班次
+STR_TQ_START :请选择出发站和到达站，然后查询
+STR_TQ_STAMP :查询时刻 {STRING}
+STR_TQ_SOLD :已售罄
+STR_TQ_ROOM :余 {COMMA} 张
+STR_TQ_BUS :公交到站候乘
+STR_TQ_UNSURE :接续待确认
+STR_TQ_TIME :时间待定
+STR_TQ_DURATION :{NUM} 分钟
+STR_TQ_PRICE :按实际运输结算
+STR_TQ_CHANGES :换乘 {NUM} 次
+STR_TQ_MARGIN :在{STATION}换乘 · {STRING}
+STR_TQ_SAME :请选择两个不同的车站
+STR_TQ_EARLIER : · 比最快有票直达班次早到 {NUM} 分钟
+STR_TQ_RENUMBER :途中改为 {STRING} · 无需下车
+STR_TQ_SERVICE :车次
+STR_TQ_TIMES :出发／到达时间
+STR_TQ_STOCK :全程余票
+STR_TQ_FARE :每人全程票价
+STR_TQ_STOCK_HELP :显示查询时各乘车区间中最少的余票。后续班次在换乘出票时再次核对座位。
+STR_TQ_WALKUP :未启用售票
+STR_TQ_STATIONS :出发站／到达站
+STR_TQ_ELAPSED :历时
+STR_TQ_RESULTS :共 {COMMA} 个方案 · 更新于 {STRING}
+STR_TQ_ELAPSED_HOURS_MINUTES :{NUM}小时{NUM}分钟
+STR_CONFIG_SETTING_PASSENGER_TICKETING :启用铁路客票系统
+STR_CONFIG_SETTING_PASSENGER_TICKETING_HELP :旅客按班次购买到下车站的区间座位。适用于自动旅客分配。关闭后释放已订座位，已经锁定的全程票价继续有效。
+STR_PASSENGER_LIST_WALKUP :自由乘车
+STR_PASSENGER_DESTINATION_KNOWN :{YELLOW}{CARGO_SHORT} · 已确定目的站

@@ -39,7 +39,7 @@ Money GetTransportedGoodsIncome(uint num_pieces, uint dist, uint16_t transit_per
 uint MoveGoodsToStation(CargoType cargo, uint amount, Source source, const StationList &all_stations, Owner exclusivity = INVALID_OWNER);
 
 void PrepareUnload(Vehicle *front_v);
-void LoadUnloadStation(Station *st);
+void LoadUnloadStation(Station *st, bool passenger_sale);
 void RefitExternalCityVehicle(Vehicle *front, Station *st, const struct CargoStationIDVectorSet &next_station);
 
 Money GetPrice(Price index, uint cost_factor, const struct GRFFile *grf_file, int shift = 0);

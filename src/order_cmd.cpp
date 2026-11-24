@@ -8,6 +8,8 @@
 /** @file order_cmd.cpp Handling of orders. */
 
 #include "stdafx.h"
+#include "company_gui.h"
+#include "passenger_journey.h"
 #include "external_city.h"
 #include <map>
 #include <set>
@@ -292,6 +294,26 @@ bool Order::UpdateJumpCounter(uint8_t percent, bool dry_run)
 /**
  * Makes this order a Leave Station order.
  */
+void Order::RecordFareDistance(TileIndex from, TileIndex to, uint tiles)
+{
+	this->CheckExtraInfoAlloced();
+	this->extra->fare_from = from;
+	this->extra->fare_to = to;
+	this->extra->fare_tiles = tiles;
+}
+
+void Order::RecordBusDeparture(uint64_t tick)
+{
+	this->CheckExtraInfoAlloced();
+	auto &last = this->extra->last_bus_departure;
+	if (last != 0 && tick > last) {
+		const uint64_t interval = std::min<uint64_t>(tick - last, UINT32_MAX);
+		auto &average = this->extra->bus_headway;
+		average = average == 0 ? interval : (3ULL * average + interval + 2) / 4;
+	}
+	last = tick;
+}
+
 void Order::MakeLeaveStation()
 {
 	this->type = OT_LEAVESTATION;
@@ -326,6 +348,7 @@ void Order::MakeWaitCouple()
 {
 	this->type = OT_WAIT_COUPLE;
 	this->flags = 0;
+	this->SetRequiresSplitPartner(false);
 }
 
 /**
@@ -627,8 +650,14 @@ void CargoStationIDVectorSet::FillNextStoppingStation(const Vehicle *v, const Or
 	}
 }
 
+void OrderList::PostDestructor(size_t index)
+{
+	CloseScheduleTariff(OrderListID{static_cast<uint16_t>(index)});
+}
+
 void OrderList::CopyOrderListContents(const OrderList &other)
 {
+	this->passenger_tariff = other.passenger_tariff;
 	this->orders = other.orders;
 	this->route_overlay_colour = other.route_overlay_colour;
 	this->num_manual_orders = other.num_manual_orders;
@@ -807,7 +836,7 @@ bool OrderListIsUsedByOtherCompany(const OrderList *ol)
  * @param ol the order list to query
  * @return the owning company, or #INVALID_OWNER when it cannot be determined
  */
-static Owner GetOrderListReferenceOwner(const OrderList *ol)
+Owner GetOrderListReferenceOwner(const OrderList *ol)
 {
 	if (ol->IsPlayerCreated()) return ol->GetCompany();
 	if (const Vehicle *v = ol->GetFirstSharedVehicle(); v != nullptr) return v->owner;
@@ -2743,6 +2772,7 @@ CommandCost CmdSkipToOrder(DoCommandFlags flags, VehicleID veh_id, VehicleOrderI
 	if (ret.Failed()) return ret;
 
 	if (flags.Test(DoCommandFlag::Execute)) {
+		CancelSkippedPassengerCalls(*v, sel_ord);
 		if (v->current_order.IsAnyLoadingType()) v->LeaveStation();
 		if (v->current_order.IsType(OT_WAITING)) v->HandleWaiting(true);
 
@@ -3250,7 +3280,7 @@ CommandCost CmdModifyOrder(DoCommandFlags flags, OrderTargetType target_type, ui
 			case OT_WAIT_COUPLE:
 				if (mof != MOF_WAIT_COUPLE_STATION && mof != MOF_WAIT_COUPLE_TRACTION && mof != MOF_WAIT_COUPLE_COMPANY && mof != MOF_WAIT_COUPLE_SLOT
 						&& mof != MOF_WAIT_COUPLE_PARTNER_SLOT && mof != MOF_WAIT_COUPLE_PARTNER_SLOT_GROUP && mof != MOF_WAIT_COUPLE_PARTNER_GROUP
-						&& mof != MOF_WAIT_COUPLE_POWER_MODE && mof != MOF_WAIT_COUPLE_POWER_VALUE) return CMD_ERROR;
+						&& mof != MOF_WAIT_COUPLE_POWER_MODE && mof != MOF_WAIT_COUPLE_POWER_VALUE && mof != MOF_WAIT_COUPLE_SPLIT_PARTNER) return CMD_ERROR;
 				break;
 
 			case OT_DECOUPLE:
@@ -3806,6 +3836,10 @@ CommandCost CmdModifyOrder(DoCommandFlags flags, OrderTargetType target_type, ui
 			[[fallthrough]];
 		case MOF_WAIT_COUPLE_POWER_VALUE:
 			if (!is_list && v->type != VehicleType::Train) return CMD_ERROR;
+			break;
+
+		case MOF_WAIT_COUPLE_SPLIT_PARTNER:
+			if (data > 1 || (!is_list && v->type != VehicleType::Train)) return CMD_ERROR;
 			break;
 
 		case MOF_WAIT_COUPLE_PARTNER_GROUP:
@@ -4373,6 +4407,9 @@ CommandCost CmdModifyOrder(DoCommandFlags flags, OrderTargetType target_type, ui
 			case MOF_WAIT_COUPLE_POWER_MODE:
 				order->SetWaitCouplePowerMode(static_cast<WaitCouplePowerMode>(data));
 				break;
+			case MOF_WAIT_COUPLE_SPLIT_PARTNER:
+				order->SetRequiresSplitPartner(data != 0);
+				break;
 			case MOF_WAIT_COUPLE_POWER_VALUE:
 				order->SetWaitCouplePowerValue(data);
 				break;
@@ -4644,6 +4681,9 @@ CommandCost CmdModifyOrder(DoCommandFlags flags, OrderTargetType target_type, ui
 
 			if (sel_ord == u->cur_real_order_index && u->current_order.IsType(OT_WAIT_COUPLE) && mof == MOF_WAIT_COUPLE_TRACTION) {
 				u->current_order.SetWaitCoupleTraction(order->GetWaitCoupleTraction());
+			}
+			if (sel_ord == u->cur_real_order_index && u->current_order.IsType(OT_WAIT_COUPLE) && mof == MOF_WAIT_COUPLE_SPLIT_PARTNER) {
+				u->current_order.SetRequiresSplitPartner(order->RequiresSplitPartner());
 			}
 			if (sel_ord == u->cur_real_order_index && u->current_order.IsType(OT_WAIT_COUPLE) && mof == MOF_WAIT_COUPLE_SLOT) {
 				u->current_order.SetWaitCoupleSlot(order->GetWaitCoupleSlot());
@@ -5060,6 +5100,7 @@ CommandCost CmdCloneOrder(DoCommandFlags flags, CloneOptions action, VehicleID v
 			if (flags.Test(DoCommandFlag::Execute)) {
 				/* Snapshot before deleting destination orders: its old list may be the source's home. */
 				const bool reset_order_indices = ShouldResetOrderIndicesOnOrderCopy(src_orders, dst);
+				const ScheduleTariff tariff = src_orders ? src_orders->passenger_tariff : ScheduleTariff{};
 				std::vector<Order> dst_orders;
 				std::vector<DispatchSchedule> dispatch_schedules;
 				if (src_orders != nullptr) {
@@ -5086,6 +5127,7 @@ CommandCost CmdCloneOrder(DoCommandFlags flags, CloneOptions action, VehicleID v
 				dst->primary_order_index = INVALID_VEH_ORDER_ID;
 
 				/* Copy over scheduled dispatch data */
+				dst->orders->passenger_tariff = tariff;
 				dst->orders->GetScheduledDispatchScheduleSet() = std::move(dispatch_schedules);
 				for (DispatchSchedule &ds : dst->orders->GetScheduledDispatchScheduleSet()) {
 					ds.ResetStateAfterClone();

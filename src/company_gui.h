@@ -10,6 +10,7 @@
 #ifndef COMPANY_GUI_H
 #define COMPANY_GUI_H
 
+#include "order_type.h"
 #include "company_type.h"
 #include "group.h"
 #include "gfx_type.h"
@@ -19,6 +20,9 @@ void DrawCompanyIcon(CompanyID c, int x, int y);
 
 void ShowCompanyLiveryWindow(CompanyID company, GroupID group);
 void ShowCompanyStations(CompanyID company);
+void ShowScheduleTariff(const OrderList &plan);
+void CloseScheduleTariff(OrderListID id);
+void ShowPassengerTariff(CompanyID company, VehicleID train);
 void ShowCompanyFinances(CompanyID company);
 void ShowCompany(CompanyID company);
 

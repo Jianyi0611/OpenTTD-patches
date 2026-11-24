@@ -1632,11 +1632,12 @@ bool IsCouplePartnerVehicleTile(const Train *v, TileIndex tile)
 
 /**
  * Check whether a vehicle that is neither \a v's own consist nor its claimed
- * couple partner stands on \a tile. For a goto-couple train this is exactly the
- * "something else is in the way" test: the partner and ourselves may share the
- * track, anything else may not.
+ * couple partner stands on \a tile. On plain rail, a request for a particular
+ * track can pass a train on the disjoint parallel track of the same tile.
+ * Whole-platform checks and vehicles without ordinary track geometry still
+ * protect the whole tile.
  */
-bool HasForeignConsistOnTile(const Train *v, TileIndex tile)
+bool HasForeignConsistOnTile(const Train *v, TileIndex tile, Track requested_track)
 {
 	const Train *mover = v->Primary();
 	const Train *partner = nullptr;
@@ -1646,7 +1647,10 @@ bool HasForeignConsistOnTile(const Train *v, TileIndex tile)
 	}
 	for (const Train *u : VehiclesOnTile<VehicleType::Train>(tile)) {
 		const Train *up = u->Primary();
-		if (up != mover && up != partner) return true;
+		if (up == mover || up == partner) continue;
+		if (requested_track != INVALID_TRACK && IsPlainRailTile(tile) && u->track != TRACK_BIT_NONE &&
+				(u->track & TRACK_BIT_MASK) == u->track && !TrackOverlapsTracks(u->track, requested_track)) continue;
+		return true;
 	}
 	return false;
 }

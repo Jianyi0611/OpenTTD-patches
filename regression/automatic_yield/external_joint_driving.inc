@@ -1,5 +1,6 @@
 /* Private native movement fixture: four transport modes, two shared city markets. */
 #include "external_city.h"
+#include "passenger_journey.h"
 #include "external_city_cmd.h"
 #include "aircraft.h"
 #include "airport.h"
@@ -28,6 +29,12 @@ static uint JointExternalCargo(const Vehicle *v){uint n=0;for(v=v->First();v;v=v
 static uint JointCapacity(const Vehicle *v){uint n=0;for(v=v->First();v;v=v->Next())n+=v->cargo_cap;return n;}
 struct JointObservation { Vehicle *v=nullptr; uint city=0, phase_mask=0, visits=0, returns=0, unloaded=0, final_units=0, transfer_units=0, city_sold=0; bool outside=false, returning=false, terminal=false; int previous_phase=-1; StateTicks stop_due=INVALID_STATE_TICKS; uint full_wait=0; };
 static std::array<JointObservation,6> joint_vehicles;
+static bool joint_ticket_check=false, outbound_boarded=false, return_boarded=false, paid_at_city=false;
+static uint return_delivered=0;
+static Money joint_before_profit;
+static constexpr uint ticket_source=313;
+static bool IsTicketGroup(const CargoPacket *cp){return cp->GetSource()==Source{ticket_source,SourceType::Headquarters};}
+static uint MarkedAboard(const Vehicle *v){uint n=0;for(auto *p=v->First();p;p=p->Next())for(auto *cp:*p->cargo.Packets())if(IsTicketGroup(cp))n+=cp->Count();return n;}
 static uint64_t joint_transactions=0, joint_loaded=0, joint_sold=0;
 static uint64_t JointHash(){uint64_t h=1469598103934665603ULL;auto mix=[&](uint64_t x){h=(h^x)*1099511628211ULL;};
  for(const auto*c:ExternalCity::Iterate()){mix(c->index.base());mix(c->market_station.base());mix(c->loaded_units);mix(c->delivered_units);for(auto x:c->stock)mix(x);for(auto x:c->demand)mix(x);for(auto x:c->industry_inputs)mix(x);
@@ -45,7 +52,17 @@ static CargoArray joint_before_stock{},joint_before_demand{},joint_before_cargo{
 static std::vector<CargoArray> joint_other_stock,joint_other_demand;
 static uint64_t joint_before_loaded,joint_before_sold,joint_before_routed,joint_routed_loaded=0;
 void JointMarketBefore(Vehicle*v,bool arrival){
- if(!joint_ready)return;auto*c=ExternalCity::Get(v->external_trip_city);joint_before_stock=c->stock;joint_before_demand=c->demand;joint_before_delivered=c->month_delivered;joint_before_loaded=c->loaded_units;joint_before_sold=c->delivered_units;joint_before_cargo={};
+ if(!joint_ready)return;auto*c=ExternalCity::Get(v->external_trip_city);
+ /* Residents now replenish during the approach. Seed the shortage at the first
+  * loading attempt so the fixture exercises a real wait for fresh production. */
+ static bool shortage_seeded=false;
+ if(!arrival && !std::getenv("PXP_JOINT_RELOAD") && !shortage_seeded && c->index==ExternalCityID{0} && std::string_view(std::getenv("PXP_JOINT_MODE"))=="shortage"){
+  auto pax=GetCargoTypeByLabel(CT_PASSENGERS);auto &cargo=Station::Get(c->market_station)->goods[pax].CreateData().cargo;
+  if(cargo.AvailableCount()>1)cargo.Truncate(cargo.AvailableCount()-1);
+  c->stock[pax]=cargo.AvailableCount();shortage_seeded=true;
+ }
+ if(joint_ticket_check){joint_before_profit=v->profit_this_year;if(arrival && MarkedAboard(v)==7)outbound_boarded=true;}
+ joint_before_stock=c->stock;joint_before_demand=c->demand;joint_before_delivered=c->month_delivered;joint_before_loaded=c->loaded_units;joint_before_sold=c->delivered_units;joint_before_cargo={};
  for(const Vehicle*p=v->First();p;p=p->Next())if(p->cargo_type<NUM_CARGO)joint_before_cargo[p->cargo_type]+=p->cargo.StoredCount();
  joint_before_routed=0;auto*st=Station::Get(c->market_station);for(CargoType cargo:EnumRange(NUM_CARGO))if(st->goods[cargo].data)for(const auto&[via,packets]:*st->goods[cargo].data->cargo.Packets())if(via!=StationID::Invalid())for(const auto*cp:packets)joint_before_routed+=cp->Count();
  joint_other_stock.clear();joint_other_demand.clear();for(const auto*other:ExternalCity::Iterate()){joint_other_stock.push_back(other->stock);joint_other_demand.push_back(other->demand);}
@@ -61,16 +78,19 @@ void JointMarketAfter(Vehicle*v,bool arrival){
  uint i=0;for(const auto*other:ExternalCity::Iterate()){if(other!=c){assert(other->stock==joint_other_stock[i]&&other->demand==joint_other_demand[i]);}++i;}
  assert(c->loaded_units-joint_before_loaded==loaded&&c->delivered_units-joint_before_sold==sold);++joint_transactions;joint_loaded+=loaded;joint_sold+=sold;for(auto&o:joint_vehicles)if(o.v==v)o.city_sold+=sold;
  uint64_t routed=0;for(CargoType cargo:EnumRange(NUM_CARGO))if(st->goods[cargo].data)for(const auto&[via,packets]:*st->goods[cargo].data->cargo.Packets())if(via!=StationID::Invalid())for(const auto*cp:packets)routed+=cp->Count();if(!arrival&&routed<joint_before_routed)joint_routed_loaded+=joint_before_routed-routed;
+ if(joint_ticket_check && arrival && outbound_boarded && sold>=7 && v->profit_this_year>joint_before_profit && MarkedAboard(v)==0)paid_at_city=true;
+ if(joint_ticket_check && !arrival && MarkedAboard(v)==9)return_boarded=true;
  if(loaded||sold){fprintf(joint_log,"TRADE tick=%u vehicle=%u city=%u loaded=%u sold=%u stock_packets_exact=1 independent_city_unchanged=1\n",joint_ticks,v->index.base(),c->index.base(),loaded,sold);fflush(joint_log);}
 }
 void JointDelivery(VehicleID id,const CargoPacket*cp,uint count,Money income,bool transfer){
+ if(joint_ticket_check && !transfer && IsTicketGroup(cp) && cp->GetFirstStation()==ExternalCity::Get(ExternalCityID{0})->market_station){assert(income>0);return_delivered+=count;}
  if(!joint_ready||cp->external_source_city==UINT16_MAX)return;
  for(auto&obs:joint_vehicles)if(obs.v&&obs.v->index==id){if(transfer)obs.transfer_units+=count;else obs.final_units+=count;fprintf(joint_log,"PAYMENT vehicle=%u source_city=%u count=%u income=%lld transfer=%u\n",id.base(),cp->external_source_city,count,(long long)income,transfer);fflush(joint_log);break;}
 }
 
 void JointTick(){
  if(_exit_game||HasModalProgress()||_generating_world)return;
- const bool reload=std::getenv("PXP_JOINT_RELOAD");const std::string mode=std::getenv("PXP_JOINT_MODE"),dist=std::getenv("PXP_JOINT_DIST");const bool freight=mode=="freight";
+ const bool reload=std::getenv("PXP_JOINT_RELOAD");const std::string mode=std::getenv("PXP_JOINT_MODE"),dist=std::getenv("PXP_JOINT_DIST");const bool freight=mode=="freight";joint_ticket_check=mode=="tickets";
  static bool saved[4]={};static uint simultaneous=0;static bool graph_seen=false;
  if(!joint_log){joint_log=fopen((std::string(std::getenv("PXP_JOINT_OUTPUT"))+"/run.log").c_str(),"w");assert(joint_log);}
  if(!joint_ready&&_game_mode==GameMode::Editor){
@@ -119,14 +139,27 @@ void JointTick(){
   const TileIndex entries[]={TileXY(254,40),TileXY(254,50),TileXY(254,80)},returns[]={TileXY(254,44),TileXY(254,54),TileXY(254,83)};
   for(uint i=0;i<5;++i){auto*v=joint_vehicles[i].v;Order o;if(i<3)o.MakeGoToDepot(Depot::GetByTile(entries[i])->index,{OrderDepotTypeFlag::PartOfOrders},ONSF_STOP_EVERYWHERE);else o.MakeExternalFlight(ExternalCity::Get(ExternalCityID{uint16_t(i==4)})->market_station);JointInsert(v,0,o);
    if(i<3){JointRequire(CmdModifyOrder(DoCommandFlag::Execute,OrderTargetType::Vehicle,v->index.base(),VehicleOrderID{0},MOF_DEPOT_ACTION,DA_EXTERNAL,INVALID_CARGO,{}),"external action");JointRequire(CmdModifyOrder(DoCommandFlag::Execute,OrderTargetType::Vehicle,v->index.base(),VehicleOrderID{0},MOF_EXTERNAL_RETURN_DEPOT,Depot::GetByTile(returns[i])->index.base(),INVALID_CARGO,{}),"alternate return");}
-   JointRequire(CmdModifyOrder(DoCommandFlag::Execute,OrderTargetType::Vehicle,v->index.base(),VehicleOrderID{0},MOF_LOAD,to_underlying(OrderLoadType::FullLoad),INVALID_CARGO,{}),"full load");JointRequire(CmdChangeTimetable(DoCommandFlag::Execute,OrderTargetType::Vehicle,v->index.base(),VehicleOrderID{0},MTF_WAIT_TIME,160,{}),"timed city stop");
-   o.Free();o.MakeGoToStation(hub);if(i<2)o.SetNonStopType(ONSF_NO_STOP_AT_INTERMEDIATE_STATIONS);o.SetStopLocation(OrderStopLocation::FarEnd);o.SetLoadType(mode=="roundtrip"?OrderLoadType::LoadIfPossible:OrderLoadType::NoLoad);if(JointTransfer())o.SetUnloadType(OrderUnloadType::Transfer);JointInsert(v,1,o);JointRequire(CmdStartStopVehicle(DoCommandFlag::Execute,v->index,true),"start vehicle");
+   JointRequire(CmdModifyOrder(DoCommandFlag::Execute,OrderTargetType::Vehicle,v->index.base(),VehicleOrderID{0},MOF_LOAD,to_underlying(joint_ticket_check?OrderLoadType::LoadIfPossible:OrderLoadType::FullLoad),INVALID_CARGO,{}),"full load");JointRequire(CmdChangeTimetable(DoCommandFlag::Execute,OrderTargetType::Vehicle,v->index.base(),VehicleOrderID{0},MTF_WAIT_TIME,160,{}),"timed city stop");
+   o.Free();o.MakeGoToStation(hub);if(i<2)o.SetNonStopType(ONSF_NO_STOP_AT_INTERMEDIATE_STATIONS);o.SetStopLocation(OrderStopLocation::FarEnd);o.SetLoadType((mode=="roundtrip"||joint_ticket_check)?OrderLoadType::LoadIfPossible:OrderLoadType::NoLoad);if(JointTransfer())o.SetUnloadType(OrderUnloadType::Transfer);JointInsert(v,1,o);if(!joint_ticket_check||i==0)JointRequire(CmdStartStopVehicle(DoCommandFlag::Execute,v->index,true),"start vehicle");
   }
   if(JointTransfer()){
    JointRequire(CmdBuildRoadStop(DoCommandFlag::Execute,TileXY(188,50),1,1,RoadStopType::Bus,true,DiagDirection::NE,ROADTYPE_ROAD,RoadStopClassID{0},0,StationID::Invalid(),false),"final destination stop");const StationID final=GetStationIndex(TileXY(188,50));Station::Get(final)->RecomputeCatchment();UpdateStationAcceptance(Station::Get(final),false);assert(Station::Get(final)->goods[pax].status.Test(GoodsEntry::State::Acceptance));
    auto*v=JointBuy(TileXY(5,50),EngineID{118},"换乘接驳·最终交付");joint_vehicles[5].v=v;Order o;o.MakeGoToStation(hub);o.SetStopLocation(OrderStopLocation::FarEnd);o.SetLoadType(OrderLoadType::FullLoadAny);JointInsert(v,0,o);o.MakeGoToStation(final);o.SetStopLocation(OrderStopLocation::FarEnd);o.SetLoadType(OrderLoadType::NoLoad);JointInsert(v,1,o);JointRequire(CmdStartStopVehicle(DoCommandFlag::Execute,v->index,true),"start feeder");
   }
   JointRequire(CmdChangeSetting(DoCommandFlag::Execute,"vehicle.external_boundary_editing",0),"lock boundaries after construction");joint_ready=true;JointSave("ready");
+  if(joint_ticket_check){
+   assert(dist!="manual");_settings_game.linkgraph.passenger_ticketing=true;
+   auto *market=Station::Get(ExternalCity::Get(ExternalCityID{0})->market_station);
+   for(bool outside:{false,true}){
+    auto *from=outside?market:station,*to=outside?station:market;uint n=outside?9:7;
+    auto *cp=CargoPacket::Create(from->index,n,Source{ticket_source,SourceType::Headquarters});cp->passenger_destination=to->index;
+    if(outside){cp->external_source_city=0;ExternalCity::Get(ExternalCityID{0})->stock[pax]+=n;}
+    from->goods[pax].CreateData().cargo.Append(cp,to->index);
+    SellWaitingPassengerTickets(*from);
+    fprintf(joint_log,"SALE from=%u to=%u issued=%u train=%u count=%u\n",from->index.base(),to->index.base(),cp->ticket.train!=VehicleID::Invalid(),cp->ticket.train.base(),n);fflush(joint_log);
+    assert(cp->ticket.train==train->index && cp->ticket.alight==to->index);
+   }
+  }
  }else if(!joint_ready&&reload&&_game_mode==GameMode::Normal){
   const std::array<std::string,6> names={"联运·铁路","联运·公路","联运·水运","联运·航空","远市·独立航班","换乘接驳·最终交付"};for(auto*v:Vehicle::Iterate())for(uint i=0;i<names.size();++i)if(v->name==names[i].c_str())joint_vehicles[i].v=v;
   for(uint i=0;i<5;++i)assert(joint_vehicles[i].v);joint_vehicles[4].city=1;SetLocalCompany(joint_vehicles[0].v->owner);_current_company=_local_company;_pause_mode={};joint_ready=true;fprintf(joint_log,"LOADED hash=%llu\n",(unsigned long long)JointHash());fflush(joint_log);
@@ -142,7 +175,7 @@ void JointTick(){
    if(pi==2){assert(!ExternalCityVehicleNeedsFullLoad(v));if(o.stop_due!=INVALID_STATE_TICKS)assert(_state_ticks>=o.stop_due);}
    o.previous_phase=pi;
    if(pi>=0&&!saved[pi]&&!reload){saved[pi]=true;JointSave("phase-"+std::to_string(pi));}
-  }else if(o.outside&&!v->IsInDepot()&&!o.returning){o.returning=true;o.outside=false;++o.returns;assert(v->cur_speed>0);o.previous_phase=-1;o.stop_due=INVALID_STATE_TICKS;fprintf(joint_log,"RETURN vehicle=%u speed=%u cargo=%u\n",v->index.base(),v->cur_speed,JointCargo(v));}
+  }else if(o.outside&&!v->IsInDepot()&&!o.returning){o.returning=true;o.outside=false;++o.returns;assert(v->cur_speed>0);if(joint_ticket_check && i==0)assert(DistanceManhattan(v->tile,TileXY(254,44))<=1);o.previous_phase=-1;o.stop_due=INVALID_STATE_TICKS;fprintf(joint_log,"RETURN vehicle=%u speed=%u cargo=%u\n",v->index.base(),v->cur_speed,JointCargo(v));}
   if(o.returning&&v->current_order.IsAnyLoadingType())o.terminal=true;
   if(o.returning&&o.terminal&&JointExternalCargo(v)==0){++o.unloaded;o.returning=false;fprintf(joint_log,"UNLOAD vehicle=%u visits=%u final=%u transferred=%u\n",v->index.base(),o.unloaded,o.final_units,o.transfer_units);}
   finished&=o.unloaded>=2&&o.phase_mask==7&&(JointTransfer()?o.transfer_units>0:o.final_units>0)&&(mode!="roundtrip"||o.city_sold>0);
@@ -151,6 +184,9 @@ void JointTick(){
  for(const auto*c:ExternalCity::Iterate()){const auto*st=Station::Get(c->market_station);for(CargoType cargo:EnumRange(NUM_CARGO))if(!st->goods[cargo].ConstFlows().empty())graph_seen=true;}
  if(outside>=3&&!saved[3]&&!reload){saved[3]=true;JointSave("concurrent");}
  if(JointTransfer())finished&=joint_vehicles[5].final_units>0;
+ if(joint_ticket_check&&outbound_boarded&&paid_at_city&&return_boarded&&return_delivered==9&&joint_vehicles[0].returns>0){
+  fprintf(joint_log,"STRICT PASS fixed tickets outbound=7 city_settlement=7 return=9 final_delivered=9 alternate_exit=1\n");_exit_game=true;
+ }
  if(finished&&(!JointTransfer()||joint_vehicles[5].final_units>=100)&&(dist=="manual"||(graph_seen&&joint_routed_loaded>0))){
   uint full_wait=0;for(const auto&o:joint_vehicles)full_wait+=o.full_wait;
   assert(joint_transactions>0&&joint_loaded>0);if(mode=="shortage"&&!reload)assert(full_wait>0);

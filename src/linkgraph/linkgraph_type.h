@@ -32,6 +32,7 @@ enum class DistributionType : uint8_t {
 	AsymmetricEqual = 20,    ///< Asymmetric distribution (equal). Usually cargo will only travel in one direction. Attempt to distribute the same amount of cargo to each sink.
 	AsymmetricNearest = 21,  ///< Asymmetric distribution (nearest). Usually cargo will only travel in one direction. Attempt to distribute cargo to the nearest sink.
 
+	FixedDestination = 22,   ///< Passenger selector: choose a final station and retain it through transfers.
 	PerCargoDefault = 128,   ///< Per cargo: Use default value
 };
 

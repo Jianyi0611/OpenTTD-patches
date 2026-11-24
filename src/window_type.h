@@ -654,6 +654,7 @@ enum class WindowClass : uint16_t {
 	 * Finances of a company; %Window numbers:
 	 *   - #CompanyID = #CompanyWidgets
 	 */
+	PassengerTariff,
 	Finances,
 
 	/**
@@ -946,6 +947,7 @@ enum class WindowClass : uint16_t {
 	ExternalEntrance, ///< Map-edge entrance information, with no depot controls.
 	ExternalCity, ///< External destination configuration, keyed by entrance depot ID.
 	ExternalCityEconomy, ///< Read-only industry and cargo planning profile of an external city.
+	PassengerTicketQuery,
 
 	End,              ///< End sentinel.
 	Invalid = 0xFFFF, ///< Invalid window.

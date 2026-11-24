@@ -11,6 +11,7 @@
 #include "company_base.h"
 #include "company_cmd.h"
 #include "company_func.h"
+#include "order_func.h"
 #include "company_gui.h"
 #include "town.h"
 #include "news_func.h"
@@ -34,6 +35,7 @@
 #include "core/string_consumer.hpp"
 #include "settings_func.h"
 #include "vehicle_base.h"
+#include "station_base.h"
 #include "vehicle_func.h"
 #include "smallmap_gui.h"
 #include "game/game.hpp"
@@ -1219,6 +1221,206 @@ CommandCost CmdCompanyAllowListCtrl(DoCommandFlags flags, CompanyAllowListCtrlAc
 	}
 
 	return CommandCost();
+}
+
+/** Apply an edit only if the effective bands stay ordered for the tariff and its current users. */
+static CommandCost ApplyTariff(DoCommandFlags flags, Company &company, Vehicle *train, OrderList *schedule, const PassengerTariff &changed, const FareSeating *seating = nullptr)
+{
+	auto &target = train ? train->passenger_tariff : schedule ? schedule->passenger_tariff : company.passenger_tariff;
+	if (changed == target && (seating == nullptr || *seating == schedule->passenger_tariff.seating)) return CommandCost();
+	using T = PassengerTariff;
+	if (std::ranges::any_of(std::array{T::ShortEnd, T::MediumEnd, T::SlowEnd, T::NormalEnd, T::FastEnd}, [&](auto f) { return changed.values[f] != target.values[f]; })) {
+		auto bands_valid = [](const T &specific, const T &company, const T *plan) {
+			return specific.Get(T::ShortEnd, company, plan) < specific.Get(T::MediumEnd, company, plan) &&
+					specific.Get(T::SlowEnd, company, plan) < specific.Get(T::NormalEnd, company, plan) &&
+					specific.Get(T::NormalEnd, company, plan) < specific.Get(T::FastEnd, company, plan);
+		};
+		const T &base = train || schedule ? company.passenger_tariff : changed;
+		if (!bands_valid(changed, base, train && train->orders ? &train->orders->passenger_tariff : nullptr)) return CommandCost(STR_FARE_INVALID_BANDS);
+		if (!train && !schedule) {
+			for (const OrderList *list : OrderList::Iterate()) {
+				if (list->passenger_tariff.Active() && GetOrderListReferenceOwner(list) == company.index &&
+						!bands_valid(list->passenger_tariff, base, nullptr)) return CommandCost(STR_FARE_INVALID_BANDS);
+			}
+		}
+		if (!train) {
+			for (const Vehicle *v : Vehicle::Iterate()) {
+				if (schedule ? v->orders != schedule : v->owner != company.index) continue;
+				const T *plan = schedule ? &changed : v->orders ? &v->orders->passenger_tariff : nullptr;
+				if (!v->passenger_tariff.Active() && !(plan && plan->Active())) continue;
+				const T &operator_tariff = schedule ? Company::Get(v->owner)->passenger_tariff : base;
+				if (!bands_valid(v->passenger_tariff, operator_tariff, plan)) return CommandCost(STR_FARE_INVALID_BANDS);
+			}
+		}
+	}
+	if (flags.Test(DoCommandFlag::Execute)) {
+		target = changed;
+		if (seating != nullptr) schedule->passenger_tariff.seating = *seating;
+		for (Station *st : Station::Iterate()) st->passenger_routes.clear();
+		MarkWholeScreenDirty();
+	}
+	return CommandCost();
+}
+
+static CommandCost SetTariff(DoCommandFlags flags, Company &company, Vehicle *train, OrderList *plan, uint8_t field, uint16_t encoded)
+{
+	if (field >= PassengerTariff::Fields || encoded > PassengerTariff::maxima[field] + 1) return CMD_ERROR;
+	auto changed = train ? train->passenger_tariff : plan ? plan->passenger_tariff : company.passenger_tariff;
+	changed.values[field] = encoded;
+	return ApplyTariff(flags, company, train, plan, changed);
+}
+
+CommandCost CmdManageFareTemplate(DoCommandFlags flags, OrderListID id, bool save, const std::string &name)
+{
+	Company *company = Company::GetIfValid(_current_company);
+	OrderList *plan = OrderList::GetIfValid(id);
+	if (!company || !plan || plan->IsScheduleGroup() || GetOrderListReferenceOwner(plan) != company->index) return CMD_ERROR;
+	if (name.empty() || Utf8StringLength(name) >= FareTemplate::NAME_CHARS) return CMD_ERROR;
+
+	auto &templates = company->fare_templates;
+	auto it = std::ranges::find(templates, name, &FareTemplate::name);
+	if (save) {
+		if (it == templates.end() && templates.size() >= FareTemplate::MAX_COUNT) return CMD_ERROR;
+		if (flags.Test(DoCommandFlag::Execute)) {
+			auto &item = it == templates.end() ? templates.emplace_back() : *it;
+			item.name = name;
+			item.seating = plan->passenger_tariff.seating;
+			for (size_t i = 0; i < item.rates.size(); ++i) {
+				item.rates[i] = 1 + plan->passenger_tariff.Get(FareTemplate::fields[i], company->passenger_tariff);
+			}
+			for (Station *st : Station::Iterate()) st->passenger_routes.clear();
+			InvalidateWindowClassesData(WindowClass::PassengerTariff);
+		}
+		return CommandCost();
+	}
+	if (it == templates.end()) return CMD_ERROR;
+	auto changed = plan->passenger_tariff;
+	for (size_t i = 0; i < it->rates.size(); ++i) {
+		auto f = FareTemplate::fields[i];
+		if (it->rates[i] == 0 || it->rates[i] > PassengerTariff::maxima[f] + 1) return CMD_ERROR;
+		changed.values[f] = it->rates[i];
+	}
+	return ApplyTariff(flags, *company, nullptr, plan, changed, &it->seating);
+}
+
+static CommandCost EditFareSeat(DoCommandFlags flags, Company *company, OrderList *plan, FareTemplate *item, uint8_t action, const std::string &key, const std::string &name, uint16_t percent)
+{
+	ScheduleTariff snapshot;
+	if (item) {
+		item->ApplyRates(snapshot);
+		snapshot.seating = item->seating;
+	}
+	const auto &tariff = item ? snapshot : plan->passenger_tariff;
+	auto seats = tariff.EditableSeating(company->passenger_tariff);
+	if (action == FSA_ADD || action == FSA_RENAME) {
+		if (name.empty() || Utf8StringLength(name) >= FareSeating::NAME_CHARS) return CMD_ERROR;
+		if (std::ranges::any_of(seats.levels, [&](const FareSeat &s) { return s.name == name && (action == FSA_ADD || s.Key() != key); })) return CMD_ERROR;
+	}
+	if (action == FSA_ADD) {
+		if (seats.levels.size() >= FareSeating::MAX_LEVELS) return CMD_ERROR;
+		seats.selected = static_cast<uint16_t>(seats.levels.size());
+		seats.levels.push_back({name, 100});
+	} else {
+		auto it = std::ranges::find(seats.levels, key, &FareSeat::Key);
+		if (it == seats.levels.end()) return CMD_ERROR;
+		const auto index = static_cast<uint16_t>(it - seats.levels.begin());
+		switch (action) {
+			case FSA_SELECT:
+				if (plan && tariff.seating.levels.empty()) return SetTariff(flags, *company, nullptr, plan, PassengerTariff::Class, index + 1);
+				seats.selected = index;
+				break;
+			case FSA_RENAME: it->name = name; break;
+			case FSA_RATE:
+				if (percent > PassengerTariff::maxima[PassengerTariff::Standard]) return CMD_ERROR;
+				if (plan && tariff.seating.levels.empty()) return SetTariff(flags, *company, nullptr, plan, PassengerTariff::Economy + index, percent + 1);
+				it->percent = percent;
+				break;
+			case FSA_REMOVE:
+				if (seats.levels.size() == 1) return CMD_ERROR;
+				seats.levels.erase(it);
+				if (index == seats.selected) seats.selected = 0;
+				else if (index < seats.selected) --seats.selected;
+				break;
+			default: return CMD_ERROR;
+		}
+	}
+	if (plan) return ApplyTariff(flags, *company, nullptr, plan, tariff, &seats);
+	if (flags.Test(DoCommandFlag::Execute)) {
+		item->seating = std::move(seats);
+		for (Station *st : Station::Iterate()) st->passenger_routes.clear();
+		MarkWholeScreenDirty();
+	}
+	return CommandCost();
+}
+
+CommandCost CmdEditFareSeat(DoCommandFlags flags, OrderListID id, uint8_t action, const std::string &key, const std::string &name, uint16_t percent)
+{
+	Company *company = Company::GetIfValid(_current_company);
+	OrderList *plan = OrderList::GetIfValid(id);
+	if (!company || !plan || plan->IsScheduleGroup() || GetOrderListReferenceOwner(plan) != company->index) return CMD_ERROR;
+	return EditFareSeat(flags, company, plan, nullptr, action, key, name, percent);
+}
+
+CommandCost CmdCompanyFareTemplate(DoCommandFlags flags, uint16_t id, uint8_t action, const std::string &key, const std::string &name, uint16_t value)
+{
+	Company *company = Company::GetIfValid(_current_company);
+	if (!company || (action != FTA_CREATE && !company->FareTemplateByID(id))) return CMD_ERROR;
+	auto &items = company->fare_templates;
+	if (action == FTA_CREATE || action == FTA_RENAME) {
+		if (name.empty() || Utf8StringLength(name) >= FareTemplate::NAME_CHARS || std::ranges::find(items, name, &FareTemplate::name) != items.end()) return CMD_ERROR;
+		if (action == FTA_CREATE && items.size() >= FareTemplate::MAX_COUNT) return CMD_ERROR;
+		if (flags.Test(DoCommandFlag::Execute)) {
+			if (action == FTA_CREATE) {
+				auto &item = items.emplace_back();
+				item.name = name;
+				item.Capture(company->passenger_tariff, company->passenger_tariff);
+			} else {
+				items[id - 1].name = name;
+			}
+			MarkWholeScreenDirty();
+		}
+		return CommandCost();
+	}
+	auto &item = items[id - 1];
+	if (action < FTA_FIELD) return EditFareSeat(flags, company, nullptr, &item, action, key, name, value);
+	const auto field = static_cast<PassengerTariff::Field>(action - FTA_FIELD);
+	if (field > PassengerTariff::LongPrice || value > PassengerTariff::maxima[field] + 1) return CMD_ERROR;
+	PassengerTariff rates;
+	item.ApplyRates(rates);
+	rates.values[field] = value ? value : company->passenger_tariff.Get(field, company->passenger_tariff) + 1;
+	if (rates.values[PassengerTariff::ShortEnd] >= rates.values[PassengerTariff::MediumEnd]) return CommandCost(STR_FARE_INVALID_BANDS);
+	if (flags.Test(DoCommandFlag::Execute)) {
+		item.Capture(rates, company->passenger_tariff);
+		for (Station *st : Station::Iterate()) st->passenger_routes.clear();
+		MarkWholeScreenDirty();
+	}
+	return CommandCost();
+}
+
+CommandCost CmdSelectTrainFareTemplate(DoCommandFlags flags, VehicleID id, uint16_t template_id)
+{
+	Company *company = Company::GetIfValid(_current_company);
+	Vehicle *train = Vehicle::GetIfValid(id);
+	if (!company || !train || train->type != VehicleType::Train || !train->IsPrimaryVehicle() || train->owner != company->index || (template_id && !company->FareTemplateByID(template_id))) return CMD_ERROR;
+	auto rates = train->passenger_tariff;
+	rates.template_id = template_id;
+	return ApplyTariff(flags, *company, train, nullptr, rates);
+}
+
+CommandCost CmdSetPassengerTariff(DoCommandFlags flags, VehicleID id, uint8_t field, uint16_t encoded)
+{
+	Company *company = Company::GetIfValid(_current_company);
+	Vehicle *train = Vehicle::GetIfValid(id);
+	if (!company || (id != VehicleID::Invalid() && (!train || train->type != VehicleType::Train || !train->IsPrimaryVehicle() || train->owner != _current_company))) return CMD_ERROR;
+	return SetTariff(flags, *company, train, nullptr, field, encoded);
+}
+
+CommandCost CmdSetScheduleTariff(DoCommandFlags flags, OrderListID id, uint8_t field, uint16_t encoded)
+{
+	Company *company = Company::GetIfValid(_current_company);
+	OrderList *plan = OrderList::GetIfValid(id);
+	if (!company || !plan || plan->IsScheduleGroup() || GetOrderListReferenceOwner(plan) != company->index) return CMD_ERROR;
+	return SetTariff(flags, *company, nullptr, plan, field, encoded);
 }
 
 /**

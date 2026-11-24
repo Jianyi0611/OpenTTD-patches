@@ -764,6 +764,38 @@ struct StationCargoHistoryStructHandler final : public TypedSaveLoadStructHandle
 
 static OldPersistentStorage _old_st_persistent_storage;
 
+struct PassengerRouteHandler final : TypedSaveLoadStructHandler<PassengerRouteHandler, Station> {
+	NamedSaveLoadTable GetDescription() const override
+	{
+		static const NamedSaveLoad desc[] = {
+			NSL("destination", SLE_VAR(PassengerRouteHint, destination, SLE_UINT16)),
+			NSL("tick", SLE_VAR(PassengerRouteHint, tick, SLE_UINT64)),
+			NSL("legs", SLE_VAR(PassengerRouteHint, legs, SLE_UINT8)),
+			NSL("vehicle", SLE_ARR(PassengerRouteHint, vehicle, SLE_UINT32, 2)),
+			NSL("schedule", SLE_ARR(PassengerRouteHint, schedule, SLE_UINT16, 2)),
+			NSL("cursor", SLE_ARR(PassengerRouteHint, cursor, SLE_UINT16, 2)),
+			NSL("board", SLE_ARR(PassengerRouteHint, board, SLE_UINT16, 2)),
+			NSL("leave", SLE_ARR(PassengerRouteHint, leave, SLE_UINT16, 2)),
+		};
+		return desc;
+	}
+	void Save(Station *st) const override
+	{
+		SlSetStructListLength(st->passenger_routes.size());
+		for (auto &[destination, hint] : st->passenger_routes) SlObject(&hint, this->GetLoadDescription());
+	}
+	void Load(Station *st) const override
+	{
+		size_t count = SlGetStructListLength(128);
+		for (size_t i = 0; i < count; ++i) {
+			PassengerRouteHint hint{};
+			SlObject(&hint, this->GetLoadDescription());
+			if (hint.legs == 0 || hint.legs > 2) SlErrorCorrupt("Invalid passenger itinerary length");
+			st->passenger_routes.emplace(hint.destination, hint);
+		}
+	}
+};
+
 static const NamedSaveLoad _station_desc[] = {
 	NSL("", SLE_WRITEBYTE(Station, facilities)),
 	NSL("", SLE_INCLUDE(IncludeBaseStationDescription)),
@@ -812,6 +844,8 @@ static const NamedSaveLoad _station_desc[] = {
 
 	NSL("",                                 SLE_CONDVAR_X(Station, station_cargo_history_cargoes, SLE_FILE_U64 | SLE_VAR_U128, SL_MIN_VERSION,        SL_MAX_VERSION,      SlXvFeatureTest(XSLFTO_AND, XSLFI_STATION_CARGO_HISTORY))),
 	NSLT_STRUCTLIST<StationGoodsStructHandler>("goods"),
+	NSLT_STRUCTLIST<PassengerRouteHandler>("passenger_routes", SL_MIN_VERSION, SL_MAX_VERSION, SlXvFeatureTest(XSLFTO_AND, XSLFI_PASSENGER_DESTINATIONS, 7)),
+	NSL("next_passenger_sale", SLE_CONDVAR_X(Station, next_passenger_sale, SLE_UINT64, SL_MIN_VERSION, SL_MAX_VERSION, SlXvFeatureTest(XSLFTO_AND, XSLFI_PASSENGER_DESTINATIONS, 7))),
 	NSLT_STRUCT<StationCargoHistoryStructHandler>("cargo_history"),
 };
 

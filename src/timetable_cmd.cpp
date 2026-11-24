@@ -15,6 +15,8 @@
 #include "debug.h"
 #include "window_func.h"
 #include "vehicle_base.h"
+#include "train.h"
+#include "station_base.h"
 #include "vehicle_func.h"
 #include "settings_type.h"
 #include "company_base.h"
@@ -23,6 +25,7 @@
 #include "string_func.h"
 #include "timetable_cmd.h"
 #include "schdispatch.h"
+#include "passenger_journey.h"
 #include "order_cmd.h"
 
 #include "widgets/vehicle_widget.h"
@@ -72,6 +75,7 @@ CommandCost CmdSetOrderServiceNumber(DoCommandFlags flags, OrderTargetType targe
 				if (external_here && v->IsInExternalTrip()) v->ApplyStationServiceNumber(*order);
 			}
 		}
+		RefreshEditedDepartureTickets(ol->index, index, *order);
 		InvalidateWindowClassesData(WindowClass::VehicleOrders);
 		InvalidateWindowClassesData(WindowClass::OrderList);
 		InvalidateWindowClassesData(WindowClass::OrderListEditor);
@@ -1247,6 +1251,23 @@ void UpdateVehicleTimetable(Vehicle *v, bool travelling)
 
 	if (v->cur_real_order_index >= v->GetNumOrders()) return;
 	Order *real_current_order = v->GetOrder(v->cur_real_order_index);
+	if (travelling && v->type == VehicleType::Train && _settings_game.linkgraph.passenger_through_fares && _settings_game.linkgraph.passenger_route_fares) {
+		Train *train = Train::From(v);
+		const bool scheduled_stop = real_current_order->IsType(OT_GOTO_STATION) || real_current_order->IsType(OT_GOTO_WAYPOINT);
+		const auto *stop = scheduled_stop ? BaseStation::GetIfValid(real_current_order->GetDestination().ToStationID()) : nullptr;
+		if (stop != nullptr) {
+			const TileIndex tile = TileVirtXY(v->x_pos, v->y_pos);
+			if (train->fare_origin != INVALID_TILE) {
+				const uint delta = DistanceManhattan(tile, train->fare_last_tile);
+				if (delta <= 8 && delta <= UINT32_MAX - train->fare_tiles) real_current_order->RecordFareDistance(train->fare_origin, stop->xy, train->fare_tiles + delta);
+			}
+			train->fare_origin = stop->xy;
+			train->fare_tiles = 0;
+			train->fare_last_tile = tile;
+		} else {
+			train->fare_origin = INVALID_TILE;
+		}
+	}
 	Order *real_timetable_order = v->cur_timetable_order_index != INVALID_VEH_ORDER_ID ? v->GetOrder(v->cur_timetable_order_index) : nullptr;
 
 	auto guard = scope_guard([v, travelling]() {

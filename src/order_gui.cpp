@@ -1288,6 +1288,7 @@ static StringID GetCoupleCandidateResultString(CoupleCandidateResult result)
 		case CoupleCandidateResult::WaitPartnerSlot: return STR_WAIT_COUPLE_PARTNER_SLOT_MISMATCH;
 		case CoupleCandidateResult::WaitPartnerSlotGroup: return STR_WAIT_COUPLE_PARTNER_SLOT_GROUP_MISMATCH;
 		case CoupleCandidateResult::WaitPartnerPower: return STR_WAIT_COUPLE_POWER_MISMATCH;
+		case CoupleCandidateResult::WaitSplitPartner: return STR_WAIT_COUPLE_SPLIT_PARTNER_MISMATCH;
 		case CoupleCandidateResult::WaitPartnerGroup: return STR_WAIT_COUPLE_PARTNER_GROUP_MISMATCH;
 		case CoupleCandidateResult::ServiceNumber: return STR_COUPLE_DIAGNOSTIC_SERVICE_NUMBER;
 		case CoupleCandidateResult::Station:     return STR_COUPLE_DIAGNOSTIC_STATION;
@@ -1988,6 +1989,7 @@ enum WaitCoupleCriteriaWidgets : WidgetID {
 	WID_WCP_GROUP,               ///< Vehicle group the approaching train must belong to ("载具组").
 	WID_WCP_POWER_MODE,
 	WID_WCP_POWER_VALUE,
+	WID_WCP_SPLIT_PARTNER,
 	WID_WCP_TRACTION_LABEL,      ///< Label of the traction class criterion.
 	WID_WCP_TRACTION,            ///< Traction class criterion (any / steam / diesel / electric).
 	WID_WCP_DIAGNOSTICS,         ///< Show whether a waiting train has been claimed.
@@ -2009,6 +2011,7 @@ private:
 
 	/** Snapshot of the criteria which are shown, to refresh the dropdowns when the order changes. */
 	struct SettingsSnapshot {
+		bool split_partner = false;
 		WaitCouplePowerMode power_mode{};
 		uint16_t power_hp = 0;
 		uint8_t traction = 0;
@@ -2018,7 +2021,7 @@ private:
 
 		bool operator==(const SettingsSnapshot &other) const
 		{
-			return this->power_mode == other.power_mode && this->power_hp == other.power_hp &&
+			return this->split_partner == other.split_partner && this->power_mode == other.power_mode && this->power_hp == other.power_hp &&
 					this->traction == other.traction && this->slot == other.slot && this->slot_group == other.slot_group && this->group == other.group;
 		}
 	};
@@ -2044,6 +2047,7 @@ private:
 	SettingsSnapshot GetSettings() const
 	{
 		SettingsSnapshot s;
+		s.split_partner = this->order->RequiresSplitPartner();
 		s.power_mode = this->order->GetWaitCouplePowerMode();
 		s.power_hp = this->order->GetWaitCouplePowerValue();
 		s.traction = this->order->GetWaitCoupleTraction();
@@ -2062,6 +2066,7 @@ private:
 		this->GetWidget<NWidgetCore>(WID_WCP_SLOT_GROUP)->SetString(STR_ORDER_COUPLE_ANY_GROUP);
 		this->GetWidget<NWidgetCore>(WID_WCP_GROUP)->SetString(STR_ORDER_COUPLE_ANY_VEHICLE_GROUP);
 		this->GetWidget<NWidgetCore>(WID_WCP_POWER_MODE)->SetString(STR_WAIT_COUPLE_POWER_ANY + to_underlying(this->order->GetWaitCouplePowerMode()));
+		this->SetWidgetLoweredState(WID_WCP_SPLIT_PARTNER, this->order->RequiresSplitPartner());
 		this->SetWidgetDisabledState(WID_WCP_POWER_VALUE, this->order->GetWaitCouplePowerMode() == WaitCouplePowerMode::Any);
 		this->GetWidget<NWidgetCore>(WID_WCP_TRACTION)->SetString(STR_WAIT_COUPLE_TRACTION_ANY + this->order->GetWaitCoupleTraction());
 	}
@@ -2185,6 +2190,9 @@ public:
 				ShowDropDownList(this, this->BuildPartnerGroupList(), -1, WID_WCP_GROUP, 0);
 				break;
 
+			case WID_WCP_SPLIT_PARTNER:
+				this->ModifyOrder(MOF_WAIT_COUPLE_SPLIT_PARTNER, !this->order->RequiresSplitPartner());
+				break;
 			case WID_WCP_POWER_MODE: {
 				static constexpr StringID choices[] = {STR_WAIT_COUPLE_POWER_ANY, STR_WAIT_COUPLE_POWER_GREATER, STR_WAIT_COUPLE_POWER_LESS, STR_WAIT_COUPLE_POWER_EQUAL};
 				ShowDropDownMenu(this, choices, to_underlying(this->order->GetWaitCouplePowerMode()), widget, 0, 0);
@@ -2307,6 +2315,9 @@ static constexpr NWidgetPart _nested_wait_couple_options_widgets[] = {
 		NWidget(WWT_STICKYBOX, Colours::Grey),
 	EndContainer(),
 	NWidget(WWT_PANEL, Colours::Grey),
+		NWidget(NWID_HORIZONTAL),
+			NWidget(WWT_TEXTBTN, Colours::Grey, WID_WCP_SPLIT_PARTNER), SetFill(1, 0), SetResize(1, 0), SetStringTip(STR_WAIT_COUPLE_SPLIT_PARTNER, STR_WAIT_COUPLE_SPLIT_PARTNER_TOOLTIP),
+		EndContainer(),
 		NWidget(NWID_HORIZONTAL),
 			NWidget(WWT_TEXT, Colours::Invalid, WID_WCP_SLOT_LABEL), SetFill(1, 0), SetResize(1, 0), SetStringTip(STR_ORDER_WAIT_COUPLE_PARTNER_SLOT_LABEL, STR_NULL),
 			NWidget(WWT_DROPDOWN, Colours::Grey, WID_WCP_SLOT), SetFill(0, 0), SetResize(0, 0),
@@ -3658,6 +3669,7 @@ void DrawOrderString(const Vehicle *v, const Order *order, int order_index, int 
 				AppendStringInPlace(line, STR_WAIT_COUPLE_TRACTION_SUFFIX, STR_WAIT_COUPLE_TRACTION_ANY + order->GetWaitCoupleTraction());
 			}
 			if (order->HasWaitCouplePartnerSlot()) AppendStringInPlace(line, STR_WAIT_COUPLE_PARTNER_SLOT_SUFFIX, order->GetWaitCouplePartnerSlot().base());
+			if (order->RequiresSplitPartner()) AppendStringInPlace(line, STR_WAIT_COUPLE_SPLIT_PARTNER_SUFFIX);
 			if (order->HasWaitCouplePartnerSlotGroup()) {
 				const TraceRestrictSlotGroup *sg = TraceRestrictSlotGroup::GetIfValid(order->GetWaitCouplePartnerSlotGroup());
 				if (sg != nullptr) AppendStringInPlace(line, STR_WAIT_COUPLE_PARTNER_SLOT_GROUP_SUFFIX, sg->index.base());
@@ -4110,6 +4122,21 @@ private:
 	TileIndex CmdTile() const { return this->HasVehicle() ? this->vehicle->tile : TileIndex{}; } // TileIndex{} == 0 passes the command tile gate for tile-less commands
 	VehicleType RefType() const { return this->HasVehicle() ? this->vehicle->type : VehicleType::Train; }
 	const OrderList *Target() const { return this->GetTargetOrders(); }
+
+	const Order *SelectedExecuteSchedule() const
+	{
+		const Order *order = this->selected_order >= 0 ? this->OrderAt(this->selected_order) : nullptr;
+		return order != nullptr && order->IsType(OT_EXECUTE_SCHEDULE) ? order : nullptr;
+	}
+
+	const OrderList *FarePlan() const
+	{
+		if (const Order *order = this->SelectedExecuteSchedule()) {
+			const OrderList *plan = OrderList::GetIfValid(order->GetDestination().ToOrderListID());
+			return plan != nullptr && plan->IsVisibleToCompany(_local_company) ? plan : nullptr;
+		}
+		return this->Target();
+	}
 
 	void PostInsert(const Order &order, VehicleOrderID sel)
 	{
@@ -5051,6 +5078,9 @@ public:
 	void UpdateWidgetSize(WidgetID widget, Dimension &size, [[maybe_unused]] const Dimension &padding, [[maybe_unused]] Dimension &fill, [[maybe_unused]] Dimension &resize) override
 	{
 		switch (widget) {
+			case WID_O_PLAN_FARE:
+				size.width = std::max(GetStringBoundingBox(STR_FARE_PLAN_BUTTON).width, GetStringBoundingBox(STR_FARE_REFERENCED_PLAN).width) + padding.width;
+				break;
 			case WID_O_DECOUPLE_PREVIEW:
 				size.height = ScaleGUITrad(GetVehicleHeight(VehicleType::Train) + 12) + GetCharacterHeight(FontSize::Normal) + padding.height + 2 * WidgetDimensions::scaled.vsep_normal;
 				break;
@@ -5753,6 +5783,10 @@ public:
 
 	void OnPaint() override
 	{
+		if (this->widget_lookup.find(WID_O_PLAN_FARE) != this->widget_lookup.end()) {
+			const OrderList *plan = this->FarePlan();
+			this->SetWidgetDisabledState(WID_O_PLAN_FARE, plan == nullptr || plan->IsScheduleGroup());
+		}
 		if (!IsLocalTarget()) {
 			this->selected_order = -1; // Disable selection any selected row at a competitor order window.
 		} else {
@@ -5932,6 +5966,8 @@ public:
 	std::string GetWidgetString(WidgetID widget, StringID stringid) const override
 	{
 		switch (widget) {
+			case WID_O_PLAN_FARE:
+				return GetString(this->SelectedExecuteSchedule() ? STR_FARE_REFERENCED_PLAN : STR_FARE_PLAN_BUTTON);
 			case WID_O_AUTO_REFIT_STATE: {
 				const Order *order = OrderAt(this->OrderGetSel());
 				if (!this->IsStopRefitOrder(order)) return GetString(STR_ORDER_STOP_REFIT_UNAVAILABLE);
@@ -6739,6 +6775,10 @@ public:
 				this->ModifyOrder(this->OrderGetSel(), MOF_COND_VALUE_4, HasBit(OrderAt(this->OrderGetSel())->GetXData2(), 16) ? 0 : 1);
 				break;
 			}
+
+			case WID_O_PLAN_FARE:
+				if (const OrderList *list = this->FarePlan()) ShowScheduleTariff(*list);
+				break;
 
 			case WID_O_TIMETABLE_VIEW:
 					this->HasVehicle() ? ShowTimetableWindow(this->vehicle)
@@ -8383,6 +8423,7 @@ static constexpr std::initializer_list<NWidgetPart> _nested_orders_train_widgets
 	NWidget(NWID_HORIZONTAL),
 		NWidget(WWT_CLOSEBOX, Colours::Grey),
 		NWidget(WWT_CAPTION, Colours::Grey, WID_O_CAPTION),
+		NWidget(WWT_PUSHTXTBTN, Colours::Grey, WID_O_PLAN_FARE), SetStringTip(STR_FARE_PLAN_BUTTON),
 		NWidget(WWT_PUSHBTN, Colours::Grey, WID_O_TIMETABLE_VIEW), SetMinimalSize(61, 14), SetToolTip(STR_ORDERS_TIMETABLE_VIEW_TOOLTIP),
 		NWidget(WWT_TEXTBTN, Colours::Grey, WID_O_OCCUPANCY_TOGGLE), SetMinimalSize(36, 12), SetStringTip(STR_ORDERS_OCCUPANCY_BUTTON, STR_ORDERS_OCCUPANCY_BUTTON_TOOLTIP),
 		NWidget(WWT_SHADEBOX, Colours::Grey),

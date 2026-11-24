@@ -2284,8 +2284,10 @@ STR_CONFIG_SETTING_LINKGRAPH_RECALC_INTERVAL_HELPTEXT           :Time between su
 STR_CONFIG_SETTING_LINKGRAPH_RECALC_TIME                        :Take {STRING2} for recalculation of distribution graph
 STR_CONFIG_SETTING_LINKGRAPH_RECALC_TIME_HELPTEXT               :Time taken for each recalculation of a link graph component. When a recalculation is started, a thread is spawned which is allowed to run for this number of seconds. The shorter you set this the more likely it is that the thread is not finished when it's supposed to. Then the game stops until it is ("lag"). The longer you set it the longer it takes for the distribution to be updated when routes change
 
+STR_CONFIG_SETTING_FIXED_PASSENGER_DESTINATIONS                 :Fixed final destination
+STR_CONFIG_SETTING_FIXED_PASSENGER_DESTINATIONS_HELPTEXT        :Each group has a final station and keeps it when splitting or changing vehicles.
 STR_CONFIG_SETTING_DISTRIBUTION_PAX                             :Distribution mode for passengers: {STRING2}
-STR_CONFIG_SETTING_DISTRIBUTION_PAX_HELPTEXT                    :"Symmetric" means that roughly the same number of passengers will go from a station A to a station B as from B to A. "Asymmetric" means that arbitrary numbers of passengers can go in either direction. "Manual" means that no automatic distribution will take place for passengers
+STR_CONFIG_SETTING_DISTRIBUTION_PAX_HELPTEXT                    :"Symmetric" means that roughly the same number of passengers will go from a station A to a station B as from B to A. "Asymmetric" means that arbitrary numbers of passengers can go in either direction. "Manual" means that no automatic distribution will take place for passengers. In fixed final destination mode, groups retain their final station across transfers.
 STR_CONFIG_SETTING_DISTRIBUTION_MAIL                            :Distribution mode for mail: {STRING2}
 STR_CONFIG_SETTING_DISTRIBUTION_MAIL_HELPTEXT                   :"Symmetric" means that roughly the same amount of mail will be sent from a station A to a station B as from B to A. "Asymmetric" means that arbitrary amounts of mail can be sent in either direction. "Manual" means that no automatic distribution will take place for mail
 STR_CONFIG_SETTING_DISTRIBUTION_ARMOURED                        :Distribution mode for the ARMOURED cargo class: {STRING2}
@@ -4284,6 +4286,40 @@ STR_STATION_VIEW_SUPPLY_RATINGS_TITLE_MONTH                     :{BLACK}Supply p
 STR_STATION_VIEW_SUPPLY_RATINGS_TITLE_MINUTE                    :{BLACK}Supply per minute and local rating:
 STR_STATION_VIEW_CARGO_SUPPLY_RATING                            :{WHITE}{STRING}: {YELLOW}{COMMA} / {STRING} ({COMMA}%)
 
+STR_PASSENGER_SERVICE_GROUP                                     :Ticket status / departing service
+STR_PASSENGER_SERVICE_NO_DESTINATION                            :{YELLOW}{CARGO_SHORT} · destination not assigned
+STR_PASSENGER_SERVICE_PENDING                                   :{YELLOW}{CARGO_SHORT} · awaiting first booking
+STR_PASSENGER_REBOOK_DEPARTED                                   :{YELLOW}{CARGO_SHORT} · awaiting rebooking (train departed)
+STR_PASSENGER_REBOOK_CHANGED                                    :{YELLOW}{CARGO_SHORT} · awaiting rebooking (service changed)
+STR_PASSENGER_REBOOK_CONNECTION                                 :{YELLOW}{CARGO_SHORT} · waiting for a connecting service
+STR_PASSENGER_SERVICE_FULL                                      :{YELLOW}{CARGO_SHORT} · waiting list (no seats for this section)
+STR_PASSENGER_SERVICE_BUS                                       :{YELLOW}{CARGO_SHORT} · waiting for bus to {STATION}
+STR_PASSENGER_PLANNED_TRAIN                                     :{BLACK} · planned train {RAW_STRING}
+STR_PASSENGER_SERVICE_TRANSFER_WAIT                             :{YELLOW}{CARGO_SHORT} · awaiting onward ticket
+STR_PASSENGER_SERVICE_COUNT                                     :{YELLOW}{CARGO_SHORT}
+STR_PASSENGER_SERVICE_SCHEDULE                                  :{LTBLUE}Schedule #{NUM}
+STR_PASSENGER_DEPARTURE_NEXT                                    :{LTBLUE}{VEHICLE}
+STR_PASSENGER_DEPARTURE_FOLLOWING                               :{LTBLUE}{VEHICLE} (next trip)
+STR_PASSENGER_DEPARTURE_NAMED                                   :{LTBLUE}{VEHICLE} (#{NUM})
+STR_PASSENGER_DEPARTURE_NAMED_FOLLOWING                         :{LTBLUE}{VEHICLE} (#{NUM}, next trip)
+STR_PASSENGER_SERVICE_TIME_PENDING                              :{BLACK} · Departure time pending
+STR_PASSENGER_LIST_BOOKED                                       :{WHITE}Ticketed departures
+STR_PASSENGER_LIST_PENDING                                      :{YELLOW}Awaiting tickets
+STR_PASSENGER_LIST_CONNECTIONS                                  :{YELLOW}Waiting for a connection
+STR_PASSENGER_LIST_RESERVED                                     :{WHITE}Reserved for loading
+STR_PASSENGER_LIST_CONNECTION_AT                                       :{BLACK} · Change at {STATION} · onward leg not yet booked
+STR_PASSENGER_LIST_DEPARTURE                                    :{BLACK} · Dep. ~{STRING1}
+STR_PASSENGER_SERVICE_ALIGHT_PENDING                            :{YELLOW}{CARGO_SHORT} · alighting stop pending
+STR_PASSENGER_SERVICE_ALIGHT                                    :{YELLOW}{CARGO_SHORT} alight at {STATION}
+STR_PASSENGER_SERVICE_DESTINATION                               :{WHITE}{CARGO_SHORT} · Final destination: {STATION}
+STR_PASSENGER_JOURNEY_HINT                                      :  (journey details)
+STR_PASSENGER_JOURNEY_UNKNOWN                                   :Rail arrival time not yet known
+STR_PASSENGER_JOURNEY_DIRECT                                    :Take {VEHICLE} to {STATION}. Estimated arrival in {NUM} min. {STRING1}
+STR_PASSENGER_JOURNEY_CHANGE                                    :Take {VEHICLE} and change at {STATION}. Estimated arrival at destination in {NUM} min. {STRING1}
+STR_PASSENGER_JOURNEY_ONLY                                      :Only forecast available
+STR_PASSENGER_JOURNEY_EARLIER                                   :About {NUM} min earlier
+STR_PASSENGER_JOURNEY_FEWER                                     :Fewer changes for about {NUM} min extra
+STR_PASSENGER_JOURNEY_TIE                                       :Similar arrival times
 STR_STATION_VIEW_GROUP                                          :{BLACK}Group by
 STR_STATION_VIEW_WAITING_STATION                                :Station: Waiting
 STR_STATION_VIEW_WAITING_AMOUNT                                 :Amount: Waiting
@@ -6574,3 +6610,125 @@ STR_TRACE_RESTRICT_AUTO_REGISTER_RESERVATION                   :Register slot: s
 STR_TRACE_RESTRICT_AUTO_REGISTER_FRONT                         :Register slot: front passes detector
 STR_TRACE_RESTRICT_AUTO_REGISTER_TAIL                          :Register slot: tail passes detector
 STR_TRACE_RESTRICT_AUTO_REGISTER_TOOLTIP                       :{BLACK}Choose when this detector registers trains. Reservation registers ahead of passage and rolls back failed reservations. Front and tail modes register only when the selected end physically passes. All modes use the same shared yielding slot.
+STR_PASSENGER_LEG_FARE_TOOLTIP                                  :{BLACK}{STATION} to {STATION}{}{BLACK}Estimated fare per passenger: {CURRENCY_LONG}{}{BLACK}Based on distance at a standard pace. Actual income is settled on delivery. Staying in the same carriage through a change of locomotive or service number incurs no extra fare.
+STR_CONFIG_SETTING_PASSENGER_ROUTE_FARES :Price rail tickets by chosen itinerary: {STRING}
+STR_CONFIG_SETTING_PASSENGER_ROUTE_FARES_HELP :With through fares enabled, new tickets use the booked calls and waypoints. Rail sections use observed mileage when available. Changes of train preserve the fare.
+STR_PASSENGER_ROUTE_FARE_TOOLTIP :{BLACK}{STATION} to {STATION}{}{BLACK}Ride estimate at reference speed: {CURRENCY_LONG}. Expand the final destination for the locked ticket price and distance.
+STR_PASSENGER_TICKET_DISTANCE : · Ticket distance: {COMMA} tiles
+STR_CONFIG_SETTING_PASSENGER_THROUGH_FARES                       :Lock fares to the final passenger destination: {STRING}
+STR_CONFIG_SETTING_PASSENGER_THROUGH_FARES_HELP                  :With fixed passenger destinations and automatic distribution, the first booking locks the fare to the final destination. Among journeys with the same number of changes and similar arrival times, passengers consider price. Company and train tariffs set each operator's share. Changing trains or service numbers preserves the original ticket price until delivery.
+STR_FARE_BUTTON                                                  :Passenger fares
+STR_FARE_COMPANY                                                 :Company fare table
+STR_FARE_TRAIN                                                   :Individual train fare table
+STR_FARE_EDIT                                                    :Change value
+STR_FARE_RESET                                                   :Restore inherited value
+STR_FARE_CUSTOM                                                  :Custom: {NUM}
+STR_FARE_INHERITED                                               :Inherited: {NUM}
+STR_FARE_DISTANCE                                                :Test distance: {NUM} tiles
+STR_FARE_SPEED                                                   :Test travel speed: {NUM} km/h
+STR_FARE_PREVIEW                                                 :Estimated fare per person: {CURRENCY_LONG}
+STR_FARE_INVALID_BANDS                                           :Fare bands must increase, including inherited train bands
+STR_FARE_SHORT_END                                               :Short distance ends at (tiles)
+STR_FARE_MEDIUM_END                                              :Medium distance ends at (tiles)
+STR_FARE_SHORT_PRICE                                             :Short fare per tile
+STR_FARE_MEDIUM_PRICE                                            :Medium fare per tile
+STR_FARE_LONG_PRICE                                              :Long fare per tile
+STR_FARE_ECONOMY                                                 :Economy comfort (%)
+STR_FARE_STANDARD                                                :Standard comfort (%)
+STR_FARE_COMFORT                                                 :Premium comfort (%)
+STR_FARE_SLOW_END                                                :Slow band ends at (km/h)
+STR_FARE_NORMAL_END                                              :Normal band ends at (km/h)
+STR_FARE_FAST_END                                                :Fast band ends at (km/h)
+STR_FARE_SLOW                                                    :Slow service (%)
+STR_FARE_NORMAL                                                  :Normal service (%)
+STR_FARE_FAST                                                    :Fast service (%)
+STR_FARE_EXPRESS                                                 :Express service (%)
+STR_FARE_CLASS                                                   :Seat class
+STR_FARE_TAB_DISTANCE                                            :Distance
+STR_FARE_TAB_SPEED                                               :Speed
+STR_FARE_TAB_COMFORT                                             :Comfort
+STR_FARE_RESET_GAME                                              :Use game default
+STR_FARE_RESET_COMPANY                                           :Use company fare
+STR_FARE_SEAT_VALUE                                              :Seat: {STRING}
+STR_FARE_SEAT_ECONOMY                                            :Economy
+STR_FARE_SEAT_STANDARD                                           :Standard
+STR_FARE_SEAT_COMFORT                                            :Premium
+STR_FARE_NATIVE                                                  :Existing game fare until customised
+STR_FARE_CHART_HELP                                              :Click a slider to adjust, or click a value to enter it.
+STR_FARE_TRAIN_CAPTION                                           :{VEHICLE} – passenger fares
+STR_FARE_OWN_TRAIN                                               :Train override
+STR_FARE_FROM_COMPANY                                            :Company setting
+STR_FARE_OWN_COMPANY                                             :Company rate
+STR_FARE_FROM_GAME                                               :Game default
+STR_FARE_FIELD_SOURCE                                            :{STRING} · {STRING}
+STR_FARE_RATE_VALUE                                              :£{DECIMAL}
+STR_FARE_PLAN_BUTTON                                             :Plan fares
+STR_FARE_TEMPLATE_SAVE                                           :Save as template
+STR_FARE_NAMED_TEMPLATE                                          :Fare template: {RAW_STRING}
+STR_FARE_DEFAULT_CHOICE                                          :Default fare
+STR_FARE_NEW_TEMPLATE                                            :Create fare template
+STR_FARE_RENAME_TEMPLATE                                         :Rename fare template
+STR_FARE_COPY_COMPANY_VALUE                                      :Use current company value
+STR_FARE_LEVEL_SOLD                                              :Selling class: {RAW_STRING}
+STR_FARE_LEVEL_ADD                                               :Add level
+STR_FARE_LEVEL_ENTRY                                             :{RAW_STRING} ({NUM}%)
+STR_FARE_LEVEL_RENAME                                            :Rename
+STR_FARE_LEVEL_REMOVE                                            :Remove
+STR_FARE_LEVEL_RATE                                              :Fare multiplier: {NUM}%
+STR_FARE_LEVEL_NAME                                              :Comfort level name
+STR_FARE_LEVEL_PERCENT                                           :Fare multiplier (0–500%)
+STR_FARE_REFERENCED_PLAN                                         :Target plan fares
+STR_FARE_TEMPLATE_APPLY                                          :Apply template
+STR_FARE_TEMPLATE_HELP                                           :Save or apply distance and comfort settings. The plan keeps its speed settings.
+STR_FARE_TEMPLATE_NAME                                           :Template name (reuse a name to update it)
+STR_FARE_PLAN_CAPTION                                            :{RAW_STRING} – passenger fares
+STR_FARE_OWN_PLAN                                                :Plan override
+STR_FARE_FROM_PLAN                                               :Plan setting
+STR_FARE_RESET_PLAN                                              :Use plan fare
+STR_FARE_RATE_PRECISION                                          :Enter a price with at most one decimal place
+STR_FARE_ERROR                                                   :Could not change passenger fare
+STR_PASSENGER_LOCKED_FARE                                        : · Locked through fare: {CURRENCY_LONG} per passenger
+
+STR_TQ_TITLE :Ticket search
+STR_TQ_FROM :From · {RAW_STRING}
+STR_TQ_TO :To · {RAW_STRING}
+STR_TQ_CHOOSE :Select station
+STR_TQ_PICK :Map
+STR_TQ_SWAP :⇄
+STR_TQ_RUN :Search
+STR_TQ_NOW :Depart from now
+STR_TQ_LATER :Depart after {NUM} min
+STR_TQ_ALL :All routes
+STR_TQ_DIRECT :Direct
+STR_TQ_CHANGE :Transfers
+STR_TQ_FAST :Earliest arrival
+STR_TQ_SEATS :Available only
+STR_TQ_EMPTY :No matching service in the current forecast
+STR_TQ_START :Select departure and arrival stations, then search
+STR_TQ_STAMP :Results as of {RAW_STRING}
+STR_TQ_SOLD :Sold out
+STR_TQ_ROOM :{COMMA} seats
+STR_TQ_BUS :Walk-up bus
+STR_TQ_UNSURE :Connection unconfirmed
+STR_TQ_TIME :Time pending
+STR_TQ_DURATION :{NUM} min
+STR_TQ_PRICE :Pay on arrival
+STR_TQ_CHANGES :{NUM} transfers
+STR_TQ_MARGIN :Transfer at {STATION}: {RAW_STRING}
+STR_TQ_SAME :Choose two different stations
+STR_TQ_EARLIER : · {NUM} min earlier than the fastest available direct service
+STR_TQ_RENUMBER :Continues as {RAW_STRING} · stay aboard
+STR_TQ_SERVICE :Service
+STR_TQ_TIMES :Departure / Arrival
+STR_TQ_STOCK :Seats available
+STR_TQ_FARE :Fare per person
+STR_TQ_STOCK_HELP :Current remaining seats on the most crowded section. Later connections are checked again at transfer.
+STR_TQ_WALKUP :Ticket sales off
+STR_TQ_STATIONS :From / To
+STR_TQ_ELAPSED :Duration
+STR_TQ_RESULTS :{COMMA} itineraries · Updated {RAW_STRING}
+STR_TQ_ELAPSED_HOURS_MINUTES :{NUM} h {NUM} min
+STR_CONFIG_SETTING_PASSENGER_TICKETING :Enable rail ticket sales
+STR_CONFIG_SETTING_PASSENGER_TICKETING_HELP :Sell seats for specific trains up to each group's alighting station. Requires automatic passenger distribution. Turning sales off releases reservations and preserves fares already agreed.
+STR_PASSENGER_LIST_WALKUP :Travelling without reservations
+STR_PASSENGER_DESTINATION_KNOWN :{YELLOW}{CARGO_SHORT} · destination assigned

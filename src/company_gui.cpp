@@ -9,6 +9,8 @@
 
 #include "stdafx.h"
 #include "currency_func.h"
+#include "order_func.h"
+#include "slider_func.h"
 #include "error.h"
 #include "gui.h"
 #include "settings_gui.h"
@@ -53,11 +55,531 @@
 
 #include "dropdown_common_type.h"
 
+#include "dropdown_func.h"
 #include "safeguards.h"
 
 
 static void DoSelectCompanyManagerFace(Window *parent);
 static void ShowCompanyInfrastructure(CompanyID company);
+
+namespace {
+enum TariffWidget : WidgetID { TF_TITLE, TF_CHART, TF_SOURCE, TF_RESET, TF_DISTANCE, TF_SPEED, TF_PREVIEW, TF_TAB_DISTANCE, TF_TAB_SPEED, TF_TAB_COMFORT, TF_TEMPLATE_ROW, TF_SAVE_TEMPLATE, TF_APPLY_TEMPLATE, TF_EDITOR, TF_SELL_LEVEL, TF_LEVEL_RATE, TF_ADD_LEVEL, TF_RENAME_LEVEL, TF_REMOVE_LEVEL, TF_SCOPE_ROW, TF_SCOPE, TF_TAB_SPEED_ROW, TF_NEW_TEMPLATE, TF_RENAME_TEMPLATE };
+
+static std::span<const PassengerTariff::Field> TariffFields(WidgetID tab)
+{
+	using T = PassengerTariff;
+	static constexpr T::Field distance[] = {T::ShortPrice, T::MediumPrice, T::LongPrice, T::ShortEnd, T::MediumEnd};
+	static constexpr T::Field speed[] = {T::Slow, T::Normal, T::Fast, T::Express, T::SlowEnd, T::NormalEnd, T::FastEnd};
+	static constexpr T::Field comfort[] = {T::Class, T::Economy, T::Standard, T::Comfort};
+	switch (tab) {
+		case TF_TAB_SPEED: return speed;
+		case TF_TAB_COMFORT: return comfort;
+		default: return distance;
+	}
+}
+
+static constexpr std::initializer_list<NWidgetPart> tariff_widgets = {
+	NWidget(NWID_HORIZONTAL),
+		NWidget(WWT_CLOSEBOX, Colours::Grey), NWidget(WWT_CAPTION, Colours::Grey, TF_TITLE), SetStringTip(STR_FARE_BUTTON),
+		NWidget(WWT_DEFSIZEBOX, Colours::Grey), NWidget(WWT_STICKYBOX, Colours::Grey),
+	EndContainer(),
+	NWidget(WWT_PANEL, Colours::Grey),
+		NWidget(NWID_VERTICAL), SetPadding(WidgetDimensions::unscaled.framerect),
+			NWidget(NWID_SELECTION, Colours::Invalid, TF_SCOPE_ROW),
+				NWidget(WWT_DROPDOWN, Colours::Grey, TF_SCOPE), SetStringTip(STR_EMPTY), SetFill(1, 0),
+			EndContainer(),
+			NWidget(NWID_HORIZONTAL, NWidContainerFlag::EqualSize),
+				NWidget(WWT_TEXTBTN, Colours::Grey, TF_TAB_DISTANCE), SetStringTip(STR_FARE_TAB_DISTANCE), SetFill(1, 0),
+				NWidget(NWID_SELECTION, Colours::Invalid, TF_TAB_SPEED_ROW),
+				NWidget(WWT_TEXTBTN, Colours::Grey, TF_TAB_SPEED), SetStringTip(STR_FARE_TAB_SPEED), SetFill(1, 0),
+				EndContainer(),
+				NWidget(WWT_TEXTBTN, Colours::Grey, TF_TAB_COMFORT), SetStringTip(STR_FARE_TAB_COMFORT), SetFill(1, 0),
+			EndContainer(),
+			NWidget(NWID_SELECTION, Colours::Invalid, TF_EDITOR),
+			NWidget(NWID_VERTICAL),
+			NWidget(WWT_TEXT, Colours::Grey), SetStringTip(STR_FARE_CHART_HELP), SetFill(1, 0),
+			NWidget(WWT_EMPTY, Colours::Grey, TF_CHART), SetFill(1, 0),
+			NWidget(NWID_HORIZONTAL),
+				NWidget(WWT_TEXT, Colours::Grey, TF_SOURCE), SetStringTip(STR_EMPTY), SetFill(1, 0),
+				NWidget(WWT_PUSHTXTBTN, Colours::Grey, TF_RESET), SetStringTip(STR_FARE_RESET), SetFill(0, 0),
+			EndContainer(),
+			EndContainer(),
+			NWidget(NWID_VERTICAL),
+				NWidget(WWT_DROPDOWN, Colours::Grey, TF_SELL_LEVEL), SetStringTip(STR_EMPTY), SetFill(1, 0),
+				NWidget(WWT_PUSHTXTBTN, Colours::Grey, TF_LEVEL_RATE), SetStringTip(STR_EMPTY), SetFill(1, 0),
+				NWidget(NWID_HORIZONTAL, NWidContainerFlag::EqualSize),
+					NWidget(WWT_PUSHTXTBTN, Colours::Grey, TF_ADD_LEVEL), SetStringTip(STR_FARE_LEVEL_ADD), SetFill(1, 0),
+					NWidget(WWT_PUSHTXTBTN, Colours::Grey, TF_RENAME_LEVEL), SetStringTip(STR_FARE_LEVEL_RENAME), SetFill(1, 0),
+					NWidget(WWT_PUSHTXTBTN, Colours::Grey, TF_REMOVE_LEVEL), SetStringTip(STR_FARE_LEVEL_REMOVE), SetFill(1, 0),
+				EndContainer(),
+			EndContainer(),
+			EndContainer(),
+			NWidget(NWID_HORIZONTAL, NWidContainerFlag::EqualSize),
+				NWidget(WWT_PUSHTXTBTN, Colours::Grey, TF_DISTANCE), SetStringTip(STR_EMPTY), SetFill(1, 0),
+				NWidget(WWT_PUSHTXTBTN, Colours::Grey, TF_SPEED), SetStringTip(STR_EMPTY), SetFill(1, 0),
+			EndContainer(),
+			NWidget(WWT_TEXT, Colours::Grey, TF_PREVIEW), SetStringTip(STR_EMPTY), SetFill(1, 0),
+			NWidget(NWID_SELECTION, Colours::Invalid, TF_TEMPLATE_ROW),
+				NWidget(NWID_HORIZONTAL, NWidContainerFlag::EqualSize),
+					NWidget(WWT_PUSHTXTBTN, Colours::Grey, TF_SAVE_TEMPLATE), SetStringTip(STR_FARE_TEMPLATE_SAVE, STR_FARE_TEMPLATE_HELP), SetFill(1, 0),
+					NWidget(WWT_DROPDOWN, Colours::Grey, TF_APPLY_TEMPLATE), SetStringTip(STR_FARE_TEMPLATE_APPLY, STR_FARE_TEMPLATE_HELP), SetFill(1, 0),
+				EndContainer(),
+			EndContainer(),
+		EndContainer(),
+	EndContainer(),
+};
+static WindowDesc tariff_desc(__FILE__, __LINE__, WindowPosition::Automatic, "passenger_tariff", 300, 0, WindowClass::PassengerTariff, WindowClass::None, {}, tariff_widgets);
+
+struct PassengerTariffWindow : Window {
+	OrderListID schedule; ///< Pinned to the selected plan, even if a vehicle subsequently changes plans.
+	CompanyID tariff_company;
+	VehicleID train;
+	PassengerTariff::Field field = PassengerTariff::ShortPrice;
+	WidgetID editing = TF_CHART;
+	PassengerTariff::Field editing_field = PassengerTariff::ShortPrice;
+	WidgetID tab = TF_TAB_DISTANCE;
+	uint distance = 100, speed = 140;
+	int label_width = 0, value_width = 0;
+	std::vector<std::string> template_names; ///< Names shown in the open menu, including when another client edits a template.
+	std::vector<std::string> level_keys;
+	std::string editing_seat;
+	uint16_t edit_template = 0;
+	std::string open_after_create;
+	PassengerTariffWindow(CompanyID company, VehicleID train, WindowNumber number, OrderListID schedule = OrderListID::Invalid()) : Window(tariff_desc), schedule(schedule), tariff_company(company), train(train)
+	{
+		this->InitNested(number);
+	}
+	void OnInit() override
+	{
+		this->owner = this->tariff_company;
+		this->GetWidget<NWidgetStacked>(TF_SCOPE_ROW)->SetDisplayedPlane(this->schedule == OrderListID::Invalid() ? 0 : SZSP_NONE);
+		this->GetWidget<NWidgetStacked>(TF_TAB_SPEED_ROW)->SetDisplayedPlane(this->edit_template ? SZSP_NONE : 0);
+		this->GetWidget<NWidgetStacked>(TF_EDITOR)->SetDisplayedPlane(this->tab == TF_TAB_COMFORT && (this->schedule != OrderListID::Invalid() || Template()) ? 1 : 0);
+		this->GetWidget<NWidgetStacked>(TF_TEMPLATE_ROW)->SetDisplayedPlane(this->schedule == OrderListID::Invalid() ? SZSP_NONE : 0);
+	}
+	const FareTemplate *Template() const
+	{
+		const Company *c = Company::GetIfValid(this->tariff_company);
+		const Vehicle *v = Vehicle::GetIfValid(this->train);
+		return c ? c->FareTemplateByID(v ? v->passenger_tariff.template_id : this->edit_template) : nullptr;
+	}
+	PassengerTariff Target() const
+	{
+		const Vehicle *v = Vehicle::GetIfValid(this->train);
+		if (this->schedule != OrderListID::Invalid()) return OrderList::Get(this->schedule)->passenger_tariff;
+		auto rates = v ? v->passenger_tariff : Company::Get(this->owner)->passenger_tariff;
+		if (const auto *item = Template()) item->ApplyRates(rates);
+		return rates;
+	}
+	const ScheduleTariff *ParentPlan() const
+	{
+		const Vehicle *v = Vehicle::GetIfValid(this->train);
+		return v && v->orders ? &v->orders->passenger_tariff : nullptr;
+	}
+	const ScheduleTariff &Plan() const { return OrderList::Get(this->schedule)->passenger_tariff; }
+	static std::string SeatName(const FareSeat &seat) { return seat.name.empty() ? GetString(STR_FARE_SEAT_ECONOMY + seat.builtin) : seat.name; }
+	const FareSeating &Seating() const { const auto *item = Template(); return item ? item->seating : Plan().seating; }
+	FareSeat SelectedSeat() const
+	{
+		const auto &seating = Seating();
+		if (!seating.levels.empty()) return seating.levels[seating.selected];
+		const auto plan = Target();
+		const auto &company = Company::Get(this->owner)->passenger_tariff;
+		const auto seat = static_cast<uint8_t>(plan.Get(PassengerTariff::Class, company));
+		return {{}, static_cast<uint16_t>(plan.Get(static_cast<PassengerTariff::Field>(PassengerTariff::Economy + seat), company)), seat};
+	}
+	void SetRate(PassengerTariff::Field f, uint16_t encoded)
+	{
+		if (this->train != VehicleID::Invalid() && Template() && !(f >= PassengerTariff::SlowEnd && f <= PassengerTariff::Express)) return;
+		if (this->edit_template) {
+			Command<Commands::CompanyFareTemplate>::Post(STR_FARE_ERROR, this->edit_template, FTA_FIELD + f, std::string{}, std::string{}, encoded);
+		} else if (this->schedule != OrderListID::Invalid()) {
+			Command<Commands::SetScheduleTariff>::Post(STR_FARE_ERROR, this->schedule, f, encoded);
+		} else {
+			Command<Commands::SetPassengerTariff>::Post(STR_FARE_ERROR, this->train, f, encoded);
+		}
+	}
+	bool Valid() const
+	{
+		const Vehicle *v = Vehicle::GetIfValid(this->train);
+		if (this->schedule != OrderListID::Invalid()) {
+			const OrderList *list = OrderList::GetIfValid(this->schedule);
+			return list && Company::IsValidID(this->owner) && GetOrderListReferenceOwner(list) == this->owner;
+		}
+		return Company::IsValidID(this->owner) && (this->train == VehicleID::Invalid() || (v && v->owner == this->owner && v->IsPrimaryVehicle()));
+	}
+	void OnPaint() override
+	{
+		if (!this->Valid()) { this->Close(); return; }
+		if (!this->open_after_create.empty()) {
+			const auto &items = Company::Get(this->owner)->fare_templates;
+			auto it = std::ranges::find(items, this->open_after_create, &FareTemplate::name);
+			if (it != items.end()) {
+				this->edit_template = 1 + (it - items.begin());
+				this->open_after_create.clear();
+				this->tab = TF_TAB_DISTANCE;
+				this->field = T::ShortPrice;
+				this->ReInit();
+				return;
+			}
+		}
+		const bool linked = this->train != VehicleID::Invalid() && Template();
+		const int editor = this->tab == TF_TAB_COMFORT && (Template() || this->schedule != OrderListID::Invalid());
+		if (this->GetWidget<NWidgetStacked>(TF_EDITOR)->SetDisplayedPlane(editor)) { this->ReInit(); return; }
+		for (WidgetID id : {TF_TAB_DISTANCE, TF_TAB_SPEED, TF_TAB_COMFORT}) this->SetWidgetLoweredState(id, id == this->tab);
+		this->SetWidgetDisabledState(TF_SCOPE, this->owner != _local_company);
+		this->SetWidgetDisabledState(TF_CHART, linked && this->tab != TF_TAB_SPEED);
+		this->SetWidgetDisabledState(TF_RESET, this->owner != _local_company || (linked && this->tab != TF_TAB_SPEED) || this->Target().values[this->field] == 0);
+		this->SetWidgetDisabledState(TF_SAVE_TEMPLATE, this->owner != _local_company);
+		if (editor) {
+			const auto count = Seating().levels.size();
+			const bool readonly = linked || this->owner != _local_company;
+			for (auto id : {TF_SELL_LEVEL, TF_LEVEL_RATE, TF_ADD_LEVEL, TF_RENAME_LEVEL, TF_REMOVE_LEVEL}) this->SetWidgetDisabledState(id, readonly);
+			this->SetWidgetDisabledState(TF_REMOVE_LEVEL, readonly || count == 1);
+			this->SetWidgetDisabledState(TF_ADD_LEVEL, readonly || count >= FareSeating::MAX_LEVELS);
+		}
+		this->SetWidgetDisabledState(TF_APPLY_TEMPLATE, this->owner != _local_company || Company::Get(this->owner)->fare_templates.empty());
+		this->DrawWidgets();
+	}
+	std::string GetWidgetString(WidgetID id, StringID string) const override
+	{
+		if (!this->Valid()) return {};
+		const auto &company = Company::Get(this->owner)->passenger_tariff;
+		const auto &target = this->Target();
+		const ScheduleTariff *parent = this->ParentPlan();
+		switch (id) {
+			case TF_SCOPE:
+				if (auto *item = Template()) return GetString(STR_FARE_NAMED_TEMPLATE, item->name);
+				return GetString(this->train == VehicleID::Invalid() ? STR_FARE_COMPANY : STR_FARE_DEFAULT_CHOICE);
+			case TF_TITLE:
+				if (this->schedule != OrderListID::Invalid()) {
+					const OrderList &list = *OrderList::Get(this->schedule);
+					const auto name = list.GetName().empty() ? GetString(STR_ORDER_LIST_DEFAULT_NAME, list.index.base() + 1) : list.GetName();
+					return GetString(STR_FARE_PLAN_CAPTION, name);
+				}
+				return this->train == VehicleID::Invalid() ? GetString(STR_FARE_COMPANY) : GetString(STR_FARE_TRAIN_CAPTION, this->train);
+			case TF_SOURCE: {
+				if (Template() && this->tab != TF_TAB_SPEED) return GetString(STR_FARE_NAMED_TEMPLATE, Template()->name);
+				StringID source;
+				if (this->train != VehicleID::Invalid()) {
+					source = target.values[this->field] ? STR_FARE_OWN_TRAIN :
+							parent && parent->values[this->field] ? STR_FARE_FROM_PLAN : STR_FARE_FROM_COMPANY;
+				} else if (this->schedule != OrderListID::Invalid()) {
+					source = target.values[this->field] ? STR_FARE_OWN_PLAN : STR_FARE_FROM_COMPANY;
+				} else {
+					source = target.values[this->field] ? STR_FARE_OWN_COMPANY : STR_FARE_FROM_GAME;
+				}
+				return GetString(STR_FARE_FIELD_SOURCE, STR_FARE_SHORT_END + this->field, source);
+			}
+			case TF_RESET:
+				if (this->edit_template) return GetString(STR_FARE_COPY_COMPANY_VALUE);
+				if (parent) return GetString(STR_FARE_RESET_PLAN);
+				return GetString(this->schedule == OrderListID::Invalid() && this->train == VehicleID::Invalid() ? STR_FARE_RESET_GAME : STR_FARE_RESET_COMPANY);
+			case TF_DISTANCE: return GetString(STR_FARE_DISTANCE, this->distance);
+			case TF_SPEED: return GetString(STR_FARE_SPEED, this->speed);
+			case TF_SELL_LEVEL:
+			case TF_LEVEL_RATE: {
+				if (this->schedule == OrderListID::Invalid() && !Template()) return {};
+				auto seat = this->SelectedSeat();
+				return id == TF_SELL_LEVEL ? GetString(STR_FARE_LEVEL_SOLD, SeatName(seat)) : GetString(STR_FARE_LEVEL_RATE, seat.percent);
+			}
+			case TF_PREVIEW: {
+				if (Template()) {
+					auto rates = target;
+					if (this->edit_template) rates.template_id = this->edit_template;
+					const auto quote = Company::Get(this->owner)->QuotePassengerFare(this->distance, this->speed, rates, parent);
+					return GetString(STR_FARE_PREVIEW, (quote + 50) / 100);
+				}
+				const bool plan = this->schedule != OrderListID::Invalid();
+				if (!(plan && this->Plan().Active()) && !target.Active() && !(parent && parent->Active()) && !company.Active()) return GetString(STR_FARE_NATIVE);
+				auto quote = plan ? this->Plan().Quote(this->distance, this->speed, company) : parent ? parent->Quote(this->distance, this->speed, company, target) : target.Price(this->distance, this->speed, company);
+				return GetString(STR_FARE_PREVIEW, (quote + 50) / 100);
+			}
+			default: return Window::GetWidgetString(id, string);
+		}
+	}
+	using T = PassengerTariff;
+	static bool IsPrice(T::Field f) { return f >= T::ShortPrice && f <= T::LongPrice; }
+
+	uint Effective(T::Field f) const { return this->Target().Get(f, Company::Get(this->owner)->passenger_tariff, this->ParentPlan()); }
+	/** Give comparable prices and distances a common scale. Exact input also accepts values beyond this scale. */
+	uint SliderMax(T::Field f) const
+	{
+		if (IsPrice(f)) return std::max({30U, this->Effective(T::ShortPrice), this->Effective(T::MediumPrice), this->Effective(T::LongPrice)});
+		if (f == T::ShortEnd || f == T::MediumEnd) return std::min<uint>(T::maxima[f], std::max(400U, this->Effective(T::MediumEnd)));
+		return T::maxima[f];
+	}
+	static int RowHeight() { return GetCharacterHeight(FontSize::Normal) + 2 * WidgetDimensions::scaled.vsep_normal; }
+	static int LabelWidth()
+	{
+		uint width = 0;
+		for (uint i = 0; i < T::Fields; ++i) width = std::max(width, GetStringBoundingBox(STR_FARE_SHORT_END + i).width);
+		return width + 2 * WidgetDimensions::scaled.hsep_normal;
+	}
+	static int ValueWidth()
+	{
+		uint width = GetStringBoundingBox(GetString(STR_FARE_RATE_VALUE, 1000, 1)).width;
+		for (uint i = 0; i < 3; ++i) width = std::max(width, GetStringBoundingBox(STR_FARE_SEAT_ECONOMY + i).width);
+		return width + 2 * WidgetDimensions::scaled.hsep_normal;
+	}
+	struct Columns { Rect label, slider, number; };
+	static Columns GetColumns(const Rect &row, int label_width, int value_width)
+	{
+		const bool rtl = _current_text_dir == TD_RTL;
+		Rect label = row.WithWidth(label_width, rtl);
+		Rect number = row.WithWidth(value_width, !rtl);
+		Rect slider = rtl ? row.WithX(number.right + 1, label.left - 1) : row.WithX(label.right + 1, number.left - 1);
+		return {label, slider.Shrink(WidgetDimensions::scaled.hsep_normal, WidgetDimensions::scaled.vsep_normal), number};
+	}
+	void UpdateWidgetSize(WidgetID id, Dimension &size, const Dimension &, Dimension &, Dimension &) override
+	{
+		if (id == TF_CHART) {
+			this->label_width = LabelWidth();
+			this->value_width = ValueWidth();
+			size.width = this->label_width + ScaleGUITrad(120) + this->value_width;
+			size.height = RowHeight() * TariffFields(this->tab).size();
+		}
+	}
+	std::string FormatValue(T::Field f, uint value) const
+	{
+		if (IsPrice(f)) return GetString(STR_FARE_RATE_VALUE, value, 1);
+		if (f == T::Class) {
+			const auto *parent = this->ParentPlan();
+			if (parent && !this->Target().values[f] && !parent->seating.levels.empty()) return SeatName(parent->seating.levels[parent->seating.selected]);
+			return GetString(STR_FARE_SEAT_ECONOMY + value);
+		}
+		return GetString(STR_JUST_INT, value);
+	}
+	void DrawWidget(const Rect &r, WidgetID id) const override
+	{
+		if (id != TF_CHART) return;
+		const int h = RowHeight(), gap = WidgetDimensions::scaled.hsep_normal;
+		const int vgap = WidgetDimensions::scaled.vsep_normal;
+		int y = r.top;
+		for (T::Field f : TariffFields(this->tab)) {
+			const Rect row = r.WithY(y, y + h - 1);
+			const auto [label, slider, number] = GetColumns(row, this->label_width, this->value_width);
+			if (f == this->field) GfxFillRect(row, GetColourGradient(Colours::Grey, Shade::Lighter));
+			DrawString(label.Shrink(gap, vgap), STR_FARE_SHORT_END + f, TextColour::Black);
+			DrawSliderWidget(slider, Colours::Green, Colours::Grey, TextColour::Black, 0, this->SliderMax(f), 0, this->Effective(f), nullptr);
+			DrawString(number.Shrink(gap, vgap), this->FormatValue(f, this->Effective(f)), TextColour::Black);
+			y += h;
+		}
+	}
+	void EditSeat(uint8_t action, const std::string &key, const std::string &name, uint16_t rate)
+	{
+		if (this->edit_template) Command<Commands::CompanyFareTemplate>::Post(STR_FARE_ERROR, this->edit_template, action, key, name, rate);
+		else Command<Commands::EditFareSeat>::Post(STR_FARE_ERROR, this->schedule, action, key, name, rate);
+	}
+	void OnClick(Point pt, WidgetID id, int) override
+	{
+		if (!this->Valid()) return;
+		if (id == TF_SCOPE && this->owner == _local_company) {
+			DropDownList list;
+			const bool vehicle = this->train != VehicleID::Invalid();
+			list.push_back(MakeDropDownListStringItem(vehicle ? STR_FARE_DEFAULT_CHOICE : STR_FARE_COMPANY, 0));
+			int pos = 1;
+			for (const auto &item : Company::Get(this->owner)->fare_templates) list.push_back(MakeDropDownListStringItem(std::string(item.name), pos++));
+			if (!vehicle) {
+				list.push_back(MakeDropDownListStringItem(STR_FARE_NEW_TEMPLATE, -2));
+				if (this->edit_template) list.push_back(MakeDropDownListStringItem(STR_FARE_RENAME_TEMPLATE, -3));
+			}
+			ShowDropDownList(this, std::move(list), vehicle ? Vehicle::Get(this->train)->passenger_tariff.template_id : this->edit_template, id);
+			return;
+		}
+		if (id >= TF_SELL_LEVEL && id <= TF_REMOVE_LEVEL) {
+			if (this->owner != _local_company || (this->schedule == OrderListID::Invalid() && !this->edit_template)) return;
+			auto seat = this->SelectedSeat();
+			if (id == TF_SELL_LEVEL) {
+				ScheduleTariff view;
+				static_cast<PassengerTariff &>(view) = this->Target();
+				view.seating = this->Seating();
+				auto seats = view.EditableSeating(Company::Get(this->owner)->passenger_tariff);
+				this->level_keys.clear();
+				DropDownList list;
+				for (const auto &level : seats.levels) {
+					list.push_back(MakeDropDownListStringItem(GetString(STR_FARE_LEVEL_ENTRY, SeatName(level), level.percent), this->level_keys.size()));
+					this->level_keys.push_back(level.Key());
+				}
+				ShowDropDownList(this, std::move(list), seats.selected, id);
+			} else if (id == TF_REMOVE_LEVEL) {
+				this->EditSeat(FSA_REMOVE, seat.Key(), {}, 0);
+			} else {
+				this->editing = id;
+				this->editing_seat = seat.Key();
+				if (id == TF_LEVEL_RATE) ShowQueryString(std::to_string(seat.percent), STR_FARE_LEVEL_PERCENT, 4, this, CS_NUMERAL, {});
+				else ShowQueryString(id == TF_RENAME_LEVEL ? SeatName(seat) : std::string{}, STR_FARE_LEVEL_NAME, FareSeating::NAME_CHARS, this, CS_ALPHANUMERAL, QueryStringFlag::LengthIsInChars);
+			}
+			return;
+		}
+		if (id == TF_SAVE_TEMPLATE || id == TF_APPLY_TEMPLATE) {
+			if (this->schedule == OrderListID::Invalid() || this->owner != _local_company) return;
+			if (id == TF_SAVE_TEMPLATE) {
+				this->editing = id;
+				ShowQueryString({}, STR_FARE_TEMPLATE_NAME, FareTemplate::NAME_CHARS, this, CS_ALPHANUMERAL, QueryStringFlag::LengthIsInChars);
+			} else {
+				DropDownList list;
+				this->template_names.clear();
+				for (const auto &item : Company::Get(this->owner)->fare_templates) {
+					list.push_back(MakeDropDownListStringItem(std::string(item.name), this->template_names.size()));
+					this->template_names.push_back(item.name);
+				}
+				if (!list.empty()) ShowDropDownList(this, std::move(list), -1, id);
+			}
+			return;
+		}
+		if (id >= TF_TAB_DISTANCE && id <= TF_TAB_COMFORT) {
+			if (this->tab != id) {
+				this->tab = id;
+				this->field = TariffFields(id).front();
+				this->ReInit();
+			}
+			return;
+		}
+		if (id == TF_RESET && this->owner == _local_company) {
+			this->SetRate(this->field, 0);
+			return;
+		}
+		if (id == TF_CHART) {
+			const Rect chart = this->GetWidget<NWidgetCore>(id)->GetCurrentRect();
+			const auto fields = TariffFields(this->tab);
+			if (!chart.Contains(pt)) return;
+			size_t index = (pt.y - chart.top) / RowHeight();
+			if (index >= fields.size()) return;
+			this->field = fields[index];
+			this->SetDirty();
+			if (this->owner != _local_company) return;
+			int top = chart.top + index * RowHeight();
+			const auto [label, slider, number] = GetColumns(chart.WithY(top, top + RowHeight() - 1), this->label_width, this->value_width);
+			int value = this->Effective(this->field);
+			if (pt.x >= slider.left && pt.x <= slider.right) {
+				if (ClickSliderWidget(slider, pt, 0, this->SliderMax(this->field), 0, value)) {
+					this->SetRate(this->field, value + 1);
+				}
+				return;
+			}
+			if (!number.Contains(pt)) return;
+			if (this->field == T::Class) {
+				DropDownList list;
+				for (int i = 0; i < 3; ++i) list.push_back(MakeDropDownListStringItem(STR_FARE_SEAT_ECONOMY + i, i));
+				ShowDropDownListAt(this, std::move(list), value, id, number, Colours::Grey);
+				return;
+			}
+		} else if (id != TF_DISTANCE && id != TF_SPEED) {
+			return;
+		}
+		this->editing = id;
+		this->editing_field = this->field;
+		const uint value = id == TF_DISTANCE ? this->distance : id == TF_SPEED ? this->speed : this->Effective(this->field);
+		const bool decimal = id == TF_CHART && IsPrice(this->field);
+		ShowQueryString(decimal ? GetString(STR_JUST_DECIMAL, value, 1) : GetString(STR_JUST_INT, value),
+				id == TF_CHART ? STR_FARE_SHORT_END + this->field : STR_FARE_BUTTON, 6, this,
+				decimal ? CS_NUMERAL_DECIMAL : CS_NUMERAL, QueryStringFlag::AcceptUnchanged);
+	}
+	void OnDropdownSelect(WidgetID id, int value, int) override
+	{
+		if (id == TF_SCOPE && this->Valid() && this->owner == _local_company) {
+			if (this->train == VehicleID::Invalid() && (value == -2 || (value == -3 && this->edit_template))) {
+				this->editing = value == -2 ? TF_NEW_TEMPLATE : TF_RENAME_TEMPLATE;
+				ShowQueryString(value == -3 ? Template()->name : std::string{}, value == -2 ? STR_FARE_NEW_TEMPLATE : STR_FARE_RENAME_TEMPLATE, FareTemplate::NAME_CHARS, this, CS_ALPHANUMERAL, QueryStringFlag::LengthIsInChars);
+			} else if (value >= 0 && size_t(value) <= Company::Get(this->owner)->fare_templates.size()) {
+				if (this->train != VehicleID::Invalid()) {
+					Command<Commands::SelectTrainFareTemplate>::Post(STR_FARE_ERROR, this->train, value);
+				} else {
+					this->edit_template = value;
+					this->open_after_create.clear();
+					this->tab = TF_TAB_DISTANCE;
+					this->field = T::ShortPrice;
+					this->ReInit();
+				}
+			}
+			return;
+		}
+		if (id == TF_SELL_LEVEL && this->Valid() && this->owner == _local_company && value >= 0 && size_t(value) < this->level_keys.size()) {
+			this->EditSeat(FSA_SELECT, this->level_keys[value], {}, 0);
+			return;
+		}
+		if (id == TF_APPLY_TEMPLATE && this->Valid() && this->owner == _local_company && value >= 0 && size_t(value) < this->template_names.size()) {
+			Command<Commands::ManageFareTemplate>::Post(STR_FARE_ERROR, this->schedule, false, this->template_names[value]);
+			return;
+		}
+		if (id == TF_CHART && this->Valid() && this->owner == _local_company && value >= 0 && value <= 2) {
+			this->SetRate(T::Class, value + 1);
+		}
+	}
+	void OnQueryTextFinished(std::optional<std::string> input) override
+	{
+		if (!this->Valid() || !input || input->empty()) return;
+		if (this->editing == TF_NEW_TEMPLATE || this->editing == TF_RENAME_TEMPLATE) {
+			if (this->owner != _local_company) return;
+			const bool create = this->editing == TF_NEW_TEMPLATE;
+			if (create && std::ranges::find(Company::Get(this->owner)->fare_templates, *input, &FareTemplate::name) == Company::Get(this->owner)->fare_templates.end()) this->open_after_create = *input;
+			Command<Commands::CompanyFareTemplate>::Post(STR_FARE_ERROR, this->edit_template, create ? FTA_CREATE : FTA_RENAME, std::string{}, *input, 0);
+			return;
+		}
+		if (this->editing == TF_LEVEL_RATE || this->editing == TF_ADD_LEVEL || this->editing == TF_RENAME_LEVEL) {
+			if (this->owner != _local_company) return;
+			if (this->editing == TF_LEVEL_RATE) {
+				auto rate = ParseInteger<uint>(*input);
+				if (rate) this->EditSeat(FSA_RATE, this->editing_seat, {}, ClampTo<uint16_t>(*rate));
+			} else {
+				this->EditSeat(this->editing == TF_ADD_LEVEL ? FSA_ADD : FSA_RENAME, this->editing_seat, *input, 0);
+			}
+			return;
+		}
+		if (this->editing == TF_SAVE_TEMPLATE) {
+			if (this->owner == _local_company) Command<Commands::ManageFareTemplate>::Post(STR_FARE_ERROR, this->schedule, true, *input);
+			return;
+		}
+		if (this->editing == TF_CHART && IsPrice(this->editing_field)) {
+			*input = str_replace_wchar(*input, GetDecimalSeparatorChar(), '.');
+			const auto dot = input->find('.');
+			if (dot == std::string::npos) {
+				input->push_back('0');
+			} else {
+				if (input->size() > dot + 2) {
+					ShowErrorMessage(GetEncodedString(STR_FARE_RATE_PRECISION), {}, WarningLevel::Error);
+					return;
+				}
+				if (input->size() == dot + 1) input->push_back('0');
+				input->erase(dot, 1);
+			}
+		}
+		auto value = ParseInteger<uint>(*input);
+		if (!value) return;
+		if (this->editing == TF_DISTANCE) this->distance = *value;
+		else if (this->editing == TF_SPEED) this->speed = *value;
+		else if (this->owner == _local_company) {
+			this->SetRate(this->editing_field, ClampTo<uint16_t>(*value + 1));
+		}
+		this->SetDirty();
+	}
+};
+}
+
+void ShowPassengerTariff(CompanyID company, VehicleID train)
+{
+	const WindowNumber number = train == VehicleID::Invalid() ? company.base() : train.base() + MAX_COMPANIES;
+	if (!BringWindowToFrontById(WindowClass::PassengerTariff, number)) new PassengerTariffWindow(company, train, number);
+}
+
+static WindowNumber ScheduleTariffWindowNumber(OrderListID id)
+{
+	return MAX_COMPANIES + VehicleID::Invalid().base() + id.base();
+}
+
+void ShowScheduleTariff(const OrderList &plan)
+{
+	const CompanyID owner = GetOrderListReferenceOwner(&plan);
+	if (!Company::IsValidID(owner) || plan.IsScheduleGroup()) return;
+	const WindowNumber number = ScheduleTariffWindowNumber(plan.index);
+	if (!BringWindowToFrontById(WindowClass::PassengerTariff, number)) new PassengerTariffWindow(owner, VehicleID::Invalid(), number, plan.index);
+}
+
+void CloseScheduleTariff(OrderListID id)
+{
+	CloseWindowById(WindowClass::PassengerTariff, ScheduleTariffWindowNumber(id), true);
+}
 
 /** List of revenues. */
 static const std::initializer_list<ExpensesType> _expenses_list_revenue = {
@@ -339,6 +861,7 @@ static constexpr std::initializer_list<NWidgetPart> _nested_company_finances_wid
 		NWidget(NWID_HORIZONTAL, NWidContainerFlag::EqualSize),
 			NWidget(WWT_PUSHTXTBTN, Colours::Grey, WID_CF_INCREASE_LOAN), SetFill(1, 0),
 			NWidget(WWT_PUSHTXTBTN, Colours::Grey, WID_CF_REPAY_LOAN), SetFill(1, 0),
+			NWidget(WWT_PUSHTXTBTN, Colours::Grey, WID_CF_PASSENGER_TARIFF), SetFill(1, 0), SetStringTip(STR_FARE_BUTTON),
 			NWidget(WWT_PUSHTXTBTN, Colours::Grey, WID_CF_INFRASTRUCTURE), SetFill(1, 0), SetStringTip(STR_FINANCES_INFRASTRUCTURE_BUTTON, STR_COMPANY_VIEW_INFRASTRUCTURE_TOOLTIP),
 		EndContainer(),
 	EndContainer(),
@@ -518,6 +1041,9 @@ struct CompanyFinancesWindow : Window {
 				}
 				break;
 
+			case WID_CF_PASSENGER_TARIFF:
+				ShowPassengerTariff(CompanyID{static_cast<uint8_t>(this->window_number)}, VehicleID::Invalid());
+				break;
 			case WID_CF_INCREASE_LOAN: // increase loan
 				if (_shift_pressed) {
 					this->query_widget = WID_CF_INCREASE_LOAN;

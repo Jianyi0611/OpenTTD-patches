@@ -10,6 +10,7 @@
 #ifndef ORDER_BASE_H
 #define ORDER_BASE_H
 
+#include "passenger_fare.h"
 #include "order_type.h"
 #include "core/pool_type.hpp"
 #include "core/bitmath_func.hpp"
@@ -101,6 +102,10 @@ void ClearOrderDestinationRefcountMap();
  */
 
 struct OrderExtraInfo {
+	uint64_t last_bus_departure = 0; ///< Simulation tick of departure at this directional call.
+	uint32_t bus_headway = 0; ///< Smoothed observed interval between buses at this call.
+	TileIndex fare_from = INVALID_TILE, fare_to = INVALID_TILE;
+	uint32_t fare_tiles = 0;
 	uint8_t external_cargo_flags = 0; ///< Independent of depot action bits; retained during external waiting.
 	TinyString station_service_number{};
 	uint8_t station_service_mode = 0; ///< 0: unchanged, 1: manual, 2: dispatch.
@@ -125,6 +130,7 @@ struct OrderExtraInfo {
 	uint16_t wait_couple_slot = 0;           ///< Wait-for-couple: trace restrict slot the approaching train must hold, slot id + 1 (0 = any).
 	uint16_t wait_couple_slot_group = 0;     ///< Wait-for-couple: trace restrict slot group the approaching train must hold a slot of, group id + 1 (0 = any).
 	WaitCouplePowerMode wait_couple_power_mode = WaitCouplePowerMode::Any;
+	bool wait_couple_split_partner = false;
 	uint16_t wait_couple_power_hp = 0;
 	uint16_t wait_couple_group = 0;          ///< Wait-for-couple: vehicle group the approaching train must belong to, group id + 1 (0 = any).
 };
@@ -1012,6 +1018,13 @@ public:
 	/** Waiting-order traction filter: 0 any, 1 steam, 2 diesel, 3 electric. */
 	inline uint8_t GetWaitCoupleTraction() const { return GB(this->GetXData2(), 30, 2); }
 	inline void SetWaitCoupleTraction(uint8_t traction) { SB(this->GetXData2Ref(), 30, 2, traction); }
+	inline bool RequiresSplitPartner() const { return this->IsType(OT_WAIT_COUPLE) && this->extra && this->extra->wait_couple_split_partner; }
+	inline void SetRequiresSplitPartner(bool value)
+	{
+		if (!this->extra && !value) return;
+		this->CheckExtraInfoAlloced();
+		this->extra->wait_couple_split_partner = value;
+	}
 	/** Optional acquire-before-wait/return-after-couple slot. The flag keeps old unused data inert. */
 	inline TraceRestrictSlotID GetWaitCoupleSlot() const { return this->IsType(OT_WAIT_COUPLE) && HasBit(this->GetXFlags(), 7) ? TraceRestrictSlotID{this->GetXData2Low()} : TraceRestrictSlotID::Invalid(); }
 	inline void SetWaitCoupleSlot(TraceRestrictSlotID slot) { AssignBit(this->GetXFlagsRef(), 7, slot != TraceRestrictSlotID::Invalid()); this->SetXData2Low(slot.base()); }
@@ -1211,6 +1224,11 @@ public:
 	 * Get the time in ticks a vehicle will probably take to reach the destination (timetabled or not).
 	 * @return The raw travel time.
 	 */
+	inline uint32_t GetBusHeadway() const { return this->extra ? this->extra->bus_headway : 0; }
+	void RecordBusDeparture(uint64_t tick);
+	void RecordFareDistance(TileIndex from, TileIndex to, uint tiles);
+	uint FareDistanceFrom(TileIndex from, TileIndex to) const { return this->extra && this->extra->fare_from == from && this->extra->fare_to == to ? this->extra->fare_tiles : 0; }
+
 	inline TimetableTicks GetTravelTime() const { return this->travel_time; }
 
 	/**
@@ -1815,6 +1833,9 @@ public:
 
 	/** Destructor. Invalidates OrderList for re-usage by the pool. */
 	~OrderList() {}
+
+	ScheduleTariff passenger_tariff{}; ///< Shared by services sold against this specific plan.
+	static void PostDestructor(size_t index);
 
 	void CopyOrderListContents(const OrderList &other);
 

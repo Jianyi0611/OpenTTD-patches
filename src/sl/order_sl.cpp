@@ -16,6 +16,7 @@
 #include "saveload_internal.h"
 #include "extended_ver_sl.h"
 #include "vehicle_sl.h"
+#include "fare_seats_sl.h"
 
 #include "../safeguards.h"
 
@@ -138,6 +139,11 @@ Order UnpackOldOrder(uint16_t packed)
 NamedSaveLoadTable GetOrderExtraInfoDescription()
 {
 	static const NamedSaveLoad _order_extra_info_desc[] = {
+		NSL("last_bus_departure", SLE_CONDVAR_X(OrderExtraInfo, last_bus_departure, SLE_UINT64, SL_MIN_VERSION, SL_MAX_VERSION, SlXvFeatureTest(XSLFTO_AND, XSLFI_PASSENGER_DESTINATIONS, 6))),
+		NSL("fare_from", SLE_CONDVAR_X(OrderExtraInfo, fare_from, SLE_UINT32, SL_MIN_VERSION, SL_MAX_VERSION, SlXvFeatureTest(XSLFTO_AND, XSLFI_PASSENGER_DESTINATIONS, 13))),
+		NSL("fare_to", SLE_CONDVAR_X(OrderExtraInfo, fare_to, SLE_UINT32, SL_MIN_VERSION, SL_MAX_VERSION, SlXvFeatureTest(XSLFTO_AND, XSLFI_PASSENGER_DESTINATIONS, 13))),
+		NSL("fare_tiles", SLE_CONDVAR_X(OrderExtraInfo, fare_tiles, SLE_UINT32, SL_MIN_VERSION, SL_MAX_VERSION, SlXvFeatureTest(XSLFTO_AND, XSLFI_PASSENGER_DESTINATIONS, 13))),
+		NSL("bus_headway", SLE_CONDVAR_X(OrderExtraInfo, bus_headway, SLE_UINT32, SL_MIN_VERSION, SL_MAX_VERSION, SlXvFeatureTest(XSLFTO_AND, XSLFI_PASSENGER_DESTINATIONS, 6))),
 		NSL("external_cargo_flags", SLE_CONDVAR_X(OrderExtraInfo, external_cargo_flags, SLE_UINT8, SL_MIN_VERSION, SL_MAX_VERSION, SlXvFeatureTest(XSLFTO_AND, XSLFI_EXTERNAL_CONNECTIONS, 9))),
 		NSL("station_service_mode", SLE_CONDVAR_X(OrderExtraInfo, station_service_mode, SLE_UINT8, SL_MIN_VERSION, SL_MAX_VERSION, SlXvFeatureTest(XSLFTO_AND, XSLFI_FIXED_SERVICE_NUMBER, 2))),
 		NSL("station_service_number", SLE_CONDSTR_X(OrderExtraInfo, station_service_number, SLE_STR, 0, SL_MIN_VERSION, SL_MAX_VERSION, SlXvFeatureTest(XSLFTO_AND, XSLFI_FIXED_SERVICE_NUMBER, 2))),
@@ -168,6 +174,7 @@ NamedSaveLoadTable GetOrderExtraInfoDescription()
 		NSL("wait_couple_slot", SLE_CONDVAR_X(OrderExtraInfo, wait_couple_slot, SLE_UINT16, SL_MIN_VERSION, SL_MAX_VERSION, SlXvFeatureTest(XSLFTO_AND, XSLFI_WAIT_COUPLE_CRITERIA))),
 		NSL("wait_couple_slot_group", SLE_CONDVAR_X(OrderExtraInfo, wait_couple_slot_group, SLE_UINT16, SL_MIN_VERSION, SL_MAX_VERSION, SlXvFeatureTest(XSLFTO_AND, XSLFI_WAIT_COUPLE_CRITERIA))),
 		NSL("wait_couple_power_mode", SLE_CONDVAR_X(OrderExtraInfo, wait_couple_power_mode, SLE_UINT8, SL_MIN_VERSION, SL_MAX_VERSION, SlXvFeatureTest(XSLFTO_AND, XSLFI_WAIT_COUPLE_CRITERIA, 2))),
+		NSL("wait_couple_split_partner", SLE_CONDVAR_X(OrderExtraInfo, wait_couple_split_partner, SLE_BOOL, SL_MIN_VERSION, SL_MAX_VERSION, SlXvFeatureTest(XSLFTO_AND, XSLFI_WAIT_COUPLE_CRITERIA, 3))),
 		NSL("wait_couple_power_hp", SLE_CONDVAR_X(OrderExtraInfo, wait_couple_power_hp, SLE_UINT16, SL_MIN_VERSION, SL_MAX_VERSION, SlXvFeatureTest(XSLFTO_AND, XSLFI_WAIT_COUPLE_CRITERIA, 2))),
 		NSL("wait_couple_group", SLE_CONDVAR_X(OrderExtraInfo, wait_couple_group, SLE_UINT16, SL_MIN_VERSION, SL_MAX_VERSION, SlXvFeatureTest(XSLFTO_AND, XSLFI_WAIT_COUPLE_CRITERIA))),
 	};
@@ -553,13 +560,16 @@ struct OrderBackupDispatchRecordsStructHandlerBase final : public DispatchRecord
 
 NamedSaveLoadTable GetOrderListDescription()
 {
+	using Seats = FareSeatsHandler<OrderList, [](OrderList &ol) -> FareSeating & { return ol.passenger_tariff.seating; }>;
 	static const NamedSaveLoad _orderlist_desc[] = {
 		NSL("first",         SLEG_CONDVAR(_order_item_ref,                                    SLE_FILE_U16 | SLE_VAR_U32, SL_MIN_VERSION, SLV_69)),
 		NSL("first",       SLEG_CONDVAR_X(_order_item_ref,                                    SLE_UINT32,                 SLV_69, SL_MAX_VERSION, SlXvFeatureTest(XSLFTO_AND, XSLFI_ORDER_VECTOR, 0, 0))),
 		NSL("",            SLEG_CONDVAR_X(_jokerpp_separation_mode,                           SLE_UINT32, SL_MIN_VERSION, SL_MAX_VERSION, SlXvFeatureTest(XSLFTO_AND, XSLFI_JOKERPP))),
 		NSL("",            SLE_CONDNULL_X(21,                                                             SL_MIN_VERSION, SL_MAX_VERSION, SlXvFeatureTest(XSLFTO_AND, XSLFI_JOKERPP))),
 
+		NSL("passenger_tariff", SLE_CONDARR_X(OrderList, passenger_tariff.values, SLE_UINT16, PassengerTariff::Fields, SL_MIN_VERSION, SL_MAX_VERSION, SlXvFeatureTest(XSLFTO_AND, XSLFI_PASSENGER_DESTINATIONS, 10))),
 		NSLT("route_overlay_colour", SLE_VAR(OrderList, route_overlay_colour, SLE_UINT8)),
+		NSLT_STRUCTLIST<Seats>("comfort_levels", SL_MIN_VERSION, SL_MAX_VERSION, SlXvFeatureTest(XSLFTO_AND, XSLFI_PASSENGER_DESTINATIONS, 12)),
 
 		NSL("name",              SLE_CONDSSTR_X(OrderList, name, SLE_STR, SL_MIN_VERSION, SL_MAX_VERSION, SlXvFeatureTest(XSLFTO_AND, XSLFI_ORDER_VECTOR))),
 		NSL("is_schedule_group", SLE_CONDVAR_X(OrderList, is_schedule_group, SLE_BOOL, SL_MIN_VERSION, SL_MAX_VERSION, SlXvFeatureTest(XSLFTO_AND, XSLFI_ORDER_LIST_GROUPS))),
@@ -578,7 +588,12 @@ NamedSaveLoadTable GetOrderListDescription()
 
 NamedSaveLoadTable GetOrderBackupDescription()
 {
+	using Seats = FareSeatsHandler<OrderBackup, [](OrderBackup &backup) -> FareSeating & { return backup.schedule_tariff.seating; }>;
 	static const NamedSaveLoad _order_backup_desc[] = {
+		NSLT_STRUCTLIST<Seats>("comfort_levels", SL_MIN_VERSION, SL_MAX_VERSION, SlXvFeatureTest(XSLFTO_AND, XSLFI_PASSENGER_DESTINATIONS, 12)),
+		NSL("schedule_tariff", SLE_CONDARR_X(OrderBackup, schedule_tariff.values, SLE_UINT16, PassengerTariff::Fields, SL_MIN_VERSION, SL_MAX_VERSION, SlXvFeatureTest(XSLFTO_AND, XSLFI_PASSENGER_DESTINATIONS, 10))),
+		NSL("passenger_tariff", SLE_CONDARR_X(OrderBackup, passenger_tariff.values, SLE_UINT16, PassengerTariff::Fields, SL_MIN_VERSION, SL_MAX_VERSION, SlXvFeatureTest(XSLFTO_AND, XSLFI_PASSENGER_DESTINATIONS, 10))),
+		NSL("fare_template_id", SLE_CONDVAR_X(OrderBackup, passenger_tariff.template_id, SLE_UINT16, SL_MIN_VERSION, SL_MAX_VERSION, SlXvFeatureTest(XSLFTO_AND, XSLFI_PASSENGER_DESTINATIONS, 12))),
 		NSL("user",                            SLE_VAR(OrderBackup, user,                      SLE_UINT32)),
 		NSL("tile",                            SLE_VAR(OrderBackup, tile,                      SLE_UINT32)),
 		NSL("group",                           SLE_VAR(OrderBackup, group,                     SLE_UINT16)),

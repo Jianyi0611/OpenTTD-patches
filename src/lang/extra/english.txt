@@ -2772,6 +2772,10 @@ STR_ORDER_WAIT_COUPLE_MORE_TOOLTIP                                 :{BLACK}Furth
 STR_ORDER_WAIT_COUPLE_OPTIONS_CAPTION                              :{WHITE}Wait-for-coupling criteria
 
 STR_WAIT_COUPLE_POWER_LABEL :Approaching train power
+STR_WAIT_COUPLE_SPLIT_PARTNER :Only the other part of the last split
+STR_WAIT_COUPLE_SPLIT_PARTNER_TOOLTIP :{BLACK}Only allow the other part separated by this train's last decouple order. Without a recorded split, the train keeps waiting. All other restrictions still apply.
+STR_WAIT_COUPLE_SPLIT_PARTNER_SUFFIX : (other part of last split only)
+STR_WAIT_COUPLE_SPLIT_PARTNER_MISMATCH :This waiting train requires the other part of its last split
 STR_WAIT_COUPLE_POWER_ANY :Any
 STR_WAIT_COUPLE_POWER_GREATER :Greater than
 STR_WAIT_COUPLE_POWER_LESS :Less than

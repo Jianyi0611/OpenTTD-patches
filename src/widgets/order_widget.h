@@ -95,6 +95,7 @@ enum OrderWidgets : WidgetID {
 	WID_O_WAIT_COUPLE_SLOT,          ///< Acquire before waiting and return after coupling.
 	WID_O_WAIT_COUPLE_STATION,       ///< Select the station a waiting train travels to before holding.
 	WID_O_WAIT_COUPLE_MORE,          ///< Open the window with the remaining wait-for-coupling criteria.
+	WID_O_PLAN_FARE,                 ///< Edit the displayed schedule's passenger fare.
 };
 
 /** Widgets of the #CargoTypeOrdersWindow class. */

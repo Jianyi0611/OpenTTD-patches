@@ -10,14 +10,21 @@
 #include "stdafx.h"
 #include "command_type.h"
 #include "debug.h"
+#include "date_func.h"
 #include "station_base.h"
 #include "core/pool_func.hpp"
 #include "core/random_func.hpp"
+#include "core/hash_func.hpp"
 #include "economy_base.h"
 #include "economy_func.h"
 #include "cargoaction.h"
+#include "passenger_journey.h"
+#include "vehicle_base.h"
+#include "cargotype.h"
 #include "order_type.h"
 #include "company_func.h"
+#include "company_base.h"
+#include "external_city.h"
 #include "core/backup_type.hpp"
 #include "string_func.h"
 #include "strings_func.h"
@@ -27,6 +34,9 @@
 #include "table/strings.h"
 
 #include <vector>
+#include <set>
+#include "3rdparty/cpp-btree/btree_set.h"
+#include <map>
 
 #include "safeguards.h"
 
@@ -36,12 +46,73 @@ INSTANTIATE_POOL_METHODS(CargoPacket)
 
 btree::btree_map<uint64_t, Money> _cargo_packet_deferred_payments;
 
+/** Derived index. The saved packets are authoritative, including after joining a game. */
+static std::map<VehicleID, btree::btree_set<CargoPacketID>> _waiting_tickets;
+static bool _waiting_tickets_ready = false;
+
+std::vector<const CargoPacket *> CargoPacket::TicketsForTrain(VehicleID train)
+{
+	if (!_waiting_tickets_ready) {
+		_waiting_tickets.clear();
+		for (const CargoPacket *p : CargoPacket::Iterate()) {
+			if (p->ticket.train != VehicleID::Invalid()) _waiting_tickets[p->ticket.train].insert(p->index);
+		}
+		_waiting_tickets_ready = true;
+	}
+	std::vector<const CargoPacket *> result;
+	auto it = _waiting_tickets.find(train);
+	if (it != _waiting_tickets.end()) {
+		result.reserve(it->second.size());
+		for (CargoPacketID id : it->second) result.push_back(CargoPacket::Get(id));
+	}
+	return result;
+}
+
+void CargoPacket::SetPassengerTicket(PassengerTicket replacement)
+{
+	if (_waiting_tickets_ready && this->ticket.train != replacement.train) {
+		if (this->ticket.train != VehicleID::Invalid()) {
+			auto it = _waiting_tickets.find(this->ticket.train);
+			if (it != _waiting_tickets.end()) {
+				it->second.erase(this->index);
+				if (it->second.empty()) _waiting_tickets.erase(it);
+			}
+		}
+		if (replacement.train != VehicleID::Invalid()) _waiting_tickets[replacement.train].insert(this->index);
+	}
+	this->ticket = std::move(replacement);
+}
+
 void ClearCargoPacketDeferredPayments() {
+	_waiting_tickets_ready = false;
+	_waiting_tickets.clear();
 	_cargo_packet_deferred_payments.clear();
 }
 
+/** Keys below this value are planned alighting stations; larger keys identify completed carrier shares. */
+static constexpr uint32_t FARE_OPERATOR = 1U << 16;
+
 void ChangeOwnershipOfCargoPacketDeferredPayments(Owner old_owner, Owner new_owner)
 {
+	for (CargoPacket *packet : CargoPacket::Iterate()) {
+		auto &shares = packet->fare_shares;
+		for (size_t i = 0; i + 1 < shares.size(); i += 2) {
+			if (shares[i] < FARE_OPERATOR || (shares[i] - FARE_OPERATOR) / 4 != old_owner.base()) continue;
+			shares[i] = FARE_OPERATOR + (new_owner == INVALID_OWNER ? MAX_COMPANIES : new_owner.base()) * 4 + (shares[i] % 4);
+		}
+		auto &miles = packet->fare_mileage;
+		for (uint type = 0; type < 4; ++type) {
+			const uint old_slot = old_owner.base() * 4 + type;
+			if (old_slot >= miles.size() || miles[old_slot] == 0) continue;
+			const uint32_t distance = std::exchange(miles[old_slot], 0);
+			if (new_owner != INVALID_OWNER) {
+				const uint slot = new_owner.base() * 4 + type;
+				if (slot >= miles.size()) miles.resize(slot + 1);
+				miles[slot] = ClampTo<uint32_t>(uint64_t(miles[slot]) + distance);
+			}
+		}
+		while (!miles.empty() && miles.back() == 0) miles.pop_back();
+	}
 	std::vector<std::pair<uint64_t, Money>> to_merge;
 	auto iter = _cargo_packet_deferred_payments.begin();
 	while (iter != _cargo_packet_deferred_payments.end()) {
@@ -170,6 +241,15 @@ CargoPacket::CargoPacket(CargoPacketID index, uint16_t count, Money feeder_share
 		first_station(original.first_station),
 		next_hop(original.next_hop)
 {
+	this->SetPassengerTicket(original.ticket);
+	this->through_fare = original.through_fare;
+	this->through_distance = original.through_distance;
+	this->fare_shares = original.fare_shares;
+	this->fare_interchange = original.fare_interchange;
+	this->fare_mileage = original.fare_mileage;
+	this->passenger_alight = original.passenger_alight;
+	this->passenger_destination = original.passenger_destination;
+	this->passenger_start_tick = original.passenger_start_tick;
 	this->external_source_city = original.external_source_city;
 	this->external_distance = original.external_distance;
 	dbg_assert(count != 0);
@@ -182,6 +262,7 @@ CargoPacket::CargoPacket(CargoPacketID index, uint16_t count, Money feeder_share
 CargoPacket::~CargoPacket()
 {
 	if (CleaningPool()) return;
+	if (this->ticket.train != VehicleID::Invalid()) this->SetPassengerTicket({});
 
 	if (this->flags & CPF_HAS_DEFERRED_PAYMENT) {
 		IterateCargoPacketDeferredPayments(this->index, true, [](Money &payment, CompanyID cid, VehicleType type) { });
@@ -265,6 +346,148 @@ void CargoPacket::RegisterDeferredCargoPayment(CompanyID cid, VehicleType type, 
 	_cargo_packet_deferred_payments[CargoPacketDeferredPaymentKey(this->index, cid, type)] += payment;
 }
 
+void CargoPacket::LockThroughFare(const Station &from, const Vehicle *carrier, StationID alight)
+{
+	if (!_settings_game.linkgraph.passenger_through_fares || this->through_fare >= 0 ||
+			from.index != this->first_station || this->source_xy != INVALID_TILE) return;
+	const Station *to = Station::GetIfValid(this->passenger_destination);
+	if (to == nullptr || to == &from) return;
+	if (this->ticket.quoted_fare >= 0) {
+		this->through_fare = this->ticket.quoted_fare;
+		this->through_distance = this->ticket.quoted_distance;
+		this->fare_shares = this->ticket.quoted_shares;
+		return;
+	}
+	/* A through ticket uses fixed city boundary references, including the off-map distance,
+	 * even if a connecting service has not yet chosen a particular gateway. */
+	const uint distance = PassengerFareDistance(from, *to);
+	if (!carrier) carrier = Vehicle::GetIfValid(this->ticket.train);
+	if (_settings_game.linkgraph.passenger_route_fares && carrier) {
+		/* A walk-up may know only its first ride. Lock that ride and the
+		 * remaining station distance now, without inventing a later itinerary. */
+		const auto call = this->ticket.call != INVALID_VEH_ORDER_ID ? this->ticket.call : carrier->cur_real_order_index;
+		if (alight == StationID::Invalid()) alight = this->ticket.alight;
+		if (alight == StationID::Invalid()) alight = this->GetNextHop();
+		if (alight == StationID::Invalid() && CanContinuePassengerLeg(*carrier, to->index, GetCargoTypeByLabel(CT_PASSENGERS))) alight = to->index;
+		const Station *change = Station::GetIfValid(alight);
+		const auto known = change ? PassengerBookedDistance(*carrier, call, from.index, alight) : std::nullopt;
+		uint first = known.value_or(change ? PassengerFareDistance(from, *change) : distance);
+		const uint rest = change && change != to ? PassengerFareDistance(*change, *to) : 0;
+		if (!known && rest == 0) first = distance;
+		this->through_distance = ClampTo<uint32_t>(uint64_t(first) + rest);
+		const PassengerTariff defaults;
+		const uint64_t initial = Company::Get(carrier->owner)->QuotePassengerFare(first, 0, carrier->passenger_tariff, carrier->orders ? &carrier->orders->passenger_tariff : nullptr);
+		const uint64_t remainder = defaults.Price(this->through_distance, 0, defaults) - defaults.Price(first, 0, defaults);
+		this->through_fare = ClampTo<int32_t>((initial + remainder + 50) / 100);
+		if (rest && change) {
+			const auto share = std::min<uint32_t>(this->through_fare, ClampTo<uint32_t>((initial + 50) / 100));
+			this->fare_shares = {change->index.base(), share, to->index.base(), uint32_t(this->through_fare) - share};
+		}
+		return;
+	}
+	const Money price = GetTransportedGoodsIncome(1, distance, ClampTo<uint16_t>(distance * 16 / CARGO_AGING_TICKS), GetCargoTypeByLabel(CT_PASSENGERS));
+	this->through_fare = ClampTo<int32_t>(std::max<int64_t>(0, price.base()));
+	/* A walk-up or a CargoDist first hop can lack a complete bookable itinerary.
+	 * Quote the known operator's portion and use the ordinary fare for the rest. */
+	if (!carrier) return;
+	const OrderList *plan = this->ticket.schedule != OrderListID::Invalid() ? OrderList::GetIfValid(this->ticket.schedule) : carrier->orders;
+	const auto &company = Company::Get(carrier->owner)->passenger_tariff;
+	if (!carrier->passenger_tariff.Active() && !(plan && plan->passenger_tariff.Active()) && !company.Active()) return;
+	if (alight == StationID::Invalid()) alight = this->ticket.alight;
+	if (alight == StationID::Invalid()) alight = this->GetNextHop();
+	if (alight == StationID::Invalid() && CanContinuePassengerLeg(*carrier, to->index, GetCargoTypeByLabel(CT_PASSENGERS))) alight = to->index;
+	const Station *change = Station::GetIfValid(alight);
+	if (change == nullptr || change == &from) return;
+	const uint64_t rate = Company::Get(carrier->owner)->QuotePassengerFare(distance, 0, carrier->passenger_tariff, plan ? &plan->passenger_tariff : nullptr);
+	const uint64_t first = std::max(1U, DistanceManhattan(from.xy, change->xy));
+	const uint64_t rest = (change == to) ? 0 : std::max(1U, DistanceManhattan(change->xy, to->xy));
+	const uint64_t divisor = (first + rest) * 100;
+	const uint32_t initial = ClampTo<int32_t>((rate * first + divisor / 2) / divisor);
+	this->through_fare = ClampTo<int32_t>((rate * first + uint64_t(this->through_fare) * 100 * rest + divisor / 2) / divisor);
+	this->fare_shares = {change->index.base(), initial};
+	if (rest != 0) this->fare_shares.insert(this->fare_shares.end(), {to->index.base(), uint32_t(this->through_fare) - initial});
+}
+
+uint CargoPacket::FareLegDistance(TileIndex tile) const
+{
+	return this->fare_interchange == INVALID_TILE ? this->GetDistance(tile) : DistanceManhattan(this->fare_interchange, tile);
+}
+
+void CargoPacket::RecordFareTransfer(const Vehicle &carrier, TileIndex tile, StationID station)
+{
+	const uint distance = this->FareLegDistance(tile);
+	this->fare_interchange = tile;
+	const uint slot = carrier.owner.base() * 4 + to_underlying(carrier.type);
+	if (!this->fare_shares.empty()) {
+		/* Unfinished sections are in itinerary order. Completed portions carry
+		 * the actual operator even if the remaining journey is rebooked. */
+		uint32_t earned = 0;
+		size_t end = 0;
+		while (end < this->fare_shares.size() && this->fare_shares[end] < FARE_OPERATOR) {
+			earned += this->fare_shares[end + 1];
+			end += 2;
+			if (this->fare_shares[end - 2] == station.base()) break;
+		}
+		if (end && this->fare_shares[end - 2] == station.base()) {
+			this->fare_shares.erase(this->fare_shares.begin(), this->fare_shares.begin() + end);
+		} else {
+			earned = 0;
+			if (end && distance != 0) {
+				const Station *next = Station::GetIfValid(StationID{static_cast<uint16_t>(this->fare_shares[0])});
+				if (next) {
+					const uint remaining = DistanceManhattan(tile, next->xy);
+					earned = uint64_t(this->fare_shares[1]) * distance / (uint64_t(distance) + remaining);
+					this->fare_shares[1] -= earned;
+				}
+			}
+		}
+		for (size_t i = 0; earned && i < this->fare_shares.size(); i += 2) {
+			if (this->fare_shares[i] != FARE_OPERATOR + slot) continue;
+			this->fare_shares[i + 1] += earned;
+			earned = 0;
+		}
+		if (earned) this->fare_shares.insert(this->fare_shares.end(), {FARE_OPERATOR + slot, earned});
+	}
+	if (distance == 0) return;
+	if (slot >= this->fare_mileage.size()) this->fare_mileage.resize(slot + 1);
+	this->fare_mileage[slot] = ClampTo<uint32_t>(uint64_t(this->fare_mileage[slot]) + distance);
+}
+
+/** Credit completed carriers once for the passengers actually delivered. Weights are per person,
+ * so a split, partial unloading or a later delivery does not consume the other passengers' shares. */
+Money CargoPacket::SettleThroughFare(uint accepted, const Vehicle &carrier, TileIndex tile, uint offmap) const
+{
+	Money remaining = Money(this->through_fare) * accepted;
+	static constexpr ExpensesType revenues[] = {ExpensesType::TrainRevenue, ExpensesType::RoadVehRevenue, ExpensesType::ShipRevenue, ExpensesType::AircraftRevenue};
+	const uint final_slot = carrier.owner.base() * 4 + to_underlying(carrier.type);
+	if (!this->fare_shares.empty()) {
+		for (size_t i = 0; i + 1 < this->fare_shares.size(); i += 2) {
+			if (this->fare_shares[i] < FARE_OPERATOR) continue;
+			const uint slot = this->fare_shares[i] - FARE_OPERATOR;
+			if (slot == final_slot || slot >= MAX_COMPANIES * 4) continue;
+			const CompanyID company{static_cast<uint8_t>(slot / 4)};
+			if (!Company::IsValidID(company)) continue;
+			const Money share = Money(this->fare_shares[i + 1]) * accepted;
+			SubtractMoneyFromCompany(company, CommandCost(revenues[slot % 4], -share));
+			remaining -= share;
+		}
+		return remaining;
+	}
+	if (this->fare_mileage.empty() || accepted == 0) return remaining;
+	const uint64_t total = std::accumulate(this->fare_mileage.begin(), this->fare_mileage.end(), uint64_t(this->FareLegDistance(tile)) + offmap);
+	if (total == 0) return remaining;
+	for (uint slot = 0; slot < this->fare_mileage.size(); ++slot) {
+		if (!this->fare_mileage[slot] || slot == final_slot) continue;
+		const CompanyID company{static_cast<uint8_t>(slot / 4)};
+		if (!Company::IsValidID(company)) continue;
+		const Money share = Money(uint64_t(this->through_fare) * this->fare_mileage[slot] / total) * accepted;
+		if (share == 0) continue;
+		SubtractMoneyFromCompany(company, CommandCost(revenues[slot % 4], -share));
+		remaining -= share;
+	}
+	return remaining;
+}
+
 void CargoPacket::PayDeferredPayments()
 {
 	if (this->flags & CPF_HAS_DEFERRED_PAYMENT) {
@@ -301,7 +524,22 @@ void CargoPacket::PayDeferredPayments()
 /* static */ void CargoPacket::InvalidateAllFrom(StationID sid)
 {
 	for (CargoPacket *cp : CargoPacket::Iterate()) {
+		if (cp->ticket.bus_via == sid || cp->ticket.alight == sid || cp->passenger_destination == sid) cp->SetPassengerTicket({});
+		for (auto *shares : {&cp->fare_shares, &cp->ticket.quoted_shares}) {
+			for (size_t i = 0; i < shares->size(); i += 2) {
+				if ((*shares)[i] == sid.base()) (*shares)[i] = StationID::Invalid().base();
+			}
+		}
 		if (cp->first_station == sid) cp->first_station = StationID::Invalid();
+		if (cp->passenger_alight == sid) cp->passenger_alight = StationID::Invalid();
+		if (cp->passenger_destination == sid) {
+			cp->passenger_destination = StationID::Invalid();
+			cp->through_fare = -1;
+			cp->through_distance = 0;
+			cp->fare_shares.clear();
+			cp->fare_mileage.clear();
+			cp->fare_interchange = INVALID_TILE;
+		}
 	}
 }
 
@@ -631,6 +869,28 @@ void VehicleCargoList::AgeCargo()
 	}
 }
 
+static StationID FindPassengerConnection(const CargoPacket &packet, StationID current, CargoType cargo)
+{
+	/* Follow unrestricted links for this origin, retaining the first hop of each reachable path. */
+	std::vector<std::pair<StationID, StationID>> queue{{current, current}};
+	std::set<StationID> seen{current};
+	for (size_t i = 0; i < queue.size(); ++i) {
+		auto [station, first] = queue[i];
+		const auto &flows = Station::Get(station)->goods[cargo].ConstFlows();
+		auto flow = flows.find(packet.GetFirstStation());
+		if (flow == flows.end()) continue;
+		for (const auto &share : *flow) {
+			if (share.first > flow->GetUnrestricted()) break;
+			StationID via = share.second;
+			if (!Station::IsValidID(via) || !seen.insert(via).second) continue;
+			StationID hop = i == 0 ? via : first;
+			if (via == packet.passenger_destination) return hop;
+			queue.emplace_back(via, hop);
+		}
+	}
+	return StationID::Invalid();
+}
+
 /**
  * Stages cargo for unloading. The cargo is sorted so that packets to be
  * transferred, delivered or kept are in consecutive chunks in the list. At the
@@ -661,6 +921,7 @@ bool VehicleCargoList::Stage(bool accepted, StationID current_station, std::span
 	bool force_keep = (unload_type == OrderUnloadType::NoUnload);
 	bool force_unload = (unload_type == OrderUnloadType::Unload);
 	bool force_transfer = (unload_type == OrderUnloadType::Transfer) || (unload_type == OrderUnloadType::Unload);
+	std::map<std::pair<StationID, StationID>, StationID> passenger_connections;
 	bool transfer_cargodist_mode = force_transfer && _settings_game.linkgraph.GetDistributionType(cargo) != DistributionType::Manual;
 	dbg_assert(this->count > 0 || it == this->packets.end());
 	while (sum < this->count) {
@@ -694,6 +955,21 @@ bool VehicleCargoList::Stage(bool accepted, StationID current_station, std::span
 
 		if (force_keep) {
 			action = MoveToAction::Keep;
+		} else if (cp->passenger_destination != StationID::Invalid()) {
+			if (current_station == cp->passenger_destination && accepted && unload_type != OrderUnloadType::Transfer) {
+				action = MoveToAction::Deliver;
+			} else if (!force_transfer && cp->passenger_alight != StationID::Invalid() && cp->passenger_alight != current_station &&
+					payment->front != nullptr && CanContinuePassengerLeg(*payment->front, cp->passenger_alight, cargo)) {
+				action = MoveToAction::Keep;
+			} else {
+				auto [connection, inserted] = passenger_connections.try_emplace({cp->first_station, cp->passenger_destination}, StationID::Invalid());
+				if (inserted) connection->second = FindPassengerConnection(*cp, current_station, cargo);
+				cargo_next = connection->second;
+				/* If the links have disappeared, wait for a service towards the intended station. */
+				if (cargo_next == StationID::Invalid()) cargo_next = cp->passenger_destination;
+				bool continues = std::ranges::find(next_station, cargo_next) != next_station.end();
+				action = (cp->passenger_alight != current_station && !force_transfer && continues) ? MoveToAction::Keep : MoveToAction::Transfer;
+			}
 		} else if (force_unload && !transfer_cargodist_mode && accepted && cp->first_station != current_station) {
 			action = MoveToAction::Deliver;
 		} else if (force_transfer && !transfer_cargodist_mode) {
@@ -857,7 +1133,7 @@ uint VehicleCargoList::Unload(uint max_move, StationCargoList *dest, CargoType c
 	uint moved = 0;
 	if (this->action_counts[MoveToAction::Transfer] > 0) {
 		uint move = std::min(this->action_counts[MoveToAction::Transfer], max_move);
-		this->ShiftCargo(CargoTransfer(this, dest, move, current_tile));
+		this->ShiftCargo(CargoTransfer(this, dest, move, current_tile, payment->front, payment->current_station));
 		moved += move;
 	}
 	if (this->action_counts[MoveToAction::Transfer] == 0 && this->action_counts[MoveToAction::Deliver] > 0 && moved < max_move) {
@@ -882,7 +1158,7 @@ uint VehicleCargoList::Truncate(uint max_move)
 	return max_move;
 }
 
-uint VehicleCargoList::DeliverToExternal(uint max_move, CargoType cargo, TileIndex tile, uint16_t city, uint16_t distance, Money &income, StationID destination, const GoodsEntry *goods)
+uint VehicleCargoList::DeliverToExternal(uint max_move, CargoType cargo, TileIndex tile, uint16_t city, uint16_t distance, Money &income, StationID destination, const GoodsEntry *goods, const Vehicle *carrier)
 {
 	if (this->ReservedCount() != 0) return 0;
 	this->KeepAll();
@@ -890,7 +1166,10 @@ uint VehicleCargoList::DeliverToExternal(uint max_move, CargoType cargo, TileInd
 	for (auto it = this->packets.begin(); it != this->packets.end() && delivered < max_move;) {
 		CargoPacket *original = *it;
 		if (original->external_source_city == city) { ++it; continue; }
-		if (goods != nullptr && _settings_game.linkgraph.GetDistributionType(cargo) != DistributionType::Manual) {
+		const bool fixed = original->through_fare >= 0 || (cargo == GetCargoTypeByLabel(CT_PASSENGERS) && original->passenger_destination != StationID::Invalid() && _settings_game.linkgraph.AssignPassengerDestinations());
+		if (original->through_fare >= 0 && carrier == nullptr) { ++it; continue; }
+		if (fixed && original->passenger_destination != destination) { ++it; continue; }
+		if (!fixed && goods != nullptr && _settings_game.linkgraph.GetDistributionType(cargo) != DistributionType::Manual) {
 			const auto &flows = goods->ConstFlows();
 			auto flow = flows.find(original->GetFirstStation());
 			if (flow != flows.end()) {
@@ -902,9 +1181,13 @@ uint VehicleCargoList::DeliverToExternal(uint max_move, CargoType cargo, TileInd
 		const bool whole = amount == original->Count();
 		CargoPacket *piece = whole ? original : original->Split(amount);
 		if (piece == nullptr) { ++it; continue; }
-		income += GetTransportedGoodsIncome(amount, piece->GetDistance(tile) + distance, piece->GetPeriodsInTransit(), cargo) - piece->GetFeederShare();
+		if (piece->through_fare >= 0) {
+			income += piece->SettleThroughFare(amount, *carrier, tile, distance);
+		} else {
+			income += GetTransportedGoodsIncome(amount, piece->GetDistance(tile) + distance, piece->GetPeriodsInTransit(), cargo) - piece->GetFeederShare();
+			piece->PayDeferredPayments();
+		}
 		this->RemoveFromMeta(piece, MoveToAction::Keep, amount);
-		piece->PayDeferredPayments();
 		delete piece;
 		if (whole) it = this->packets.erase(it); else ++it;
 		delivered += amount;
@@ -973,6 +1256,87 @@ void StationCargoList::Append(CargoPacket *cp, StationID next)
 	list.push_back(cp);
 }
 
+/** Follow native, origin-specific unrestricted shares to local consumption. */
+static StationID TraceWaitingPassenger(StationID source, StationID station, StationID next, CargoType cargo, Randomizer &random)
+{
+	std::set<StationID> visited{source, station};
+	while (Station::IsValidID(next) && visited.insert(next).second) {
+		const auto &flows = Station::Get(next)->goods[cargo].ConstFlows();
+		const auto flow = flows.find(source);
+		if (flow == flows.end() || flow->IsInvalid() || flow->GetUnrestricted() == 0) break;
+		const StationID following = flow->upper_bound(random.Next(flow->GetUnrestricted()))->second;
+		if (following == next) return next;
+		next = following;
+	}
+	return StationID::Invalid();
+}
+
+/** Assign a destination only after the whole path is known. Return the next hop for the native loading queue. */
+static StationID RetryWaitingPassenger(CargoPacket &packet, const Station &station, CargoType cargo, StationID via, uint64_t round)
+{
+	if (packet.passenger_destination != StationID::Invalid() || packet.ticket.train != VehicleID::Invalid()) return via;
+	const StationID source = packet.GetFirstStation();
+	if (!Station::IsValidID(source)) return via;
+	const auto &flows = station.goods[cargo].ConstFlows();
+	const auto flow = flows.find(source);
+	if (flow == flows.end() || flow->IsInvalid() || flow->GetUnrestricted() == 0) return via;
+	Randomizer random;
+	random.SetSeed(SimpleHash32(packet.index.base() ^ SimpleHash32(static_cast<uint32_t>(round))));
+	StationID next = via;
+	StationID dest = StationID::Invalid();
+	if (std::ranges::any_of(*flow, [&](const auto &share) { return share.second == via && share.first <= flow->GetUnrestricted(); })) {
+		dest = TraceWaitingPassenger(source, station.index, via, cargo, random);
+	}
+	if (dest == StationID::Invalid()) {
+		next = flow->upper_bound(random.Next(flow->GetUnrestricted()))->second;
+		if (next == via) return via;
+		dest = TraceWaitingPassenger(source, station.index, next, cargo, random);
+	}
+	if (dest == StationID::Invalid()) return via;
+	packet.passenger_destination = dest;
+	if (packet.passenger_start_tick == 0) packet.passenger_start_tick = _scaled_tick_counter;
+	return next;
+}
+
+/** Rotate through actual waiting packets, regardless of empty via buckets. The saved clock
+ * selects the batch, so no cursor needs saving or rebuilding when a client joins. */
+void StationCargoList::RetryPassengerDestinations(const Station &station, CargoType cargo, uint64_t round)
+{
+	if (this->AvailableCount() == 0 || station.goods[cargo].ConstFlows().empty()) return;
+	constexpr size_t batch = 32;
+	const size_t total = this->packets.size();
+	if (total == 0) return;
+	size_t skip = (round % CeilDiv(total, batch)) * batch;
+	size_t left = batch;
+	std::vector<std::pair<StationID, CargoPacket *>> moved;
+	for (auto it = this->packets.begin(); it != this->packets.end() && left != 0;) {
+		auto &[via, list] = *it;
+		if (skip >= list.size()) {
+			skip -= list.size();
+			++it;
+			continue;
+		}
+		const size_t take = std::min(left, list.size() - skip);
+		size_t index = skip;
+		for (size_t i = 0; i < take; ++i) {
+			CargoPacket *packet = list[index];
+			const StationID next = RetryWaitingPassenger(*packet, station, cargo, via, round);
+			if (next == via) {
+				++index;
+			} else {
+				moved.emplace_back(next, packet);
+				list.erase(list.begin() + index);
+			}
+		}
+		if (list.empty()) it = this->packets.Map::erase(it);
+		else ++it;
+		left -= take;
+		skip = 0;
+	}
+	/* Only the via key changes. Counts, packet identities and transit ages stay intact. */
+	for (const auto &[next, packet] : moved) this->packets.Insert(next, packet);
+}
+
 /**
  * Shifts cargo from the front of the packet list for a specific station and
  * applies some action to it.
@@ -988,6 +1352,7 @@ void StationCargoList::Append(CargoPacket *cp, StationID next)
 template <class Taction>
 bool StationCargoList::ShiftCargo(Taction &action, StationID next)
 {
+	if constexpr (std::is_base_of_v<CargoLoad, Taction>) action.fare_hop = next;
 	for (Iterator it = this->packets.lower_bound(next); it != this->packets.end() && it.GetKey() == next;) {
 		if (action.MaxMove() == 0) return false;
 		CargoPacket *cp = *it;
@@ -1152,6 +1517,177 @@ uint StationCargoList::Truncate(uint max_move, StationCargoAmountMap *cargo_per_
 	return moved;
 }
 
+/** Splitting only changes packet boundaries. The station's cached count and age
+ * already include every traveller, so append directly to the same via bucket. */
+void StationCargoList::SellPassengerSeats(PassengerBoarding &sale)
+{
+	struct Request {
+		CargoPacket *packet;
+		CargoPacketList *bucket;
+		uint64_t priority;
+		uint rail_distance = 0;
+	};
+	std::vector<Request> requests, rebookings;
+	const TileIndex from = Station::Get(sale.station)->xy;
+	for (auto &[via, bucket] : this->packets) {
+		for (size_t i = 0; i < bucket.size(); ++i) {
+			CargoPacket *packet = bucket[i];
+			const bool had_ticket = packet->ticket.train != VehicleID::Invalid();
+			if (had_ticket) {
+				if (CargoPacket *rest = sale.CheckTicket(*packet, true); rest != nullptr) bucket.push_back(rest);
+				if (packet->ticket.train != VehicleID::Invalid()) continue;
+			}
+			const Station *destination = Station::GetIfValid(packet->passenger_destination);
+			if (destination == nullptr || destination->index == sale.station) continue;
+			(had_ticket ? rebookings : requests).push_back({packet, &bucket, packet->passenger_start_tick});
+		}
+	}
+	/* Release invalid tickets together before comparing itineraries. Otherwise a full
+	 * section repeatedly opens and closes while adjacent packets are rebooked. */
+	for (const Request &request : rebookings) {
+		if (CargoPacket *rest = sale.CheckTicket(*request.packet); rest != nullptr) {
+			request.bucket->push_back(rest);
+			requests.push_back({rest, request.bucket, request.priority});
+		}
+	}
+	if (requests.size() > 1) {
+		/* Prioritise the rail leg being bought. An onward bus ride or a circuitous
+		 * train path does not make this rail leg longer. Bound the head start so
+		 * earlier short-distance travellers can still buy seats. */
+		/* No seats change hands during this sorting pass. Groups with identical
+		 * routing inputs can reuse the priority distance until actual sales begin. */
+		robin_hood::unordered_flat_map<uint64_t, uint> distances;
+		for (Request &request : requests) {
+			const CargoPacket &p = *request.packet;
+			const uint64_t key = (uint64_t{p.GetFirstStation().base()} << 18) | (uint64_t{p.passenger_destination.base()} << 2) |
+					(uint64_t{p.through_fare >= 0} << 1) | (p.ticket.rebooking != PassengerRebooking::None);
+			auto [entry, fresh] = distances.try_emplace(key, 0);
+			if (fresh) {
+				const auto &leg = sale.NextLeg(p);
+				if (leg.train != VehicleID::Invalid()) entry->second = DistanceManhattan(from, Station::Get(leg.alight)->xy);
+			}
+			request.rail_distance = entry->second;
+			const uint near = std::min(128U, request.rail_distance);
+			const uint bonus = near + std::min(128U, (request.rail_distance - near) / 4);
+			request.priority += 256 - bonus;
+		}
+		std::stable_sort(requests.begin(), requests.end(), [](const Request &a, const Request &b) {
+			if (a.priority != b.priority) return a.priority < b.priority;
+			return a.rail_distance > b.rail_distance;
+		});
+	}
+	for (size_t i = 0; i < requests.size(); ++i) {
+		const Request request = requests[i];
+		if (CargoPacket *rest = sale.CheckTicket(*request.packet); rest != nullptr) {
+			request.bucket->push_back(rest);
+			requests.push_back({rest, request.bucket, request.priority});
+		}
+	}
+}
+
+/** Compare services for each fixed destination, including passengers waiting under a different next-hop key. */
+template <class Taction>
+uint StationCargoList::BoardCargo(Taction action, std::span<const StationID> next, const Vehicle *vehicle, PassengerBoarding *boarding)
+{
+	if (boarding == nullptr || vehicle == nullptr || !_settings_game.linkgraph.passenger_ticketing ||
+			vehicle->cargo_type != GetCargoTypeByLabel(CT_PASSENGERS) ||
+			_settings_game.linkgraph.GetDistributionType(vehicle->cargo_type) == DistributionType::Manual) return this->ShiftCargo(action, next, true);
+
+	const Vehicle *front = vehicle->Primary();
+	if (front == nullptr) return this->ShiftCargo(action, next, true);
+	if (!IsPassengerTerminal(*Station::Get(boarding->station))) {
+		/* Standalone docks and airports use the native loading queue. Price only
+		 * the group that actually gets space, using its assigned CargoDist hop. */
+		if (_settings_game.linkgraph.passenger_through_fares) {
+			action.walkup_station = boarding->station;
+			action.walkup_carrier = front;
+		}
+		return this->ShiftCargo(action, next, true);
+	}
+	const uint initial = action.MaxMove();
+	std::vector<std::pair<StationID, CargoPacket *>> splits;
+	for (Iterator it = this->packets.begin(); it != this->packets.end() && action.MaxMove() > 0;) {
+		CargoPacket *packet = *it;
+		action.alight = StationID::Invalid();
+		/* A different vehicle cannot honour this ticket. Periodic station sales
+		 * and explicit timetable edits revalidate it even if this vehicle leaves. */
+		if (packet->ticket.train != VehicleID::Invalid() && packet->ticket.train != front->index) { ++it; continue; }
+		/* A bus offers places on arrival, without running a station-wide rail ticket
+		 * sale. Reconsider a different bus when it actually serves this destination. */
+		const bool bus_offer = front->type == VehicleType::Road && packet->ticket.train == VehicleID::Invalid() &&
+				std::ranges::find(next, packet->passenger_destination) != next.end();
+		/* A reviewed transfer can be waiting when seats reopen. Check at actual
+		 * boarding if this departure serves its next hop. The ordinary planner
+		 * must still prefer this exact train and call over all alternatives. */
+		bool onward_offer = false;
+		if (front->type == VehicleType::Train && packet->ticket.reviewed && packet->ticket.rebooking == PassengerRebooking::Connection &&
+				Station::IsValidID(packet->passenger_destination) && PassengerLoadingOpen(*front) &&
+				(std::ranges::find(next, it.GetKey()) != next.end() || std::ranges::find(next, packet->passenger_destination) != next.end())) {
+			const auto &leg = boarding->NextLeg(*packet);
+			onward_offer = leg.train == front->index && leg.visit == 0 && leg.call == front->cur_real_order_index;
+		}
+		if (onward_offer || bus_offer || !packet->ticket.reviewed || packet->ticket.train != VehicleID::Invalid()) {
+			if (CargoPacket *rest = boarding->CheckTicket(*packet); rest != nullptr) splits.emplace_back(it.GetKey(), rest);
+		}
+		const PassengerTicket &ticket = packet->ticket;
+		/* A missed ticket needs a new verified rail leg before boarding another train.
+		 * A bus, ship or aircraft can still serve a known CargoDist next hop. */
+		if (ticket.rebooking == PassengerRebooking::Bus) {
+			if (!CanBoardPassengerBus(*front, ticket, vehicle->cargo_type, ticket.alight == packet->passenger_destination)) { ++it; continue; }
+			action.alight = ticket.alight;
+			const uint take = std::min<uint>(packet->Count(), action.MaxMove());
+			const uint room = boarding->inventory.Room(front->index, front->cur_real_order_index, 0, ticket.alight);
+			boarding->inventory.Use(front->index, front->cur_real_order_index, 0, ticket.alight, take);
+			if (room <= take) boarding->InvalidateSeatChoices();
+		} else if (ticket.train == VehicleID::Invalid() && ticket.rebooking != PassengerRebooking::None) {
+			/* A pending group can only use a vehicle going to its assigned next hop.
+			 * Check that before looking up seats. A through ticket already has a
+			 * locked fare, just as when NextLeg checks the same connection. */
+			if (front->type == VehicleType::Train || it.GetKey() == StationID::Invalid() ||
+					std::ranges::find(next, it.GetKey()) == next.end() ||
+					(front->type == VehicleType::Road && (ticket.rebooking == PassengerRebooking::Full ||
+					(Station::IsValidID(packet->passenger_destination) &&
+					boarding->TicketFor(packet->passenger_destination, false, packet->through_fare >= 0).rebooking == PassengerRebooking::Full)))) {
+				++it;
+				continue;
+			}
+		}
+		if (ticket.train != VehicleID::Invalid()) {
+			if (ticket.visit != 0 || front->index != ticket.train || front->orders == nullptr || front->orders->index != ticket.schedule ||
+					front->cur_real_order_index != ticket.call || !IsPassengerBoardingAt(*front, boarding->station) ||
+					!PassengerLoadingOpen(*front) ||
+					front->GetActiveServiceNumber() != ticket.number) {
+				++it;
+				continue;
+			}
+			action.alight = ticket.alight;
+		}
+		if (action.alight == StationID::Invalid() && it.GetKey() != StationID::Invalid() && std::ranges::find(next, it.GetKey()) == next.end()) { ++it; continue; }
+		if (ticket.train == VehicleID::Invalid() && front->type == VehicleType::Train &&
+				front->cur_real_order_index < front->GetNumOrders()) {
+			/* A walk-up may use space left after all sold tickets, including downstream boardings. */
+			const StationID stop = it.GetKey();
+			const auto alight = packet->passenger_destination;
+			const uint room = boarding->inventory.Room(front->index, front->cur_real_order_index, 0, alight);
+			const uint take = std::min<uint>(packet->Count(), action.MaxMove());
+			if (room == 0) { ++it; continue; }
+			if (room < take) {
+				CargoPacket *rest = packet->Split(packet->Count() - room);
+				if (rest == nullptr) { ++it; continue; }
+				splits.emplace_back(stop, rest);
+			}
+			boarding->inventory.Use(front->index, front->cur_real_order_index, 0, alight, std::min(take, room));
+		}
+		action.walkup_carrier = front;
+		action.fare_hop = action.alight != StationID::Invalid() || front->type == VehicleType::Train ? action.alight : it.GetKey();
+		action.walkup_station = ticket.train == VehicleID::Invalid() && _settings_game.linkgraph.passenger_through_fares ? boarding->station : StationID::Invalid();
+		if (action(*it)) it = this->packets.erase(it);
+		else break;
+	}
+	for (const auto &[via, rest] : splits) this->packets.Insert(via, rest);
+	return initial - action.MaxMove();
+}
+
 /**
  * Reserves cargo for loading onto the vehicle.
  * @param max_move Maximum amount of cargo to reserve.
@@ -1160,9 +1696,9 @@ uint StationCargoList::Truncate(uint max_move, StationCargoAmountMap *cargo_per_
  * @param current_tile Current tile the cargo handling is happening on.
  * @return Amount of cargo actually reserved.
  */
-uint StationCargoList::Reserve(uint max_move, VehicleCargoList *dest, std::span<const StationID> next_station, TileIndex current_tile)
+uint StationCargoList::Reserve(uint max_move, VehicleCargoList *dest, std::span<const StationID> next_station, TileIndex current_tile, const Vehicle *vehicle, PassengerBoarding *boarding)
 {
-	return this->ShiftCargo(CargoReservation(this, dest, max_move, current_tile), next_station, true);
+	return this->BoardCargo(CargoReservation(this, dest, max_move, current_tile), next_station, vehicle, boarding);
 }
 
 /**
@@ -1177,7 +1713,7 @@ uint StationCargoList::Reserve(uint max_move, VehicleCargoList *dest, std::span<
  *       modes of loading are exclusive, though. If cargo is reserved we don't
  *       need to load unreserved cargo.
  */
-uint StationCargoList::Load(uint max_move, VehicleCargoList *dest, std::span<const StationID> next_station, TileIndex current_tile)
+uint StationCargoList::Load(uint max_move, VehicleCargoList *dest, std::span<const StationID> next_station, TileIndex current_tile, const Vehicle *vehicle, PassengerBoarding *boarding)
 {
 	uint move = std::min(dest->ActionCount(VehicleCargoList::MoveToAction::Load), max_move);
 	if (move > 0) {
@@ -1185,7 +1721,7 @@ uint StationCargoList::Load(uint max_move, VehicleCargoList *dest, std::span<con
 		dest->Reassign<VehicleCargoList::MoveToAction::Load, VehicleCargoList::MoveToAction::Keep>(move);
 		return move;
 	} else {
-		return this->ShiftCargo(CargoLoad{this, dest, max_move, current_tile}, next_station, true);
+		return this->BoardCargo(CargoLoad{this, dest, max_move, current_tile}, next_station, vehicle, boarding);
 	}
 }
 

@@ -37,6 +37,7 @@
 #include "debug_settings.h"
 #include "debug_desync.h"
 #include "order_backup.h"
+#include "station_base.h"
 #include "core/checksum_func.hpp"
 #include "3rdparty/cpp-ring-buffer/ring_buffer.hpp"
 #include <array>
@@ -695,6 +696,11 @@ CommandCost DoCommandPInternal(Commands cmd, TileIndex tile, const CommandPayloa
 
 	/* Blueprint patch: close the undo step this command opened. */
 	EndBlueprintUndoGroup(res2.Succeeded());
+	/* Only real, executed route edits affect journey choices on all peers.
+	 * Running a GUI estimate must never discard the simulation's itineraries. */
+	if (res2.Succeeded() && (command.type == CommandType::RouteManagement || command.type == CommandType::VehicleManagement)) {
+		for (Station *station : Station::Iterate()) station->passenger_routes.clear();
+	}
 
 	if (cmd == Commands::CompanyControl) {
 		cur_company.Trash();

@@ -664,6 +664,88 @@ TEST_CASE("External rail travel uses the shared clock rate even when clients ove
 	CHECK(Vehicle::ExternalTravelTicks(100, 100) == 2048);
 }
 
+TEST_CASE("Passenger fares - distance tiers, travel speed, comfort and individual overrides")
+{
+	using T = PassengerTariff;
+	T company, train;
+	CHECK(train.Price(50, 140, company) == 6000);
+	CHECK(train.Price(51, 140, company) == 6100);
+	CHECK(train.Price(300, 140, company) == 29000);
+	company.values[T::Class] = 3; // Premium
+	CHECK(train.Price(100, 140, company) == 12650);
+	train.values[T::Comfort] = 121;
+	CHECK(train.Price(100, 140, company) == 13200);
+	CHECK(train.Price(100, 200, company) == 14520);
+	CHECK(train.Price(100, 0, company) == 13200);
+	company.values[T::ShortPrice] = 21;
+	CHECK(train.Price(100, 140, company) == 18000);
+	train.values[T::ShortPrice] = 1; // Explicitly free, distinct from inheritance.
+	CHECK(train.Price(100, 140, company) == 6000);
+}
+
+TEST_CASE("Passenger fares - plan inheritance is per field and explicit zero is a fare")
+{
+	using T = PassengerTariff;
+	T company, plan, other, train;
+	company.values[T::ShortPrice] = 13;
+	plan.values[T::ShortPrice] = 16;
+	other.values[T::ShortPrice] = 26;
+	CHECK(train.Price(32, 140, company, &plan) == 4800);
+	CHECK(train.Price(32, 140, company, &other) == 8000);
+	company.values[T::Normal] = 111;
+	CHECK(train.Price(32, 140, company, &plan) == 5280);
+	train.values[T::ShortPrice] = 1;
+	CHECK(train.Price(32, 140, company, &plan) == 0);
+	train.values[T::ShortPrice] = 0;
+	plan.values[T::ShortPrice] = 0;
+	CHECK(train.Price(32, 140, company, &plan) == train.Price(32, 140, company));
+}
+
+TEST_CASE("Rail route fares - learned mileage belongs to one directed order section")
+{
+	Order stop;
+	const TileIndex from{100}, to{200}, other{300};
+	CHECK(stop.FareDistanceFrom(from, to) == 0);
+	stop.RecordFareDistance(from, to, 180);
+	CHECK(stop.FareDistanceFrom(from, to) == 180);
+	CHECK(stop.FareDistanceFrom(to, from) == 0);
+	CHECK(stop.FareDistanceFrom(other, to) == 0);
+	stop.RecordFareDistance(other, to, 95);
+	CHECK(stop.FareDistanceFrom(from, to) == 0);
+	CHECK(stop.FareDistanceFrom(other, to) == 95);
+}
+
+TEST_CASE("Passenger through fares - a partial transfer preserves the quote and separates carrier mileage")
+{
+	auto *group = CargoPacket::Create(uint16_t{7}, uint16_t{0}, StationID{1}, TileIndex{10}, Money{0});
+	auto cleanup_group = scope_guard([&]{ delete group; });
+	group->through_fare = 148;
+	group->through_distance = 180;
+	group->fare_interchange = TileIndex{20};
+	group->fare_mileage = {24, 0, 0, 0, 15};
+	group->passenger_destination = StationID{3};
+
+	auto *part = group->Split(2);
+	REQUIRE(part != nullptr);
+	auto cleanup_part = scope_guard([&]{ delete part; });
+	CHECK(group->Count() == 5);
+	CHECK(part->Count() == 2);
+	CHECK(part->SameThroughFare(*group));
+	CHECK(part->passenger_destination == group->passenger_destination);
+	part->SetPassengerTicket({});
+	CHECK(part->through_fare == 148);
+	CHECK(part->through_distance == 180);
+	part->through_distance = 100;
+	CHECK_FALSE(part->SameThroughFare(*group));
+	part->through_distance = group->through_distance;
+	part->fare_mileage[0] += 1;
+	CHECK_FALSE(part->SameThroughFare(*group));
+	CHECK(group->fare_mileage[0] == 24);
+	part->fare_mileage = group->fare_mileage;
+	part->through_fare = 147;
+	CHECK_FALSE(part->SameThroughFare(*group));
+}
+
 TEST_CASE("External routes - native tile speed conversion and partial cargo sales preserve packet accounting")
 {
  CHECK(Vehicle::ExternalTravelTicks(100,100)==2048);
@@ -696,6 +778,35 @@ TEST_CASE("External routes - native tile speed conversion and partial cargo sale
  CHECK(list.DeliverToExternal(100,cargo,TileXY(20,10),9,10,income)==0);
  CHECK(income==earned+GetTransportedGoodsIncome(70,45,5,cargo)-18);
  CHECK(CargoPacket::GetNumItems()==0);
+}
+
+TEST_CASE_METHOD(TrainDecoupleFixture, "Couple - a train beyond a signal on the parallel track leaves the approach free")
+{
+	AllocateMap(64, 64);
+	auto map_cleanup = scope_guard([] { DeallocateMap(); });
+	const TileIndex tile = TileXY(20, 20);
+	Train *mover = MakeTrain(), *other = MakeTrain();
+	mover->SetFrontEngine();
+	mover->current_order.MakeGoToCouple();
+	other->SetFrontEngine();
+	other->tile = tile;
+	UpdateVehicleTileHash(other, false);
+	auto hash_cleanup = scope_guard([&] { UpdateVehicleTileHash(other, true); });
+	for (Track requested = TRACK_BEGIN; requested < TRACK_END; requested++) {
+		for (Track occupied = TRACK_BEGIN; occupied < TRACK_END; occupied++) {
+			other->track = TrackToTrackBits(occupied);
+			const TrackBits layout = other->track | TrackToTrackBits(requested);
+			MakeRailNormal(tile, OWNER_NONE, layout, RAILTYPE_RAIL);
+			CHECK(HasForeignConsistOnTile(mover, tile, requested) == (layout != TRACK_BIT_HORZ && layout != TRACK_BIT_VERT));
+		}
+	}
+	MakeRailNormal(tile, OWNER_NONE, TRACK_BIT_VERT, RAILTYPE_RAIL);
+	other->track = TRACK_BIT_LEFT;
+	CHECK(HasForeignConsistOnTile(mover, tile));
+	other->track = TRACK_BIT_WORMHOLE;
+	CHECK(HasForeignConsistOnTile(mover, tile, TRACK_RIGHT));
+	other->track = TRACK_BIT_NONE;
+	CHECK(HasForeignConsistOnTile(mover, tile, TRACK_RIGHT));
 }
 
 TEST_CASE_METHOD(TrainDecoupleFixture, "Decouple - a pending partner is excluded only when its whole body is behind the departing front")
@@ -760,6 +871,33 @@ TEST_CASE_METHOD(TrainDecoupleFixture, "Decouple - a pending partner is excluded
 }
 
 #include "coupling_trial_orientation.inc"
+
+TEST_CASE_METHOD(TrainDecoupleFixture, "Reversed articulated locomotives retain their cab artwork at the coupling joint")
+{
+	Train *a = MakeTrain(), *ax = MakeTrain(), *b = MakeTrain(), *bx = MakeTrain(), *by = MakeTrain(), *single = MakeTrain();
+	for (auto [part, base] : {std::pair{ax, a}, std::pair{bx, b}, std::pair{by, b}}) {
+		part->ClearEngine();
+		part->SetArticulatedPart();
+		part->SetUnitMain(base);
+	}
+	/* Two reversed units of different lengths, followed by a same-type single engine. */
+	const std::array<Train *, 6> physical{by, bx, b, ax, a, single};
+	const std::array<uint, 6> property_positions{2, 1, 0, 4, 3, 5};
+	const std::array<uint, 6> sprite_positions{4, 3, 2, 1, 0, 5};
+	for (size_t i = 1; i < physical.size(); ++i) physical[i - 1]->SetNext(physical[i]);
+	for (size_t i = 0; i < physical.size(); ++i) {
+		VehicleResolverObject resolver(engine->index, physical[i], VehicleResolverObject::WagonOverride::None);
+		GetVariableExtra extra{};
+		for (bool sprite : {true, false, true}) {
+			resolver.self_scope.resolving_sprite = sprite;
+			const uint32_t position = resolver.self_scope.GetVariable(0x41, 0, extra);
+			const uint expected = sprite ? sprite_positions[i] : property_positions[i];
+			CHECK(GB(position, 0, 8) == expected);
+			CHECK(GB(position, 8, 8) == physical.size() - 1 - expected);
+			CHECK(GB(position, 16, 8) == physical.size());
+		}
+	}
+}
 
 TEST_CASE_METHOD(TrainDecoupleFixture, "Train relocation - crossing a tile during spacing preserves rail and physical facing")
 {
@@ -1114,6 +1252,8 @@ TEST_CASE_METHOD(TrainDecoupleFixture, "Couple - network snapshot preserves wide
 	b->couple_claimant = a->index;
 	b->couple_body_hold = true;
 	b->wait_couple_acquired_slot = TraceRestrictSlotID{0x1234};
+	a->split_partner = b->index;
+	b->split_partner = a->index;
 	auto snapshot = std::make_shared<CoupleSnapshotCapture>();
 	const SaveLoadResult result = SaveWithFilter(snapshot, false, SMF_NET_SERVER);
 	DeallocateMap();
@@ -1130,23 +1270,25 @@ TEST_CASE_METHOD(TrainDecoupleFixture, "Couple - network snapshot preserves wide
 	/* SLXI also mentions CPLM by name; the actual state chunk is the last occurrence. */
 	auto chunk = std::find_end(snapshot->bytes.begin(), snapshot->bytes.end(), marker.begin(), marker.end());
 	REQUIRE(chunk != snapshot->bytes.end());
-	REQUIRE(std::distance(chunk, snapshot->bytes.end()) >= 50);
+	REQUIRE(std::distance(chunk, snapshot->bytes.end()) >= 58);
 	auto read32 = [&](size_t offset) {
 		return (uint32_t(chunk[offset]) << 24) | (uint32_t(chunk[offset + 1]) << 16) | (uint32_t(chunk[offset + 2]) << 8) | chunk[offset + 3];
 	};
-	CHECK(read32(4) == 42); // 4-byte count and two v3 19-byte records, including the acquired slot.
+	CHECK(read32(4) == 50); // 4-byte count and two 23-byte records with the acquired slot and split partner.
 	CHECK(read32(8) == 2);
 	CHECK(read32(12) == 0x10001);
 	CHECK(read32(16) == 0x20002);
 	CHECK(read32(20) == VehicleID::Invalid().base());
 	CHECK(read32(24) == 123);
 	CHECK(chunk[28] == 0);
-	CHECK(read32(31) == 0x20002);
-	CHECK(read32(35) == VehicleID::Invalid().base());
-	CHECK(read32(39) == 0x10001);
-	CHECK(chunk[47] == 1);
 	CHECK(chunk[29] == 0xFF); CHECK(chunk[30] == 0xFF);
-	CHECK(chunk[48] == 0x12); CHECK(chunk[49] == 0x34);
+	CHECK(read32(31) == b->index.base());
+	CHECK(read32(35) == 0x20002);
+	CHECK(read32(39) == VehicleID::Invalid().base());
+	CHECK(read32(43) == 0x10001);
+	CHECK(chunk[51] == 1);
+	CHECK(chunk[52] == 0x12); CHECK(chunk[53] == 0x34);
+	CHECK(read32(54) == a->index.base());
 }
 
 TEST_CASE_METHOD(TrainDecoupleFixture, "Decouple - cuts preserve legacy dual-head order counts")
@@ -6806,6 +6948,26 @@ TEST_CASE_METHOD(CouplePowerFixture, "Couple - waiting wagons filter approaching
 			(mode == WaitCouplePowerMode::Equal && actual == 4000);
 	const auto result = GetCoupleCandidateResult(low, low->current_order, waiting, waiting->tile, false);
 	CHECK((result != CoupleCandidateResult::WaitPartnerPower) == matches);
+}
+
+TEST_CASE_METHOD(CouplePowerFixture, "Couple - other half required, other criteria still apply")
+{
+	auto check = [&](Train *moving) { return GetCoupleCandidateResult(moving, moving->current_order, waiting, waiting->tile, false); };
+	REQUIRE_FALSE(waiting->current_order.RequiresSplitPartner());
+	waiting->current_order.SetRequiresSplitPartner(true);
+	CHECK(check(low) == CoupleCandidateResult::WaitSplitPartner);
+	waiting->split_partner = low->index;
+	low->split_partner = waiting->index;
+	CHECK(check(strong) == CoupleCandidateResult::WaitSplitPartner);
+	CHECK(check(low) == CoupleCandidateResult::Valid);
+	waiting->current_order.SetWaitCouplePowerMode(WaitCouplePowerMode::Greater);
+	waiting->current_order.SetWaitCouplePowerValue(1500);
+	CHECK(check(low) == CoupleCandidateResult::WaitPartnerPower);
+	low->ClearSplitPartner();
+	CHECK(waiting->split_partner == VehicleID::Invalid());
+	CHECK(check(low) == CoupleCandidateResult::WaitSplitPartner);
+	waiting->current_order.SetRequiresSplitPartner(false);
+	CHECK(check(strong) == CoupleCandidateResult::Valid);
 }
 
 TEST_CASE_METHOD(CouplePowerFixture, "Couple - waiting slot gates targets and returns only acquired membership")

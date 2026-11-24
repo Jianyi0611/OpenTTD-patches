@@ -8,8 +8,10 @@
 /** @file cargoaction.cpp Implementation of cargo actions. */
 
 #include "stdafx.h"
+#include "settings_type.h"
 #include "economy_base.h"
 #include "cargoaction.h"
+#include "passenger_journey.h"
 #include "station_base.h"
 
 #include "safeguards.h"
@@ -120,6 +122,9 @@ bool CargoLoad::operator()(CargoPacket *cp)
 {
 	CargoPacket *cp_new = this->Preprocess(cp);
 	if (cp_new == nullptr) return false;
+	if (this->walkup_station != StationID::Invalid()) cp_new->LockThroughFare(*Station::Get(this->walkup_station), this->walkup_carrier, this->fare_hop);
+	cp_new->SetPassengerTicket({});
+	cp_new->passenger_alight = this->alight;
 	cp_new->UpdateLoadingTile(this->current_tile);
 	this->source->RemoveFromCache(cp_new, cp_new->Count());
 	this->destination->Append(cp_new, VehicleCargoList::MoveToAction::Keep);
@@ -135,6 +140,9 @@ bool CargoReservation::operator()(CargoPacket *cp)
 {
 	CargoPacket *cp_new = this->Preprocess(cp);
 	if (cp_new == nullptr) return false;
+	if (this->walkup_station != StationID::Invalid()) cp_new->LockThroughFare(*Station::Get(this->walkup_station), this->walkup_carrier, this->fare_hop);
+	cp_new->SetPassengerTicket({});
+	cp_new->passenger_alight = this->alight;
 	cp_new->UpdateLoadingTile(this->current_tile);
 	this->source->reserved_count += cp_new->Count();
 	this->source->RemoveFromCache(cp_new, cp_new->Count());
@@ -152,6 +160,8 @@ bool CargoReturn::operator()(CargoPacket *cp)
 	CargoPacket *cp_new = this->Preprocess(cp);
 	if (cp_new == nullptr) cp_new = cp;
 	assert(cp_new->Count() <= this->destination->reserved_count);
+	cp_new->SetPassengerTicket({});
+	cp_new->passenger_alight = StationID::Invalid();
 	cp_new->UpdateUnloadingTile(this->current_tile);
 	this->source->RemoveFromMeta(cp_new, VehicleCargoList::MoveToAction::Load, cp_new->Count());
 	this->destination->reserved_count -= cp_new->Count();
@@ -168,6 +178,13 @@ bool CargoTransfer::operator()(CargoPacket *cp)
 {
 	CargoPacket *cp_new = this->Preprocess(cp);
 	if (cp_new == nullptr) return false;
+	if (cp_new->through_fare >= 0) cp_new->RecordFareTransfer(*this->carrier, this->current_tile, this->station);
+	cp_new->SetPassengerTicket({});
+	if (_settings_game.linkgraph.passenger_ticketing && cp_new->passenger_alight != StationID::Invalid() && cp_new->passenger_destination != StationID::Invalid()) {
+		cp_new->ticket.rebooking = PassengerRebooking::Connection;
+		if (Station *st = Station::GetIfValid(this->station); st != nullptr) RequestOnwardPassengerSale(*st);
+	}
+	cp_new->passenger_alight = StationID::Invalid();
 	cp_new->UpdateUnloadingTile(this->current_tile);
 	this->source->RemoveFromMeta(cp_new, VehicleCargoList::MoveToAction::Transfer, cp_new->Count());
 	/* No transfer credits here as they were already granted during Stage(). */

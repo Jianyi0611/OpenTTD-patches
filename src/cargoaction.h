@@ -93,9 +93,11 @@ public:
 class CargoTransfer : public CargoMovement<VehicleCargoList, StationCargoList> {
 protected:
 	TileIndex current_tile; ///< Current tile cargo unloading is happening.
+	const Vehicle *carrier;
+	StationID station;
 public:
-	CargoTransfer(VehicleCargoList *source, StationCargoList *destination, uint max_move, TileIndex current_tile) :
-			CargoMovement<VehicleCargoList, StationCargoList>(source, destination, max_move), current_tile(current_tile) {}
+	CargoTransfer(VehicleCargoList *source, StationCargoList *destination, uint max_move, TileIndex current_tile, const Vehicle *carrier, StationID station) :
+			CargoMovement<VehicleCargoList, StationCargoList>(source, destination, max_move), current_tile(current_tile), carrier(carrier), station(station) {}
 	bool operator()(CargoPacket *cp);
 };
 
@@ -104,6 +106,10 @@ class CargoLoad : public CargoMovement<StationCargoList, VehicleCargoList> {
 protected:
 	TileIndex current_tile; ///< Current tile cargo loading is happening.
 public:
+	StationID alight = StationID::Invalid(); ///< Set only on the portion actually moved to the train.
+	StationID fare_hop = StationID::Invalid(); ///< First priced leg of a walk-up journey. Does not force an interchange.
+	const Vehicle *walkup_carrier = nullptr;
+	StationID walkup_station = StationID::Invalid(); ///< A walk-up purchases only the places actually allocated.
 	CargoLoad(StationCargoList *source, VehicleCargoList *destination, uint max_move, TileIndex current_tile) :
 			CargoMovement<StationCargoList, VehicleCargoList>(source, destination, max_move), current_tile(current_tile) {}
 	bool operator()(CargoPacket *cp);

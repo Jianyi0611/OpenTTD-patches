@@ -68,6 +68,7 @@ struct NewGRFCache {
 	uint32_t company_information = 0;          ///< Cache for NewGRF var 43.
 	uint32_t position_in_vehicle = 0;          ///< Cache for NewGRF var 4D.
 	NO_UNIQUE_ADDRESS uint8_t cache_valid = 0; ///< Bitset that indicates which cache values are valid.
+	uint8_t sprite_position_delta = 0; ///< Graphical adjustment to var 41, calculated with position_same_id_length.
 
 	bool operator==(const NewGRFCache&) const = default;
 };
@@ -996,6 +997,7 @@ public:
 
 	std::string GetServiceNumberForDeparture(const Order *order, std::string_view dispatched_number) const;
 	std::string GetActiveServiceNumber() const;
+	std::string GetActiveDispatchServiceNumber() const;
 	void ApplyStationServiceNumber(const Order &order);
 	void ResetRefitCaps();
 

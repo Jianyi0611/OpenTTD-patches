@@ -148,6 +148,7 @@ enum class CoupleCandidateResult : uint8_t {
 	WaitPartnerSlotGroup,
 	WaitPartnerGroup,
 	WaitPartnerPower,
+	WaitSplitPartner,
 	WaitingCompany,
 	Arrangement,
 };
@@ -242,6 +243,8 @@ struct Train final : public GroundVehicle<Train, VehicleType::Train> {
 	 * challenger with a cheaper path takes the claim over. Kept on the
 	 * consist Primary; validated after load (AfterLoadValidateCoupleClaims). */
 	VehicleID couple_claimant = VehicleID::Invalid();
+	VehicleID split_partner = VehicleID::Invalid(); ///< Reciprocal link between two physical vehicles from the same order-driven split (CPLM).
+	void ClearSplitPartner();
 	uint32_t couple_claim_cost = 0;
 	/* Couple state (persisted via XSLFI_COUPLE_CLAIM_STATE): the waiting
 	 * consist has released everything beyond its body once, so its partner
@@ -264,6 +267,8 @@ struct Train final : public GroundVehicle<Train, VehicleType::Train> {
 	uint16_t wait_counter = 0;
 
 	uint16_t reverse_distance = 0;
+	TileIndex fare_origin = INVALID_TILE, fare_last_tile = INVALID_TILE;
+	uint32_t fare_tiles = 0; ///< Distance since the last scheduled station or waypoint.
 	uint16_t tunnel_bridge_signal_num = 0;
 	static constexpr uint8_t TBS_INVALID_DISTANCE = 0xFF;
 	uint8_t tunnel_bridge_tile_ctr = 0;

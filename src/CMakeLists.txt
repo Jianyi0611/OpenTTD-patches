@@ -109,6 +109,7 @@ add_files(
     cargoaction.h
     cargomonitor.cpp
     cargomonitor.h
+    passenger_journey.cpp
     cargopacket.cpp
     cargopacket.h
     cargotype.cpp
